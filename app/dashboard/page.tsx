@@ -4,10 +4,12 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { addNote, fetchNotes, deleteNote, type Note } from '@/lib/notes'
+import Button from '@/app/components/Button'
+import Input from '@/app/components/Input'
+import Card from '@/app/components/Card'
 
 export default function DashboardPage() {
   const router = useRouter()
-
   const [email, setEmail] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
 
@@ -17,6 +19,12 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // If user signs out while on dashboard, kick them to login
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) router.replace('/login')
+    })
+
+    // Initial check and load user data
     const run = async () => {
       const { data } = await supabase.auth.getUser()
 
@@ -35,24 +43,15 @@ export default function DashboardPage() {
     }
 
     run()
+
+    return () => {
+      sub.subscription.unsubscribe()
+    }
   }, [router])
 
   const onAdd = async () => {
     setError(null)
 
-    const onDelete = async (id: string) => {
-        setError(null)
-      
-        const { error: delError } = await deleteNote(id)
-        if (delError) {
-          setError(delError.message)
-          return
-        }
-      
-        const { data: notesData, error: notesError } = await fetchNotes()
-        if (notesError) setError(notesError.message)
-        setNotes(notesData ?? [])
-      } 
     if (!userId) {
       setError('Not signed in')
       return
@@ -73,80 +72,98 @@ export default function DashboardPage() {
     if (notesError) setError(notesError.message)
     setNotes(notesData ?? [])
   }
+
   const onDelete = async (id: string) => {
-    await deleteNote(id)
-    const { data } = await fetchNotes()
-    setNotes(data ?? [])
+    setError(null)
+
+    const { error: delError } = await deleteNote(id)
+    if (delError) {
+      setError(delError.message)
+      return
+    }
+
+    const { data: notesData, error: notesError } = await fetchNotes()
+    if (notesError) setError(notesError.message)
+    setNotes(notesData ?? [])
   }
   return (
-    <main className="min-h-screen p-6 max-w-2xl mx-auto">
+    <div className="space-y-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
+        <div>
+          <h1>Dashboard</h1>
+          <p className="mt-2 text-sm text-gray-600">
+            Signed in as: <span className="font-medium text-gray-900">{email ?? 'Loading...'}</span>
+          </p>
+        </div>
 
-        <button
+        <Button
           onClick={async () => {
             await supabase.auth.signOut()
             router.replace('/login')
           }}
-          className="rounded-md px-4 py-2 border"
+          variant="secondary"
         >
           Sign out
-        </button>
+        </Button>
       </div>
 
-      <p className="mt-4 text-sm">
-        Signed in as: <span className="font-medium">{email ?? 'Loading...'}</span>
-      </p>
+      <Card>
+        <h2 className="mb-4">Add a note</h2>
+        <div className="flex gap-2">
+          <Input
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder="Write a note…"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                onAdd()
+              }
+            }}
+          />
+          <Button onClick={onAdd} variant="primary">
+            Add
+          </Button>
+        </div>
 
-      <div className="mt-8 flex gap-2">
-        <input
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder="Write a note…"
-          className="flex-1 rounded-md border px-3 py-2"
-        />
-        <button onClick={onAdd} className="rounded-md px-4 py-2 border">
-          Add
-        </button>
-      </div>
+        {error && (
+          <p className="mt-4 text-sm text-red-600">
+            Error: <span className="font-medium">{error}</span>
+          </p>
+        )}
+      </Card>
 
-      {error && (
-        <p className="mt-3 text-sm text-red-600">
-          Error: <span className="font-medium">{error}</span>
-        </p>
-      )}
-
-      <div className="mt-8">
-        <h2 className="text-lg font-semibold">Your notes</h2>
+      <div>
+        <h2 className="mb-4">Your notes</h2>
 
         {loading ? (
-          <p className="mt-3 text-sm">Loading…</p>
+          <p className="text-sm text-gray-600">Loading…</p>
         ) : notes.length === 0 ? (
-          <p className="mt-3 text-sm">No notes yet.</p>
+          <p className="text-sm text-gray-600">No notes yet.</p>
         ) : (
-          <ul className="mt-3 space-y-2">
+          <div className="space-y-3">
             {notes.map((n) => (
-  <li key={n.id} className="rounded-md border p-3">
-    <div className="flex items-start justify-between gap-4">
-      <div>
-        <div className="text-sm">{n.content}</div>
-        <div className="mt-1 text-xs opacity-70">
-          {new Date(n.created_at).toLocaleString()}
-        </div>
-      </div>
+              <Card key={n.id}>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <p className="text-sm text-gray-900">{n.content}</p>
+                    <p className="mt-2 text-xs text-gray-500">
+                      {new Date(n.created_at).toLocaleString()}
+                    </p>
+                  </div>
 
-      <button
-        onClick={() => onDelete(n.id)}
-        className="rounded-md px-3 py-1 border text-sm"
-      >
-        Delete
-      </button>
-    </div>
-  </li>
-))}
-          </ul>
+                  <Button
+                    onClick={() => onDelete(n.id)}
+                    variant="ghost"
+                    size="sm"
+                  >
+                    Delete
+                  </Button>
+                </div>
+              </Card>
+            ))}
+          </div>
         )}
       </div>
-    </main>
+    </div>
   )
 }

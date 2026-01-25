@@ -95,6 +95,22 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // OPTIONAL EXTRA — environment consistency check
+const secret = process.env.STRIPE_SECRET_KEY
+
+if (secret?.startsWith('sk_live_') && priceId.includes('test')) {
+  return NextResponse.json(
+    { error: 'Live Stripe key is being used with a test-mode price.' },
+    { status: 500 }
+  )
+}
+
+if (secret?.startsWith('sk_test_') && !priceId.includes('test')) {
+  return NextResponse.json(
+    { error: 'Test Stripe key is being used with a live-mode price.' },
+    { status: 500 }
+  )
+}
     // Create Checkout Session
     const session = await stripe.checkout.sessions.create({
       customer: customerId,

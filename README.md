@@ -20,6 +20,43 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Environment Variables
+
+### Required for Supabase Auth
+- `NEXT_PUBLIC_SUPABASE_URL` - Your Supabase project URL
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - Your Supabase anonymous key
+
+### Required for Stripe Subscriptions
+- `STRIPE_SECRET_KEY` - Your Stripe secret key (starts with `sk_`)
+- `STRIPE_PRICE_ID` - Your Stripe Price ID for the monthly subscription plan
+- `STRIPE_WEBHOOK_SECRET` - Webhook signing secret from Stripe Dashboard
+- `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key (for webhook operations)
+
+### Setting up Stripe
+
+1. Create a Stripe account and get your API keys
+2. Create a Product and Price in Stripe Dashboard (monthly subscription)
+3. Copy the Price ID to `STRIPE_PRICE_ID`
+4. Set up webhook endpoint in Stripe Dashboard:
+   - URL: `https://yourdomain.com/api/webhooks/stripe`
+   - Events to listen for:
+     - `checkout.session.completed`
+     - `customer.subscription.updated`
+     - `customer.subscription.deleted`
+5. Copy the webhook signing secret to `STRIPE_WEBHOOK_SECRET`
+
+### Database Setup
+
+Run the migration to create the subscriptions table:
+
+```bash
+# If using Supabase CLI
+supabase db push
+
+# Or run the SQL manually in Supabase Dashboard SQL Editor
+# File: supabase/migrations/001_create_subscriptions_table.sql
+```
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

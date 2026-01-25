@@ -7,6 +7,7 @@ import { addNote, fetchNotes, deleteNote, type Note } from '@/lib/notes'
 import Button from '@/app/components/Button'
 import Input from '@/app/components/Input'
 import Card from '@/app/components/Card'
+import SubscribeButton from '@/app/components/SubscribeButton'
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -106,6 +107,13 @@ export default function DashboardPage() {
           Sign out
         </Button>
       </div>
+
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <h2>Subscription</h2>
+          <SubscribeButton />
+        </div>
+      </Card>
 
       <Card>
         <h2 className="mb-4">Add a note</h2>

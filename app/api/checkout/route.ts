@@ -9,14 +9,52 @@
  * Returns: { url: string } - The Stripe Checkout URL to redirect to
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerUser } from '@/lib/supabase-server'
-import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { getServerUser, createServerSupabaseClient } from '@/lib/supabase-server'
 import { stripe } from '@/lib/stripe'
+import { createClient } from '@supabase/supabase-js'
 
 export async function POST(request: NextRequest) {
   try {
     // Get authenticated user
-    const user = await getServerUser()
+    // TEMPLATE CODE: Support both Bearer token (from client) and cookies (fallback)
+    // Check for Authorization header first (explicit Bearer token auth)
+    const authHeader = request.headers.get('authorization')
+    let user
+
+    if (authHeader?.startsWith('Bearer ')) {
+      // Extract token from Authorization header
+      const token = authHeader.substring(7)
+      
+      // Verify token and get user
+      // TEMPLATE CODE: Create a Supabase client to verify the Bearer token
+      // This is separate from cookie-based auth to support explicit token auth
+      const supabaseForToken = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+          global: {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        }
+      )
+      
+      const { data: { user: tokenUser }, error } = await supabaseForToken.auth.getUser()
+      
+      if (error || !tokenUser) {
+        return NextResponse.json(
+          { error: 'Invalid or expired token' },
+          { status: 401 }
+        )
+      }
+      
+      user = tokenUser
+    } else {
+      // Fallback to cookie-based auth (for backward compatibility)
+      user = await getServerUser()
+    }
+
     if (!user) {
       return NextResponse.json(
         { error: 'Unauthorized' },

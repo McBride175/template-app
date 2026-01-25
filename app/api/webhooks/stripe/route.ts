@@ -68,15 +68,34 @@ export async function POST(request: NextRequest) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
 
+        // Get subscription ID from session
+        const subscriptionId = session.subscription as string
+        if (!subscriptionId) {
+          console.error('Missing subscription ID in checkout session')
+          break
+        }
+
         // Get subscription details
-        const subscription = await stripe.subscriptions.retrieve(
-          session.subscription as string
-        )
+        // Type assertion to ensure TS treats this as Subscription, not Response<Subscription>
+        const subscriptionResponse = await stripe.subscriptions.retrieve(subscriptionId)
+        const subscription = subscriptionResponse as Stripe.Subscription
 
         // Get user ID from metadata
         const userId = session.metadata?.supabase_user_id
         if (!userId) {
           console.error('Missing supabase_user_id in checkout session metadata')
+          break
+        }
+
+        // Guard for missing period end (should exist for normal subs, but safe)
+        // Use type assertion to access current_period_end (workaround for TS type issues)
+        const periodEnd = (subscription as any).current_period_end as number | null | undefined
+        const currentPeriodEnd = periodEnd
+          ? new Date(periodEnd * 1000).toISOString()
+          : null
+
+        if (!currentPeriodEnd) {
+          console.error('Missing current_period_end in subscription')
           break
         }
 
@@ -88,9 +107,7 @@ export async function POST(request: NextRequest) {
             stripe_customer_id: subscription.customer as string,
             stripe_subscription_id: subscription.id,
             status: subscription.status,
-            current_period_end: new Date(
-              subscription.current_period_end * 1000
-            ).toISOString(),
+            current_period_end: currentPeriodEnd,
           })
 
         console.log(`Subscription created for user ${userId}`)
@@ -98,6 +115,7 @@ export async function POST(request: NextRequest) {
       }
 
       case 'customer.subscription.updated': {
+        // Type assertion to ensure TS treats this as Subscription
         const subscription = event.data.object as Stripe.Subscription
 
         // Find user by customer ID
@@ -114,14 +132,24 @@ export async function POST(request: NextRequest) {
           break
         }
 
+        // Guard for missing period end (should exist for normal subs, but safe)
+        // Use type assertion to access current_period_end (workaround for TS type issues)
+        const periodEnd = (subscription as any).current_period_end as number | null | undefined
+        const currentPeriodEnd = periodEnd
+          ? new Date(periodEnd * 1000).toISOString()
+          : null
+
+        if (!currentPeriodEnd) {
+          console.error('Missing current_period_end in subscription update')
+          break
+        }
+
         // Update subscription record
         await supabaseAdmin
           .from('subscriptions')
           .update({
             status: subscription.status,
-            current_period_end: new Date(
-              subscription.current_period_end * 1000
-            ).toISOString(),
+            current_period_end: currentPeriodEnd,
           })
           .eq('stripe_subscription_id', subscription.id)
 

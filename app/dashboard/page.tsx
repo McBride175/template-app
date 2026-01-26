@@ -8,6 +8,7 @@ import Button from '@/app/components/Button'
 import Input from '@/app/components/Input'
 import Card from '@/app/components/Card'
 import SubscribeButton from '@/app/components/SubscribeButton'
+import SubscriptionStatus from '@/app/components/SubscriptionStatus'
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -108,9 +109,11 @@ export default function DashboardPage() {
         </Button>
       </div>
 
+      <SubscriptionStatus />
+
       <Card>
         <div className="flex items-center justify-between mb-4">
-          <h2>Subscription</h2>
+          <h2>Subscribe</h2>
           <SubscribeButton />
         </div>
       </Card>

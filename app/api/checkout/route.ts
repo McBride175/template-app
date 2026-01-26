@@ -152,15 +152,15 @@ if (secret?.startsWith('sk_test_') && !priceId.includes('test')) {
 } catch (error: any) {
     console.error('Error creating checkout session:', error)
   
-    const debug = isPreviewEnv()
-      ? {
-          VERCEL_ENV: process.env.VERCEL_ENV,
-          STRIPE_SECRET_KEY_mode: stripeMode(process.env.STRIPE_SECRET_KEY),
-          STRIPE_PRICE_ID: process.env.STRIPE_PRICE_ID,
-          // optional: helps detect “wrong project/env var” issues
-          VERCEL_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA,
-        }
-      : undefined
+    const debug = process.env.VERCEL_ENV === 'preview'
+    ? {
+        VERCEL_ENV: process.env.VERCEL_ENV,
+        STRIPE_SECRET_KEY_mode: stripeMode(process.env.STRIPE_SECRET_KEY),
+        STRIPE_PRICE_ID: process.env.STRIPE_PRICE_ID,
+        VERCEL_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA,
+      }
+    : undefined
+    
   
     return NextResponse.json(
       {

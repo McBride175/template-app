@@ -48,33 +48,13 @@ export default function SubscribeButton() {
       })
 
       if (!response.ok) {
-        const response = await fetch('/api/checkout', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${session.access_token}`,
-            },
-          })
-          
-          const text = await response.text()
-          let data: any = null
-          try {
-            data = text ? JSON.parse(text) : null
-          } catch {
-            // non-JSON response, keep `text`
-          }
-          
-          if (!response.ok) {
-            const msg = data?.error || data?.message || text || `HTTP ${response.status}`
-            throw new Error(msg)
-          }
-          
-          const url = data?.url
-          if (!url) throw new Error('No checkout URL returned')
-          
-          window.location.href = url
+        const text = await response.text()
+        console.error('Checkout failed:', response.status, text)
+        throw new Error(text || 'Failed to create checkout session')
       }
 
-      const { url } = await response.json()
+      const data = await response.json()
+      const { url } = data
 
       if (!url) {
         throw new Error('No checkout URL returned')

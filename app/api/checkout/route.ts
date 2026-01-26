@@ -13,6 +13,8 @@ import { getServerUser, createServerSupabaseClient } from '@/lib/supabase-server
 import { stripe } from '@/lib/stripe'
 import { createClient } from '@supabase/supabase-js'
 
+
+
 export async function POST(request: NextRequest) {
   try {
     // Get authenticated user
@@ -39,7 +41,18 @@ export async function POST(request: NextRequest) {
           },
         }
       )
+      function stripeMode(key?: string) {
+        if (!key) return 'missing'
+        if (key.startsWith('sk_test_')) return 'test'
+        if (key.startsWith('sk_live_')) return 'live'
+        return 'unknown'
+      }
       
+      function isPreviewEnv() {
+        return process.env.VERCEL_ENV === 'preview'
+      }
+
+
       const { data: { user: tokenUser }, error } = await supabaseForToken.auth.getUser()
       
       if (error || !tokenUser) {
@@ -88,6 +101,12 @@ export async function POST(request: NextRequest) {
     // Get the price ID from environment variable
     // APP-SPECIFIC: Replace with your actual Stripe Price ID
     const priceId = process.env.STRIPE_PRICE_ID
+    console.log('[checkout env snapshot]', {
+        VERCEL_ENV: process.env.VERCEL_ENV,             // preview | production | development
+        STRIPE_SECRET_KEY_mode: process.env.STRIPE_SECRET_KEY?.startsWith('sk_test') ? 'test' : 'live',
+        STRIPE_PRICE_ID: process.env.STRIPE_PRICE_ID,
+        STRIPE_PRICE_ID_prefix: process.env.STRIPE_PRICE_ID?.split('_')[0], // price / prod / etc
+      })
     if (!priceId) {
       return NextResponse.json(
         { error: 'STRIPE_PRICE_ID not configured' },
@@ -130,10 +149,24 @@ if (secret?.startsWith('sk_test_') && !priceId.includes('test')) {
     })
 
     return NextResponse.json({ url: session.url })
-  } catch (error) {
+} catch (error: any) {
     console.error('Error creating checkout session:', error)
+  
+    const debug = isPreviewEnv()
+      ? {
+          VERCEL_ENV: process.env.VERCEL_ENV,
+          STRIPE_SECRET_KEY_mode: stripeMode(process.env.STRIPE_SECRET_KEY),
+          STRIPE_PRICE_ID: process.env.STRIPE_PRICE_ID,
+          // optional: helps detect “wrong project/env var” issues
+          VERCEL_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA,
+        }
+      : undefined
+  
     return NextResponse.json(
-      { error: 'Failed to create checkout session' },
+      {
+        error: error?.message || 'Failed to create checkout session',
+        debug,
+      },
       { status: 500 }
     )
   }

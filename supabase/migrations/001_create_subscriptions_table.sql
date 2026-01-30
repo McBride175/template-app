@@ -36,11 +36,13 @@ EXECUTE FUNCTION update_updated_at_column();
 -- Enable Row Level Security (RLS)
 ALTER TABLE subscriptions ENABLE ROW LEVEL SECURITY;
 
--- Policy: Users can only read their own subscription
+-- RLS policy: Users can only read their own subscription
+DROP POLICY IF EXISTS "Users can view own subscription" ON public.subscriptions;
+
 CREATE POLICY "Users can view own subscription"
-  ON subscriptions
-  FOR SELECT
-  USING (auth.uid() = user_id);
+ON public.subscriptions
+FOR SELECT
+USING (auth.uid() = user_id);
 
 -- Policy: Service role can manage all subscriptions (for webhooks)
 -- Note: This requires the service role key, not the anon key

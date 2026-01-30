@@ -28,10 +28,13 @@ export default function LoginPage() {
   if (loading) return null
 
   const signInWithGoogle = async () => {
+    // TEMPLATE CODE: Redirect to server-side callback route that exchanges code for session
+    // Uses window.location.origin to work in preview and production environments
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${origin}/auth/callback`,
       },
     })
   }

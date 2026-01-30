@@ -24,6 +24,7 @@ function SubscriptionStatusContent() {
   const [loading, setLoading] = useState(true)
   const [polling, setPolling] = useState(false)
   const [pollTimeout, setPollTimeout] = useState(false)
+  const [authInitializing, setAuthInitializing] = useState(true)
 
   // Fetch subscription status
   const fetchSubscription = async () => {
@@ -47,9 +48,11 @@ function SubscriptionStatusContent() {
 
       const data: SubscriptionData = await response.json()
       setSubscription(data)
+      setAuthInitializing(false)
       return data
     } catch (error) {
       console.error('Error fetching subscription:', error)
+      setAuthInitializing(false)
     } finally {
       setLoading(false)
     }
@@ -92,7 +95,8 @@ function SubscriptionStatusContent() {
 
   // Get status display text
   const getStatusText = () => {
-    if (loading) return 'Loading...'
+    // Don't show "Not subscribed" while auth is still initializing to prevent flicker
+    if (loading || authInitializing) return 'Loading...'
     if (checkoutSuccess && polling && !subscription?.hasActive) {
       return 'Activating...'
     }

@@ -13,6 +13,19 @@ import { getServerUser, createServerSupabaseClient } from '@/lib/supabase-server
 import { stripe } from '@/lib/stripe'
 import { createClient } from '@supabase/supabase-js'
 
+// Use service role key for stripe_customers table writes (bypasses RLS)
+// TEMPLATE CODE: Checkout needs elevated permissions to write customer mapping
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  }
+)
+
 
 
 export async function POST(request: NextRequest) {
@@ -85,6 +98,34 @@ export async function POST(request: NextRequest) {
         },
       })
       customerId = customer.id
+    }
+
+    // TEMPLATE CODE: Upsert customer mapping to enable webhook user_id resolution
+    // This ensures customer.subscription.* events can find user_id even without metadata
+    const { error: mappingError } = await supabaseAdmin
+      .from('stripe_customers')
+      .upsert(
+        {
+          stripe_customer_id: customerId,
+          user_id: user.id,
+        },
+        {
+          onConflict: 'stripe_customer_id',
+        }
+      )
+
+    if (mappingError) {
+      console.error('[checkout] Failed to upsert customer mapping', {
+        error: mappingError.message,
+        customer_id: customerId,
+        user_id: user.id,
+      })
+      // Don't fail checkout if mapping fails - webhook can still use metadata
+    } else {
+      console.log('[checkout] Customer mapping created/updated', {
+        customer_id: customerId,
+        user_id: user.id,
+      })
     }
 
     // Get the price ID from environment variable

@@ -73,6 +73,7 @@ export async function POST(request: NextRequest) {
         const userId = session.metadata?.supabase_user_id
         if (!userId) {
           console.warn('[webhook] checkout.session.completed: Missing supabase_user_id in metadata', {
+            handler: 'checkout.session.completed',
             session_id: session.id,
             subscription_id: session.subscription,
             customer_id: session.customer,
@@ -83,7 +84,8 @@ export async function POST(request: NextRequest) {
         // Get subscription ID from session
         const subscriptionId = session.subscription as string
         if (!subscriptionId) {
-          console.error('[webhook] checkout.session.completed: Missing subscription ID', {
+          console.warn('[webhook] checkout.session.completed: Missing subscription ID', {
+            handler: 'checkout.session.completed',
             session_id: session.id,
             user_id: userId,
             customer_id: session.customer,
@@ -94,7 +96,8 @@ export async function POST(request: NextRequest) {
         // Get customer ID from session
         const customerId = session.customer as string
         if (!customerId) {
-          console.error('[webhook] checkout.session.completed: Missing customer ID', {
+          console.warn('[webhook] checkout.session.completed: Missing customer ID', {
+            handler: 'checkout.session.completed',
             session_id: session.id,
             user_id: userId,
             subscription_id: subscriptionId,
@@ -102,69 +105,139 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ received: true })
         }
 
-        // TEMPLATE CODE: Query existing subscription row to avoid downgrading active subscriptions
-        // If row exists, only update safe fields (stripe_customer_id, stripe_subscription_id if missing)
-        // If no row exists, create new row with status: 'pending'
-        const { data: existingSub } = await supabaseAdmin
+        // TEMPLATE CODE: First attempt UPDATE by user_id (primary key)
+        // This avoids NOT NULL violations and preserves existing status/current_period_end
+        const { data: updateData, error: updateError } = await supabaseAdmin
           .from('subscriptions')
-          .select('status, current_period_end, stripe_subscription_id')
+          .update({
+            stripe_customer_id: customerId,
+            stripe_subscription_id: subscriptionId,
+          })
           .eq('user_id', userId)
-          .single()
+          .select()
 
-        const rowExists = !!existingSub
-        const fieldsToUpdate: Record<string, any> = {
-          user_id: userId,
-          stripe_customer_id: customerId,
-        }
+        let operation = 'update'
+        let dbError: any = null
 
-        // If row exists, only update safe fields (don't overwrite status or current_period_end)
-        if (rowExists) {
-          // Only set stripe_subscription_id if it's missing
-          if (!existingSub.stripe_subscription_id) {
-            fieldsToUpdate.stripe_subscription_id = subscriptionId
+        // If UPDATE affected 0 rows, try INSERT
+        if (!updateError && (!updateData || updateData.length === 0)) {
+          operation = 'insert'
+          const { data: insertData, error: insertError } = await supabaseAdmin
+            .from('subscriptions')
+            .insert({
+              user_id: userId,
+              stripe_customer_id: customerId,
+              stripe_subscription_id: subscriptionId,
+              status: 'pending',
+              current_period_end: null,
+            })
+            .select()
+
+          dbError = insertError
+
+          // If INSERT fails due to unique constraint (e.g. stripe_subscription_id already exists)
+          if (insertError && insertError.code === '23505') {
+            // Try to find existing row by stripe_subscription_id or stripe_customer_id
+            const { data: existingBySub } = await supabaseAdmin
+              .from('subscriptions')
+              .select('user_id')
+              .eq('stripe_subscription_id', subscriptionId)
+              .single()
+
+            if (existingBySub?.user_id) {
+              // If found by subscription_id, update it to attach correct user_id (only if safe)
+              // Safety check: ensure the existing row's user_id matches or is null/empty
+              if (existingBySub.user_id === userId) {
+                // Same user, safe to update
+                operation = 'fallback_update_by_subscription_id'
+                const { error: fallbackError } = await supabaseAdmin
+                  .from('subscriptions')
+                  .update({
+                    stripe_customer_id: customerId,
+                    user_id: userId,
+                  })
+                  .eq('stripe_subscription_id', subscriptionId)
+
+                dbError = fallbackError
+              } else {
+                // Different user_id - conflict, return 500
+                console.error('[webhook] checkout.session.completed: user_id conflict', {
+                  handler: 'checkout.session.completed',
+                  user_id: userId,
+                  subscription_id: subscriptionId,
+                  customer_id: customerId,
+                  existing_user_id: existingBySub.user_id,
+                  operation: 'insert_fallback_failed',
+                })
+                return NextResponse.json(
+                  { error: 'Subscription already exists for different user' },
+                  { status: 500 }
+                )
+              }
+            } else {
+              // Try by customer_id
+              const { data: existingByCustomer } = await supabaseAdmin
+                .from('subscriptions')
+                .select('user_id')
+                .eq('stripe_customer_id', customerId)
+                .single()
+
+              if (existingByCustomer?.user_id) {
+                if (existingByCustomer.user_id === userId) {
+                  // Same user, safe to update
+                  operation = 'fallback_update_by_customer_id'
+                  const { error: fallbackError } = await supabaseAdmin
+                    .from('subscriptions')
+                    .update({
+                      stripe_subscription_id: subscriptionId,
+                      user_id: userId,
+                    })
+                    .eq('stripe_customer_id', customerId)
+
+                  dbError = fallbackError
+                } else {
+                  // Different user_id - conflict, return 500
+                  console.error('[webhook] checkout.session.completed: user_id conflict', {
+                    handler: 'checkout.session.completed',
+                    user_id: userId,
+                    subscription_id: subscriptionId,
+                    customer_id: customerId,
+                    existing_user_id: existingByCustomer.user_id,
+                    operation: 'insert_fallback_failed',
+                  })
+                  return NextResponse.json(
+                    { error: 'Customer already exists for different user' },
+                    { status: 500 }
+                  )
+                }
+              } else {
+                // No existing row found, but INSERT failed - return 500
+                dbError = insertError
+              }
+            }
           }
         } else {
-          // If no row exists, create new row with pending status
-          fieldsToUpdate.stripe_subscription_id = subscriptionId
-          fieldsToUpdate.status = 'pending'
-          fieldsToUpdate.current_period_end = null
+          dbError = updateError
         }
 
-        // Upsert keyed by user_id (primary key)
-        const { error: upsertError } = await supabaseAdmin
-          .from('subscriptions')
-          .upsert(fieldsToUpdate, {
-            onConflict: 'user_id',
-          })
-
-        if (upsertError) {
-          console.error('[webhook] checkout.session.completed: upsert failed', {
+        // If any DB operation failed, return 500 so Stripe retries
+        if (dbError) {
+          console.error('[webhook] checkout.session.completed: DB operation failed', {
             handler: 'checkout.session.completed',
-            error: upsertError.message,
+            operation,
+            error: dbError.message,
+            error_code: dbError.code,
             user_id: userId,
             subscription_id: subscriptionId,
             customer_id: customerId,
           })
           return NextResponse.json(
-            { error: 'Failed to create subscription record' },
+            { error: 'Failed to sync subscription record' },
             { status: 500 }
           )
         }
 
-        // Single structured log line showing whether existing row was found and what fields were updated
-        const updatedFields = Object.keys(fieldsToUpdate).filter(
-          (key) => key !== 'user_id'
-        )
-        console.log('[webhook] checkout.session.completed', {
-          handler: 'checkout.session.completed',
-          user_id: userId,
-          subscription_id: subscriptionId,
-          customer_id: customerId,
-          existing_row_found: rowExists,
-          fields_updated: updatedFields,
-        })
-
-        // TEMPLATE CODE: Also upsert customer mapping as backup for future webhook events
+        // Upsert customer mapping (non-critical, log warning on failure but don't fail webhook)
         const { error: mappingError } = await supabaseAdmin
           .from('stripe_customers')
           .upsert(
@@ -179,16 +252,21 @@ export async function POST(request: NextRequest) {
 
         if (mappingError) {
           console.warn('[webhook] checkout.session.completed: Failed to upsert customer mapping', {
+            handler: 'checkout.session.completed',
             error: mappingError.message,
             customer_id: customerId,
             user_id: userId,
           })
-        } else {
-          console.log('[webhook] checkout.session.completed: Customer mapping created/updated', {
-            customer_id: customerId,
-            user_id: userId,
-          })
         }
+
+        // Single structured log line
+        console.log('[webhook] checkout.session.completed', {
+          handler: 'checkout.session.completed',
+          user_id: userId,
+          subscription_id: subscriptionId,
+          customer_id: customerId,
+          operation,
+        })
 
         break
       }
@@ -217,19 +295,14 @@ export async function POST(request: NextRequest) {
         // Get customer ID from retrieved subscription
         const customerId = fullSubscription.customer as string
 
-        // TEMPLATE CODE: Resolve user_id using multiple fallback strategies
-        // (a) subscription.metadata.supabase_user_id if present
-        // (b) stripe_customers mapping by stripe_customer_id
-        // (c) existing subscriptions row by stripe_customer_id or by stripe_subscription_id
+        // TEMPLATE CODE: Resolve user_id reliably
+        // 1) Try stripe_customers table mapping by stripe_customer_id
+        // 2) Fallback: look up subscriptions row by stripe_subscription_id, then read its user_id
+        // 3) If still missing, return 200 with warning (no DB write)
         let userId: string | null = null
 
-        // Strategy (a): Check metadata (if present)
-        if (fullSubscription.metadata?.supabase_user_id) {
-          userId = fullSubscription.metadata.supabase_user_id
-        }
-
-        // Strategy (b): Query stripe_customers table
-        if (!userId && customerId) {
+        // Strategy 1: Query stripe_customers table (most reliable)
+        if (customerId) {
           const { data: customerMapping } = await supabaseAdmin
             .from('stripe_customers')
             .select('user_id')
@@ -241,28 +314,16 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Strategy (c): Fallback to existing subscription record
+        // Strategy 2: Fallback to existing subscription record by stripe_subscription_id
         if (!userId) {
-          // Try by stripe_customer_id first
-          const { data: existingByCustomer } = await supabaseAdmin
+          const { data: existingBySub } = await supabaseAdmin
             .from('subscriptions')
             .select('user_id')
-            .eq('stripe_customer_id', customerId)
+            .eq('stripe_subscription_id', subscriptionId)
             .single()
 
-          if (existingByCustomer?.user_id) {
-            userId = existingByCustomer.user_id
-          } else {
-            // Try by stripe_subscription_id as fallback
-            const { data: existingBySub } = await supabaseAdmin
-              .from('subscriptions')
-              .select('user_id')
-              .eq('stripe_subscription_id', subscriptionId)
-              .single()
-
-            if (existingBySub?.user_id) {
-              userId = existingBySub.user_id
-            }
+          if (existingBySub?.user_id) {
+            userId = existingBySub.user_id
           }
         }
 
@@ -287,27 +348,53 @@ export async function POST(request: NextRequest) {
 
         const periodEndSet = currentPeriodEnd !== null
 
-        // Upsert subscription record using service role (bypasses RLS)
-        // Keyed by user_id (primary key) to update the same row created by checkout.session.completed
-        const { error: upsertError } = await supabaseAdmin
+        // Update subscription record by user_id (primary key)
+        // Use UPDATE preferred; if row doesn't exist, upsert will insert with all required fields
+        const { data: updateData, error: updateError } = await supabaseAdmin
           .from('subscriptions')
-          .upsert(
-            {
-              user_id: userId,
-              stripe_subscription_id: subscriptionId,
-              stripe_customer_id: customerId,
-              status: fullSubscription.status,
-              current_period_end: currentPeriodEnd,
-            },
-            {
-              onConflict: 'user_id',
-            }
-          )
+          .update({
+            stripe_subscription_id: subscriptionId,
+            stripe_customer_id: customerId,
+            status: fullSubscription.status,
+            current_period_end: currentPeriodEnd,
+          })
+          .eq('user_id', userId)
+          .select()
 
-        if (upsertError) {
-          console.error('[webhook] customer.subscription.created: upsert failed', {
+        // If UPDATE affected 0 rows, use upsert to insert (with all required fields)
+        if (!updateError && (!updateData || updateData.length === 0)) {
+          const { error: upsertError } = await supabaseAdmin
+            .from('subscriptions')
+            .upsert(
+              {
+                user_id: userId,
+                stripe_subscription_id: subscriptionId,
+                stripe_customer_id: customerId,
+                status: fullSubscription.status,
+                current_period_end: currentPeriodEnd,
+              },
+              {
+                onConflict: 'user_id',
+              }
+            )
+
+          if (upsertError) {
+            console.error('[webhook] customer.subscription.created: upsert failed', {
+              handler: 'customer.subscription.created',
+              error: upsertError.message,
+              user_id: userId,
+              subscription_id: subscriptionId,
+              customer_id: customerId,
+            })
+            return NextResponse.json(
+              { error: 'Failed to update subscription record' },
+              { status: 500 }
+            )
+          }
+        } else if (updateError) {
+          console.error('[webhook] customer.subscription.created: update failed', {
             handler: 'customer.subscription.created',
-            error: upsertError.message,
+            error: updateError.message,
             user_id: userId,
             subscription_id: subscriptionId,
             customer_id: customerId,
@@ -378,19 +465,14 @@ export async function POST(request: NextRequest) {
         // Get customer ID from retrieved subscription
         const customerId = fullSubscription.customer as string
 
-        // TEMPLATE CODE: Resolve user_id using multiple fallback strategies
-        // (a) subscription.metadata.supabase_user_id if present
-        // (b) stripe_customers mapping by stripe_customer_id
-        // (c) existing subscriptions row by stripe_customer_id or by stripe_subscription_id
+        // TEMPLATE CODE: Resolve user_id reliably
+        // 1) Try stripe_customers table mapping by stripe_customer_id
+        // 2) Fallback: look up subscriptions row by stripe_subscription_id, then read its user_id
+        // 3) If still missing, return 200 with warning (no DB write)
         let userId: string | null = null
 
-        // Strategy (a): Check metadata (if present)
-        if (fullSubscription.metadata?.supabase_user_id) {
-          userId = fullSubscription.metadata.supabase_user_id
-        }
-
-        // Strategy (b): Query stripe_customers table
-        if (!userId && customerId) {
+        // Strategy 1: Query stripe_customers table (most reliable)
+        if (customerId) {
           const { data: customerMapping } = await supabaseAdmin
             .from('stripe_customers')
             .select('user_id')
@@ -402,9 +484,8 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Strategy (c): Fallback to existing subscription record
+        // Strategy 2: Fallback to existing subscription record by stripe_subscription_id
         if (!userId) {
-          // Try by stripe_subscription_id first (most specific)
           const { data: existingBySub } = await supabaseAdmin
             .from('subscriptions')
             .select('user_id')
@@ -413,17 +494,6 @@ export async function POST(request: NextRequest) {
 
           if (existingBySub?.user_id) {
             userId = existingBySub.user_id
-          } else {
-            // Try by stripe_customer_id as fallback
-            const { data: existingByCustomer } = await supabaseAdmin
-              .from('subscriptions')
-              .select('user_id')
-              .eq('stripe_customer_id', customerId)
-              .single()
-
-            if (existingByCustomer?.user_id) {
-              userId = existingByCustomer.user_id
-            }
           }
         }
 
@@ -448,27 +518,53 @@ export async function POST(request: NextRequest) {
 
         const periodEndSet = currentPeriodEnd !== null
 
-        // Upsert subscription record using service role (bypasses RLS)
-        // Keyed by user_id (primary key) to update the same row created by checkout.session.completed
-        const { error: upsertError } = await supabaseAdmin
+        // Update subscription record by user_id (primary key)
+        // Use UPDATE preferred; if row doesn't exist, upsert will insert with all required fields
+        const { data: updateData, error: updateError } = await supabaseAdmin
           .from('subscriptions')
-          .upsert(
-            {
-              user_id: userId,
-              stripe_subscription_id: subscriptionId,
-              stripe_customer_id: customerId,
-              status: fullSubscription.status,
-              current_period_end: currentPeriodEnd,
-            },
-            {
-              onConflict: 'user_id',
-            }
-          )
+          .update({
+            stripe_subscription_id: subscriptionId,
+            stripe_customer_id: customerId,
+            status: fullSubscription.status,
+            current_period_end: currentPeriodEnd,
+          })
+          .eq('user_id', userId)
+          .select()
 
-        if (upsertError) {
-          console.error('[webhook] customer.subscription.updated: upsert failed', {
+        // If UPDATE affected 0 rows, use upsert to insert (with all required fields)
+        if (!updateError && (!updateData || updateData.length === 0)) {
+          const { error: upsertError } = await supabaseAdmin
+            .from('subscriptions')
+            .upsert(
+              {
+                user_id: userId,
+                stripe_subscription_id: subscriptionId,
+                stripe_customer_id: customerId,
+                status: fullSubscription.status,
+                current_period_end: currentPeriodEnd,
+              },
+              {
+                onConflict: 'user_id',
+              }
+            )
+
+          if (upsertError) {
+            console.error('[webhook] customer.subscription.updated: upsert failed', {
+              handler: 'customer.subscription.updated',
+              error: upsertError.message,
+              user_id: userId,
+              subscription_id: subscriptionId,
+              customer_id: customerId,
+            })
+            return NextResponse.json(
+              { error: 'Failed to update subscription record' },
+              { status: 500 }
+            )
+          }
+        } else if (updateError) {
+          console.error('[webhook] customer.subscription.updated: update failed', {
             handler: 'customer.subscription.updated',
-            error: upsertError.message,
+            error: updateError.message,
             user_id: userId,
             subscription_id: subscriptionId,
             customer_id: customerId,

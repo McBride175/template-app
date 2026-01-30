@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
     // Query subscriptions table for current user
     const { data: subscription, error: subError } = await supabase
       .from('subscriptions')
-      .select('status, current_period_end')
+      .select('status, current_period_end, stripe_subscription_id, stripe_customer_id')
       .eq('user_id', user.id)
       .order('updated_at', { ascending: false })
       .limit(1)
@@ -85,6 +85,14 @@ export async function GET(request: NextRequest) {
             details: subError.details,
             hint: subError.hint,
           },
+          // TODO: Remove debug object before launch - gated to non-production only
+          ...(process.env.VERCEL_ENV !== 'production' && {
+            debug: {
+              resolved_user_id: user.id,
+              row_found: false,
+              error: subError.message,
+            },
+          }),
         },
         { status: 500 }
       )
@@ -93,7 +101,7 @@ export async function GET(request: NextRequest) {
     // Determine if subscription is active
     // Active subscription statuses in Stripe
     // TEMPLATE CODE: Return hasActive=true for active/trialing even if current_period_end is null (robustness)
-    const activeStatuses = ['active', 'trialing', 'past_due']
+    const activeStatuses = ['active', 'trialing']
     const isActive = subscription
       ? activeStatuses.includes(subscription.status) &&
         (subscription.current_period_end === null ||
@@ -104,6 +112,23 @@ export async function GET(request: NextRequest) {
       hasActive: isActive,
       status: subscription?.status ?? null,
       current_period_end: subscription?.current_period_end ?? null,
+      // TODO: Remove debug object before launch - gated to non-production only
+      ...(process.env.VERCEL_ENV !== 'production' && {
+        debug: {
+          resolved_user_id: user.id,
+          row_found: !!subscription,
+          stripe_subscription_id: subscription?.stripe_subscription_id ?? null,
+          stripe_customer_id: subscription?.stripe_customer_id ?? null,
+          ...(subError && {
+            supabase_error: {
+              message: subError.message,
+              code: subError.code,
+              details: subError.details,
+              hint: subError.hint,
+            },
+          }),
+        },
+      }),
     })
   } catch (error: any) {
     console.error('Error getting subscription status:', error)

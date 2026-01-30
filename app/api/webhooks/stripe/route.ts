@@ -102,41 +102,40 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ received: true })
         }
 
-        console.log('[webhook] checkout.session.completed', {
-          handler: 'checkout.session.completed',
-          user_id: userId,
-          subscription_id: subscriptionId,
-          customer_id: customerId,
-        })
-
-        // TEMPLATE CODE: Create pending subscription record immediately
-        // This ensures a row exists right after checkout, even if subscription details aren't ready
-        // The subscription.created/updated events will fill in the full details later
-        // Check if row exists first to avoid overwriting existing current_period_end
+        // TEMPLATE CODE: Query existing subscription row to avoid downgrading active subscriptions
+        // If row exists, only update safe fields (stripe_customer_id, stripe_subscription_id if missing)
+        // If no row exists, create new row with status: 'pending'
         const { data: existingSub } = await supabaseAdmin
           .from('subscriptions')
-          .select('current_period_end')
+          .select('status, current_period_end, stripe_subscription_id')
           .eq('user_id', userId)
           .single()
 
-        // Only set current_period_end to null if row doesn't exist or it's already null
-        const shouldSetPeriodEndNull = !existingSub || existingSub.current_period_end === null
+        const rowExists = !!existingSub
+        const fieldsToUpdate: Record<string, any> = {
+          user_id: userId,
+          stripe_customer_id: customerId,
+        }
+
+        // If row exists, only update safe fields (don't overwrite status or current_period_end)
+        if (rowExists) {
+          // Only set stripe_subscription_id if it's missing
+          if (!existingSub.stripe_subscription_id) {
+            fieldsToUpdate.stripe_subscription_id = subscriptionId
+          }
+        } else {
+          // If no row exists, create new row with pending status
+          fieldsToUpdate.stripe_subscription_id = subscriptionId
+          fieldsToUpdate.status = 'pending'
+          fieldsToUpdate.current_period_end = null
+        }
 
         // Upsert keyed by user_id (primary key)
         const { error: upsertError } = await supabaseAdmin
           .from('subscriptions')
-          .upsert(
-            {
-              user_id: userId,
-              stripe_customer_id: customerId,
-              stripe_subscription_id: subscriptionId,
-              status: 'pending',
-              ...(shouldSetPeriodEndNull && { current_period_end: null }),
-            },
-            {
-              onConflict: 'user_id',
-            }
-          )
+          .upsert(fieldsToUpdate, {
+            onConflict: 'user_id',
+          })
 
         if (upsertError) {
           console.error('[webhook] checkout.session.completed: upsert failed', {
@@ -152,11 +151,17 @@ export async function POST(request: NextRequest) {
           )
         }
 
-        console.log('[webhook] checkout.session.completed: upsert ok', {
+        // Single structured log line showing whether existing row was found and what fields were updated
+        const updatedFields = Object.keys(fieldsToUpdate).filter(
+          (key) => key !== 'user_id'
+        )
+        console.log('[webhook] checkout.session.completed', {
           handler: 'checkout.session.completed',
           user_id: userId,
           subscription_id: subscriptionId,
           customer_id: customerId,
+          existing_row_found: rowExists,
+          fields_updated: updatedFields,
         })
 
         // TEMPLATE CODE: Also upsert customer mapping as backup for future webhook events

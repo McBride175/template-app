@@ -2,6 +2,7 @@
  * API Route: Get Current User's Subscription Status
  * 
  * TEMPLATE CODE: This endpoint returns the current user's subscription status.
+ * Uses Supabase session cookies for authentication in Next.js App Router.
  * 
  * Usage:
  * GET /api/subscription
@@ -10,48 +11,12 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerUser, createServerSupabaseClient } from '@/lib/supabase-server'
-import { createClient } from '@supabase/supabase-js'
 
 export async function GET(request: NextRequest) {
   try {
-    // Get authenticated user
-    // TEMPLATE CODE: Support both Bearer token (from client) and cookies (fallback)
-    // Check for Authorization header first (explicit Bearer token auth)
-    const authHeader = request.headers.get('authorization')
-    let user
-
-    if (authHeader?.startsWith('Bearer ')) {
-      // Extract token from Authorization header
-      const token = authHeader.substring(7)
-
-      // Verify token and get user
-      // TEMPLATE CODE: Create a Supabase client to verify the Bearer token
-      const supabaseForToken = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-          global: {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          },
-        }
-      )
-
-      const { data: { user: tokenUser }, error } = await supabaseForToken.auth.getUser()
-
-      if (error || !tokenUser) {
-        return NextResponse.json(
-          { error: 'Invalid or expired token' },
-          { status: 401 }
-        )
-      }
-
-      user = tokenUser
-    } else {
-      // Fallback to cookie-based auth (for backward compatibility)
-      user = await getServerUser()
-    }
+    // TEMPLATE CODE: Authenticate via Supabase session cookies
+    // Uses @supabase/ssr (createServerClient) to read cookies from Next.js headers
+    const user = await getServerUser()
 
     if (!user) {
       return NextResponse.json(
@@ -60,7 +25,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get Supabase client for database operations
+    // Get Supabase client for database operations (uses same cookie-based session)
     const supabase = await createServerSupabaseClient()
 
     // Query subscriptions table for current user
@@ -108,7 +73,9 @@ export async function GET(request: NextRequest) {
           new Date(subscription.current_period_end) > new Date())
       : false
 
-    return NextResponse.json({
+    // TEMPLATE CODE: Set cache headers to prevent caching
+    // Ensures fresh subscription status on every request
+    const response = NextResponse.json({
       hasActive: isActive,
       status: subscription?.status ?? null,
       current_period_end: subscription?.current_period_end ?? null,
@@ -130,6 +97,13 @@ export async function GET(request: NextRequest) {
         },
       }),
     })
+
+    // Prevent caching of subscription status
+    response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+    response.headers.set('Pragma', 'no-cache')
+    response.headers.set('Expires', '0')
+
+    return response
   } catch (error: any) {
     console.error('Error getting subscription status:', error)
     return NextResponse.json(

@@ -28,16 +28,20 @@ function SubscriptionStatusContent() {
   // Fetch subscription status
   const fetchSubscription = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
-
+      // TEMPLATE CODE: Use cookie-based auth with no caching
+      // credentials: 'include' ensures cookies are sent with the request
+      // cache: 'no-store' prevents browser/CDN caching
       const response = await fetch('/api/subscription', {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        cache: 'no-store',
+        credentials: 'include',
       })
 
       if (!response.ok) {
+        if (response.status === 401) {
+          // User is not authenticated, redirect to login
+          window.location.href = '/login'
+          return
+        }
         throw new Error('Failed to fetch subscription')
       }
 

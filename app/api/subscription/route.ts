@@ -83,11 +83,12 @@ export async function GET(request: NextRequest) {
 
     // Determine if subscription is active
     // Active subscription statuses in Stripe
+    // TEMPLATE CODE: Return hasActive=true for active/trialing even if current_period_end is null (robustness)
     const activeStatuses = ['active', 'trialing', 'past_due']
     const isActive = subscription
       ? activeStatuses.includes(subscription.status) &&
-        subscription.current_period_end &&
-        new Date(subscription.current_period_end) > new Date()
+        (subscription.current_period_end === null ||
+          new Date(subscription.current_period_end) > new Date())
       : false
 
     return NextResponse.json({

@@ -112,6 +112,16 @@ export async function POST(request: NextRequest) {
         // TEMPLATE CODE: Create pending subscription record immediately
         // This ensures a row exists right after checkout, even if subscription details aren't ready
         // The subscription.created/updated events will fill in the full details later
+        // Check if row exists first to avoid overwriting existing current_period_end
+        const { data: existingSub } = await supabaseAdmin
+          .from('subscriptions')
+          .select('current_period_end')
+          .eq('user_id', userId)
+          .single()
+
+        // Only set current_period_end to null if row doesn't exist or it's already null
+        const shouldSetPeriodEndNull = !existingSub || existingSub.current_period_end === null
+
         // Upsert keyed by user_id (primary key)
         const { error: upsertError } = await supabaseAdmin
           .from('subscriptions')
@@ -121,7 +131,7 @@ export async function POST(request: NextRequest) {
               stripe_customer_id: customerId,
               stripe_subscription_id: subscriptionId,
               status: 'pending',
-              current_period_end: null,
+              ...(shouldSetPeriodEndNull && { current_period_end: null }),
             },
             {
               onConflict: 'user_id',
@@ -244,18 +254,39 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ received: true })
         }
 
+        // Get period end from subscription (use type assertion for webhook event object)
+        let periodEnd: number | null | undefined = (subscription as any).current_period_end as
+          | number
+          | null
+          | undefined
+
+        // If current_period_end is missing, retrieve full subscription from Stripe API
+        if (!periodEnd) {
+          try {
+            const fullSub = await stripe.subscriptions.retrieve(subscriptionId)
+            periodEnd = (fullSub as any).current_period_end as number | null | undefined
+          } catch (retrieveError) {
+            console.error('[webhook] customer.subscription.created: Failed to retrieve subscription', {
+              handler: 'customer.subscription.created',
+              error: retrieveError instanceof Error ? retrieveError.message : 'Unknown error',
+              subscription_id: subscriptionId,
+            })
+            // Continue with null period_end rather than failing the webhook
+          }
+        }
+
+        // Convert unix seconds to ISO string
+        const currentPeriodEnd = periodEnd
+          ? new Date(periodEnd * 1000).toISOString()
+          : null
+
         console.log('[webhook] customer.subscription.created', {
           handler: 'customer.subscription.created',
           user_id: userId,
           subscription_id: subscriptionId,
           customer_id: customerId,
+          current_period_end_present: !!currentPeriodEnd,
         })
-
-        // Get period end from subscription (unix seconds converted to ISO string, allow null)
-        const periodEnd = (subscription as any).current_period_end as number | null | undefined
-        const currentPeriodEnd = periodEnd
-          ? new Date(periodEnd * 1000).toISOString()
-          : null
 
         // Upsert subscription record using service role (bypasses RLS)
         // Keyed by user_id (primary key) to update the same row created by checkout.session.completed
@@ -293,6 +324,7 @@ export async function POST(request: NextRequest) {
           user_id: userId,
           subscription_id: subscriptionId,
           customer_id: customerId,
+          current_period_end_present: !!currentPeriodEnd,
         })
 
         break
@@ -365,18 +397,39 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ received: true })
         }
 
+        // Get period end from subscription (use type assertion for webhook event object)
+        let periodEnd: number | null | undefined = (subscription as any).current_period_end as
+          | number
+          | null
+          | undefined
+
+        // If current_period_end is missing, retrieve full subscription from Stripe API
+        if (!periodEnd) {
+          try {
+            const fullSub = await stripe.subscriptions.retrieve(subscriptionId)
+            periodEnd = (fullSub as any).current_period_end as number | null | undefined
+          } catch (retrieveError) {
+            console.error('[webhook] customer.subscription.updated: Failed to retrieve subscription', {
+              handler: 'customer.subscription.updated',
+              error: retrieveError instanceof Error ? retrieveError.message : 'Unknown error',
+              subscription_id: subscriptionId,
+            })
+            // Continue with null period_end rather than failing the webhook
+          }
+        }
+
+        // Convert unix seconds to ISO string
+        const currentPeriodEnd = periodEnd
+          ? new Date(periodEnd * 1000).toISOString()
+          : null
+
         console.log('[webhook] customer.subscription.updated', {
           handler: 'customer.subscription.updated',
           user_id: userId,
           subscription_id: subscriptionId,
           customer_id: customerId,
+          current_period_end_present: !!currentPeriodEnd,
         })
-
-        // Get period end from subscription (unix seconds converted to ISO string, allow null)
-        const periodEnd = (subscription as any).current_period_end as number | null | undefined
-        const currentPeriodEnd = periodEnd
-          ? new Date(periodEnd * 1000).toISOString()
-          : null
 
         // Upsert subscription record using service role (bypasses RLS)
         // Keyed by user_id (primary key) to update the same row created by checkout.session.completed
@@ -414,6 +467,7 @@ export async function POST(request: NextRequest) {
           user_id: userId,
           subscription_id: subscriptionId,
           customer_id: customerId,
+          current_period_end_present: !!currentPeriodEnd,
         })
 
         break

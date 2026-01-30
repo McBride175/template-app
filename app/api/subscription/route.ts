@@ -74,9 +74,18 @@ export async function GET(request: NextRequest) {
 
     if (subError && subError.code !== 'PGRST116') {
       // PGRST116 is "not found" - that's fine, user just doesn't have a subscription
+      // TEMPLATE CODE: Return Supabase error in JSON response for debugging (RLS/auth issues)
       console.error('Error querying subscriptions:', subError)
       return NextResponse.json(
-        { error: 'Failed to query subscription status' },
+        {
+          error: 'Failed to query subscription status',
+          supabase_error: {
+            message: subError.message,
+            code: subError.code,
+            details: subError.details,
+            hint: subError.hint,
+          },
+        },
         { status: 500 }
       )
     }

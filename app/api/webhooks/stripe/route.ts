@@ -190,10 +190,27 @@ export async function POST(request: NextRequest) {
 
       case 'customer.subscription.created': {
         const subscription = event.data.object as Stripe.Subscription
-
-        // Get customer ID from subscription
-        const customerId = subscription.customer as string
         const subscriptionId = subscription.id
+
+        // TEMPLATE CODE: Always retrieve full subscription from Stripe API
+        // This ensures we have current_period_end, status, and customer reliably
+        let fullSubscription: Stripe.Subscription
+        try {
+          fullSubscription = await stripe.subscriptions.retrieve(subscriptionId)
+        } catch (retrieveError) {
+          console.error('[webhook] customer.subscription.created: Failed to retrieve subscription', {
+            handler: 'customer.subscription.created',
+            error: retrieveError instanceof Error ? retrieveError.message : 'Unknown error',
+            subscription_id: subscriptionId,
+          })
+          return NextResponse.json(
+            { error: 'Failed to retrieve subscription from Stripe' },
+            { status: 500 }
+          )
+        }
+
+        // Get customer ID from retrieved subscription
+        const customerId = fullSubscription.customer as string
 
         // TEMPLATE CODE: Resolve user_id using multiple fallback strategies
         // (a) subscription.metadata.supabase_user_id if present
@@ -202,8 +219,8 @@ export async function POST(request: NextRequest) {
         let userId: string | null = null
 
         // Strategy (a): Check metadata (if present)
-        if ((subscription as any).metadata?.supabase_user_id) {
-          userId = (subscription as any).metadata.supabase_user_id
+        if (fullSubscription.metadata?.supabase_user_id) {
+          userId = fullSubscription.metadata.supabase_user_id
         }
 
         // Strategy (b): Query stripe_customers table
@@ -254,39 +271,16 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ received: true })
         }
 
-        // Get period end from subscription (use type assertion for webhook event object)
-        let periodEnd: number | null | undefined = (subscription as any).current_period_end as
-          | number
-          | null
-          | undefined
+        // Get period end from retrieved subscription (unix seconds)
+        // Type assertion needed because Stripe SDK types may not expose this field directly
+        const periodEnd = (fullSubscription as any).current_period_end as number | null | undefined
 
-        // If current_period_end is missing, retrieve full subscription from Stripe API
-        if (!periodEnd) {
-          try {
-            const fullSub = await stripe.subscriptions.retrieve(subscriptionId)
-            periodEnd = (fullSub as any).current_period_end as number | null | undefined
-          } catch (retrieveError) {
-            console.error('[webhook] customer.subscription.created: Failed to retrieve subscription', {
-              handler: 'customer.subscription.created',
-              error: retrieveError instanceof Error ? retrieveError.message : 'Unknown error',
-              subscription_id: subscriptionId,
-            })
-            // Continue with null period_end rather than failing the webhook
-          }
-        }
-
-        // Convert unix seconds to ISO string
+        // Convert unix seconds to ISO string (or null if undefined/null)
         const currentPeriodEnd = periodEnd
           ? new Date(periodEnd * 1000).toISOString()
           : null
 
-        console.log('[webhook] customer.subscription.created', {
-          handler: 'customer.subscription.created',
-          user_id: userId,
-          subscription_id: subscriptionId,
-          customer_id: customerId,
-          current_period_end_present: !!currentPeriodEnd,
-        })
+        const periodEndSet = currentPeriodEnd !== null
 
         // Upsert subscription record using service role (bypasses RLS)
         // Keyed by user_id (primary key) to update the same row created by checkout.session.completed
@@ -297,7 +291,7 @@ export async function POST(request: NextRequest) {
               user_id: userId,
               stripe_subscription_id: subscriptionId,
               stripe_customer_id: customerId,
-              status: subscription.status,
+              status: fullSubscription.status,
               current_period_end: currentPeriodEnd,
             },
             {
@@ -319,12 +313,36 @@ export async function POST(request: NextRequest) {
           )
         }
 
-        console.log('[webhook] customer.subscription.created: upsert ok', {
+        // Also upsert stripe_customers mapping if customer ID is present
+        if (customerId) {
+          const { error: mappingError } = await supabaseAdmin
+            .from('stripe_customers')
+            .upsert(
+              {
+                stripe_customer_id: customerId,
+                user_id: userId,
+              },
+              {
+                onConflict: 'stripe_customer_id',
+              }
+            )
+
+          if (mappingError) {
+            console.warn('[webhook] customer.subscription.created: Failed to upsert customer mapping', {
+              error: mappingError.message,
+              customer_id: customerId,
+              user_id: userId,
+            })
+          }
+        }
+
+        // Single structured log line per handler
+        console.log('[webhook] customer.subscription.created', {
           handler: 'customer.subscription.created',
           user_id: userId,
           subscription_id: subscriptionId,
           customer_id: customerId,
-          current_period_end_present: !!currentPeriodEnd,
+          period_end_set: periodEndSet,
         })
 
         break
@@ -333,10 +351,27 @@ export async function POST(request: NextRequest) {
       case 'customer.subscription.updated': {
         // Type assertion to ensure TS treats this as Subscription
         const subscription = event.data.object as Stripe.Subscription
-
-        // Get customer ID from subscription
-        const customerId = subscription.customer as string
         const subscriptionId = subscription.id
+
+        // TEMPLATE CODE: Always retrieve full subscription from Stripe API
+        // This ensures we have current_period_end, status, and customer reliably
+        let fullSubscription: Stripe.Subscription
+        try {
+          fullSubscription = await stripe.subscriptions.retrieve(subscriptionId)
+        } catch (retrieveError) {
+          console.error('[webhook] customer.subscription.updated: Failed to retrieve subscription', {
+            handler: 'customer.subscription.updated',
+            error: retrieveError instanceof Error ? retrieveError.message : 'Unknown error',
+            subscription_id: subscriptionId,
+          })
+          return NextResponse.json(
+            { error: 'Failed to retrieve subscription from Stripe' },
+            { status: 500 }
+          )
+        }
+
+        // Get customer ID from retrieved subscription
+        const customerId = fullSubscription.customer as string
 
         // TEMPLATE CODE: Resolve user_id using multiple fallback strategies
         // (a) subscription.metadata.supabase_user_id if present
@@ -345,8 +380,8 @@ export async function POST(request: NextRequest) {
         let userId: string | null = null
 
         // Strategy (a): Check metadata (if present)
-        if ((subscription as any).metadata?.supabase_user_id) {
-          userId = (subscription as any).metadata.supabase_user_id
+        if (fullSubscription.metadata?.supabase_user_id) {
+          userId = fullSubscription.metadata.supabase_user_id
         }
 
         // Strategy (b): Query stripe_customers table
@@ -397,39 +432,16 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ received: true })
         }
 
-        // Get period end from subscription (use type assertion for webhook event object)
-        let periodEnd: number | null | undefined = (subscription as any).current_period_end as
-          | number
-          | null
-          | undefined
+        // Get period end from retrieved subscription (unix seconds)
+        // Type assertion needed because Stripe SDK types may not expose this field directly
+        const periodEnd = (fullSubscription as any).current_period_end as number | null | undefined
 
-        // If current_period_end is missing, retrieve full subscription from Stripe API
-        if (!periodEnd) {
-          try {
-            const fullSub = await stripe.subscriptions.retrieve(subscriptionId)
-            periodEnd = (fullSub as any).current_period_end as number | null | undefined
-          } catch (retrieveError) {
-            console.error('[webhook] customer.subscription.updated: Failed to retrieve subscription', {
-              handler: 'customer.subscription.updated',
-              error: retrieveError instanceof Error ? retrieveError.message : 'Unknown error',
-              subscription_id: subscriptionId,
-            })
-            // Continue with null period_end rather than failing the webhook
-          }
-        }
-
-        // Convert unix seconds to ISO string
+        // Convert unix seconds to ISO string (or null if undefined/null)
         const currentPeriodEnd = periodEnd
           ? new Date(periodEnd * 1000).toISOString()
           : null
 
-        console.log('[webhook] customer.subscription.updated', {
-          handler: 'customer.subscription.updated',
-          user_id: userId,
-          subscription_id: subscriptionId,
-          customer_id: customerId,
-          current_period_end_present: !!currentPeriodEnd,
-        })
+        const periodEndSet = currentPeriodEnd !== null
 
         // Upsert subscription record using service role (bypasses RLS)
         // Keyed by user_id (primary key) to update the same row created by checkout.session.completed
@@ -440,7 +452,7 @@ export async function POST(request: NextRequest) {
               user_id: userId,
               stripe_subscription_id: subscriptionId,
               stripe_customer_id: customerId,
-              status: subscription.status,
+              status: fullSubscription.status,
               current_period_end: currentPeriodEnd,
             },
             {
@@ -462,12 +474,36 @@ export async function POST(request: NextRequest) {
           )
         }
 
-        console.log('[webhook] customer.subscription.updated: upsert ok', {
+        // Also upsert stripe_customers mapping if customer ID is present
+        if (customerId) {
+          const { error: mappingError } = await supabaseAdmin
+            .from('stripe_customers')
+            .upsert(
+              {
+                stripe_customer_id: customerId,
+                user_id: userId,
+              },
+              {
+                onConflict: 'stripe_customer_id',
+              }
+            )
+
+          if (mappingError) {
+            console.warn('[webhook] customer.subscription.updated: Failed to upsert customer mapping', {
+              error: mappingError.message,
+              customer_id: customerId,
+              user_id: userId,
+            })
+          }
+        }
+
+        // Single structured log line per handler
+        console.log('[webhook] customer.subscription.updated', {
           handler: 'customer.subscription.updated',
           user_id: userId,
           subscription_id: subscriptionId,
           customer_id: customerId,
-          current_period_end_present: !!currentPeriodEnd,
+          period_end_set: periodEndSet,
         })
 
         break

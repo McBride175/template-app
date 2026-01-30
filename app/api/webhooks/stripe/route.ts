@@ -5,7 +5,8 @@
  * subscription data to the Supabase subscriptions table.
  * 
  * Webhook events handled:
- * - checkout.session.completed: Creates subscription record
+ * - checkout.session.completed: Creates pending subscription record immediately
+ * - customer.subscription.created: Updates subscription with full details
  * - customer.subscription.updated: Updates subscription status/period
  * - customer.subscription.deleted: Marks subscription as cancelled
  * 
@@ -71,78 +72,132 @@ export async function POST(request: NextRequest) {
         console.log('[webhook] checkout.session.completed', {
           session_id: session.id,
           subscription_id: session.subscription,
+          customer_id: session.customer,
         })
-
-        // Get subscription ID from session
-        const subscriptionId = session.subscription as string
-        if (!subscriptionId) {
-          console.error('[webhook] Missing subscription ID in checkout session', {
-            session_id: session.id,
-          })
-          break
-        }
-
-        // Get subscription details
-        // Type assertion to ensure TS treats this as Subscription, not Response<Subscription>
-        const subscriptionResponse = await stripe.subscriptions.retrieve(subscriptionId)
-        const subscription = subscriptionResponse as Stripe.Subscription
 
         // Get user ID from metadata
         const userId = session.metadata?.supabase_user_id
         if (!userId) {
           console.warn('[webhook] Missing supabase_user_id in checkout session metadata', {
             session_id: session.id,
+            subscription_id: session.subscription,
+          })
+          break
+        }
+
+        // Get subscription ID from session
+        const subscriptionId = session.subscription as string
+        if (!subscriptionId) {
+          console.error('[webhook] Missing subscription ID in checkout session', {
+            session_id: session.id,
+            user_id: userId,
+          })
+          break
+        }
+
+        // Get customer ID from session
+        const customerId = session.customer as string
+        if (!customerId) {
+          console.error('[webhook] Missing customer ID in checkout session', {
+            session_id: session.id,
+            user_id: userId,
             subscription_id: subscriptionId,
           })
           break
         }
 
-        // Guard for missing period end (should exist for normal subs, but safe)
-        // Use type assertion to access current_period_end (workaround for TS type issues)
+        // TEMPLATE CODE: Create pending subscription record immediately
+        // This ensures a row exists right after checkout, even if subscription details aren't ready
+        // The subscription.created/updated events will fill in the full details later
+        const { error: upsertError } = await supabaseAdmin
+          .from('subscriptions')
+          .upsert(
+            {
+              user_id: userId,
+              stripe_customer_id: customerId,
+              stripe_subscription_id: subscriptionId,
+              status: 'pending',
+              current_period_end: null,
+            },
+            {
+              onConflict: 'stripe_subscription_id',
+            }
+          )
+
+        if (upsertError) {
+          console.error('[webhook] upsert failed', {
+            table: 'subscriptions',
+            error: upsertError.message,
+            subscription_id: subscriptionId,
+            user_id: userId,
+          })
+          return NextResponse.json(
+            { error: 'Failed to create subscription record' },
+            { status: 500 }
+          )
+        }
+
+        console.log('[webhook] upsert ok', {
+          table: 'subscriptions',
+          subscription_id: subscriptionId,
+          user_id: userId,
+        })
+
+        break
+      }
+
+      case 'customer.subscription.created': {
+        const subscription = event.data.object as Stripe.Subscription
+
+        console.log('[webhook] customer.subscription.created', subscription.id)
+
+        // Get period end from subscription (unix seconds converted to ISO string)
         const periodEnd = (subscription as any).current_period_end as number | null | undefined
         const currentPeriodEnd = periodEnd
           ? new Date(periodEnd * 1000).toISOString()
           : null
 
-        if (!currentPeriodEnd) {
-          console.error('[webhook] Missing current_period_end in subscription', {
-            subscription_id: subscriptionId,
-            user_id: userId,
-          })
-          break
-        }
-
         // Upsert subscription record using service role (bypasses RLS)
-        const { data: upsertData, error: upsertError } = await supabaseAdmin
+        // Keyed by stripe_subscription_id to match the pending record from checkout.session.completed
+        // Get user_id from existing record if available for logging
+        const { data: existingRecord } = await supabaseAdmin
+          .from('subscriptions')
+          .select('user_id')
+          .eq('stripe_subscription_id', subscription.id)
+          .single()
+
+        const { error: upsertError } = await supabaseAdmin
           .from('subscriptions')
           .upsert(
             {
-              user_id: userId,
-              stripe_customer_id: subscription.customer as string,
               stripe_subscription_id: subscription.id,
+              stripe_customer_id: subscription.customer as string,
               status: subscription.status,
               current_period_end: currentPeriodEnd,
             },
             {
-              onConflict: 'user_id',
+              onConflict: 'stripe_subscription_id',
             }
           )
-          .select()
 
         if (upsertError) {
-          console.error('[webhook] Failed to upsert subscription', {
+          console.error('[webhook] upsert failed', {
+            table: 'subscriptions',
             error: upsertError.message,
-            subscription_id: subscriptionId,
-            user_id: userId,
+            subscription_id: subscription.id,
+            user_id: existingRecord?.user_id || null,
           })
-        } else {
-          console.log('[webhook] Subscription upserted successfully', {
-            subscription_id: subscriptionId,
-            user_id: userId,
-            status: subscription.status,
-            upserted: upsertData ? 'yes' : 'no',
-          })
+          return NextResponse.json(
+            { error: 'Failed to update subscription record' },
+            { status: 500 }
+          )
         }
+
+        console.log('[webhook] upsert ok', {
+          table: 'subscriptions',
+          subscription_id: subscription.id,
+          user_id: existingRecord?.user_id || null,
+        })
 
         break
       }
@@ -157,61 +212,53 @@ export async function POST(request: NextRequest) {
           status: subscription.status,
         })
 
-        // Find user by customer ID
-        const { data: existingSub, error: findError } = await supabaseAdmin
-          .from('subscriptions')
-          .select('user_id')
-          .eq('stripe_customer_id', subscription.customer as string)
-          .single()
-
-        if (findError || !existingSub) {
-          console.error('[webhook] Subscription not found for customer', {
-            error: findError?.message,
-            customer_id: subscription.customer,
-            subscription_id: subscription.id,
-          })
-          break
-        }
-
-        // Guard for missing period end (should exist for normal subs, but safe)
-        // Use type assertion to access current_period_end (workaround for TS type issues)
+        // Get period end from subscription (unix seconds converted to ISO string)
         const periodEnd = (subscription as any).current_period_end as number | null | undefined
         const currentPeriodEnd = periodEnd
           ? new Date(periodEnd * 1000).toISOString()
           : null
 
-        if (!currentPeriodEnd) {
-          console.error('[webhook] Missing current_period_end in subscription update', {
-            subscription_id: subscription.id,
-            user_id: existingSub.user_id,
-          })
-          break
-        }
-
-        // Update subscription record using service role (bypasses RLS)
-        const { data: updateData, error: updateError } = await supabaseAdmin
+        // Upsert subscription record using service role (bypasses RLS)
+        // Keyed by stripe_subscription_id to update the same row created by checkout.session.completed
+        // Get user_id from existing record if available for logging
+        const { data: existingRecord } = await supabaseAdmin
           .from('subscriptions')
-          .update({
-            status: subscription.status,
-            current_period_end: currentPeriodEnd,
-          })
+          .select('user_id')
           .eq('stripe_subscription_id', subscription.id)
-          .select()
+          .single()
 
-        if (updateError) {
-          console.error('[webhook] Failed to update subscription', {
-            error: updateError.message,
+        const { error: upsertError } = await supabaseAdmin
+          .from('subscriptions')
+          .upsert(
+            {
+              stripe_subscription_id: subscription.id,
+              stripe_customer_id: subscription.customer as string,
+              status: subscription.status,
+              current_period_end: currentPeriodEnd,
+            },
+            {
+              onConflict: 'stripe_subscription_id',
+            }
+          )
+
+        if (upsertError) {
+          console.error('[webhook] upsert failed', {
+            table: 'subscriptions',
+            error: upsertError.message,
             subscription_id: subscription.id,
-            user_id: existingSub.user_id,
+            user_id: existingRecord?.user_id || null,
           })
-        } else {
-          console.log('[webhook] Subscription updated successfully', {
-            subscription_id: subscription.id,
-            user_id: existingSub.user_id,
-            status: subscription.status,
-            updated: updateData ? 'yes' : 'no',
-          })
+          return NextResponse.json(
+            { error: 'Failed to update subscription record' },
+            { status: 500 }
+          )
         }
+
+        console.log('[webhook] upsert ok', {
+          table: 'subscriptions',
+          subscription_id: subscription.id,
+          user_id: existingRecord?.user_id || null,
+        })
 
         break
       }

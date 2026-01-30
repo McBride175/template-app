@@ -15,8 +15,8 @@ import { createServerClient } from '@supabase/ssr'
 export async function GET(request: NextRequest) {
   try {
     // TEMPLATE CODE: Create Supabase client in route handler with request/response cookies
-    // This allows reading cookies from the request and setting them on the response
-    let response = NextResponse.next()
+    // Collect cookies that need to be set during auth refresh
+    const cookiesToSet: Array<{ name: string; value: string; options?: any }> = []
 
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,11 +26,11 @@ export async function GET(request: NextRequest) {
           getAll() {
             return request.cookies.getAll()
           },
-          setAll(cookiesToSet) {
-            // Set cookies on the response
-            cookiesToSet.forEach(({ name, value, options }) => {
+          setAll(cookiesToSetArray) {
+            // Collect cookies that need to be set on the response
+            cookiesToSetArray.forEach(({ name, value, options }) => {
               request.cookies.set(name, value)
-              response.cookies.set(name, value, options)
+              cookiesToSet.push({ name, value, options })
             })
           },
         },
@@ -44,10 +44,18 @@ export async function GET(request: NextRequest) {
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      return NextResponse.json(
+      const res = NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       )
+      res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+      res.headers.set('Pragma', 'no-cache')
+      res.headers.set('Expires', '0')
+      // Set any cookies that were collected during auth attempt
+      cookiesToSet.forEach(({ name, value, options }) => {
+        res.cookies.set(name, value, options)
+      })
+      return res
     }
 
     // Query subscriptions table for current user
@@ -64,7 +72,7 @@ export async function GET(request: NextRequest) {
       // PGRST116 is "not found" - that's fine, user just doesn't have a subscription
       // Return 500 with error details for debugging
       console.error('Error querying subscriptions:', subError)
-      const errorResponse = NextResponse.json(
+      const res = NextResponse.json(
         {
           error: 'Failed to query subscription status',
           supabase_error: {
@@ -77,10 +85,14 @@ export async function GET(request: NextRequest) {
         { status: 500 }
       )
       // Set cache headers
-      errorResponse.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
-      errorResponse.headers.set('Pragma', 'no-cache')
-      errorResponse.headers.set('Expires', '0')
-      return errorResponse
+      res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+      res.headers.set('Pragma', 'no-cache')
+      res.headers.set('Expires', '0')
+      // Set any cookies that were collected during auth refresh
+      cookiesToSet.forEach(({ name, value, options }) => {
+        res.cookies.set(name, value, options)
+      })
+      return res
     }
 
     // Determine if subscription is active
@@ -94,34 +106,35 @@ export async function GET(request: NextRequest) {
       : false
 
     // Create JSON response with subscription data
-    // Cookies are already set on response via setAll callback during auth.getUser()
-    const jsonResponse = NextResponse.json(
+    const res = NextResponse.json(
       {
         hasActive: isActive,
         status: subscription?.status ?? null,
         current_period_end: subscription?.current_period_end ?? null,
       },
-      {
-        headers: response.headers,
-      }
+      { status: 200 }
     )
 
-    // Copy cookies from response (set during auth refresh)
-    response.cookies.getAll().forEach((cookie) => {
-      jsonResponse.cookies.set(cookie.name, cookie.value)
+    // Set any cookies that were collected during auth refresh
+    cookiesToSet.forEach(({ name, value, options }) => {
+      res.cookies.set(name, value, options)
     })
 
     // Prevent caching of subscription status
-    jsonResponse.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
-    jsonResponse.headers.set('Pragma', 'no-cache')
-    jsonResponse.headers.set('Expires', '0')
+    res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+    res.headers.set('Pragma', 'no-cache')
+    res.headers.set('Expires', '0')
 
-    return jsonResponse
+    return res
   } catch (error: any) {
     console.error('Error getting subscription status:', error)
-    return NextResponse.json(
+    const res = NextResponse.json(
       { error: 'Failed to get subscription status' },
       { status: 500 }
     )
+    res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+    res.headers.set('Pragma', 'no-cache')
+    res.headers.set('Expires', '0')
+    return res
   }
 }

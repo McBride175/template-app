@@ -10,6 +10,67 @@ import Card from '@/app/components/Card'
 import SubscribeButton from '@/app/components/SubscribeButton'
 import SubscriptionStatus from '@/app/components/SubscriptionStatus'
 
+interface SubscriptionData {
+  hasActive: boolean
+  status: string | null
+  current_period_end: string | null
+}
+
+function SubscribeSection() {
+  const [subscription, setSubscription] = useState<SubscriptionData | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchSubscription = async () => {
+      try {
+        const response = await fetch('/api/subscription', {
+          cache: 'no-store',
+          credentials: 'include',
+        })
+
+        if (response.ok) {
+          const data: SubscriptionData = await response.json()
+          setSubscription(data)
+        }
+      } catch (error) {
+        console.error('Error fetching subscription:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchSubscription()
+  }, [])
+
+  const isSubscribed = subscription?.hasActive || 
+    subscription?.status === 'active' || 
+    subscription?.status === 'trialing'
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="mb-2">Subscribe</h2>
+          {loading ? (
+            <p className="text-sm text-gray-600">Loading...</p>
+          ) : isSubscribed ? (
+            <p className="text-sm text-gray-600">You're subscribed</p>
+          ) : (
+            <p className="text-sm text-gray-600">Get started with a subscription</p>
+          )}
+        </div>
+        {!loading && (
+          isSubscribed ? (
+            <span className="text-sm text-gray-500">Active</span>
+          ) : (
+            <SubscribeButton />
+          )
+        )}
+      </div>
+    </Card>
+  )
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const [email, setEmail] = useState<string | null>(null)
@@ -111,12 +172,7 @@ export default function DashboardPage() {
 
       <SubscriptionStatus />
 
-      <Card>
-        <div className="flex items-center justify-between mb-4">
-          <h2>Subscribe</h2>
-          <SubscribeButton />
-        </div>
-      </Card>
+      <SubscribeSection />
 
       <Card>
         <h2 className="mb-4">Add a note</h2>

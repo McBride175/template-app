@@ -1,5 +1,19 @@
 # Architecture Documentation
 
+## Critical Gotchas
+
+1. **`subscriptions` table design**: PRIMARY KEY is `user_id` (one row per user, one-to-one relationship). `stripe_customer_id` and `stripe_subscription_id` are UNIQUE constraints to prevent duplicates.
+
+2. **Authentication pattern**: Application reads use ANON key + RLS policies (users can only read their own data). Webhooks and checkout write using SERVICE ROLE key (bypasses RLS, never exposed to client).
+
+3. **Webhook ordering**: Webhook events are not guaranteed to arrive in order. `customer.subscription.created` or `.updated` can arrive before `checkout.session.completed`. Duplicate events can also occur. All handlers use idempotent upsert logic to handle these cases.
+
+4. **`current_period_end` nullability**: `current_period_end` can be `null` temporarily (e.g., pending subscriptions before first billing period). The `hasActive` logic in `GET /api/subscription` handles this by treating `null` as "active if status is active/trialing".
+
+5. **Vercel environment scoping**: Use the same environment variable names across all environments. Scope values in Vercel: Preview = test-mode Stripe keys, Production = live-mode Stripe keys. Vercel automatically injects the correct values based on deployment environment.
+
+---
+
 ## Systems of Record
 
 ### Supabase Auth

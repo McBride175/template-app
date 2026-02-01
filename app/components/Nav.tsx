@@ -57,6 +57,12 @@ export default function Nav() {
               Dashboard
             </Link>
           )}
+
+          {user && (
+            <Link href="/account" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
+              Account
+            </Link>
+          )}
         </div>
 
         {/* Right side */}

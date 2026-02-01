@@ -51,7 +51,8 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - api/webhooks/stripe (Stripe webhook endpoint - no auth needed)
+     * - auth/callback (Supabase auth callback route)
      */
-    '/((?!_next/static|_next/image|favicon.ico|api/webhooks/stripe).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/webhooks/stripe|auth/callback).*)',
   ],
 }

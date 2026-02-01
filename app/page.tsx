@@ -6,16 +6,25 @@ import Button from '@/app/components/Button'
 import Card from '@/app/components/Card'
 
 type Note = {
-  id: number
+  id: string
   content: string
 }
 
 export default function Home() {
   const [notes, setNotes] = useState<Note[]>([])
   const [status, setStatus] = useState('')
+  const [userId, setUserId] = useState<string | null>(null)
+  const [checkingAuth, setCheckingAuth] = useState(true)
 
   useEffect(() => {
     const loadNotes = async () => {
+      const { data: userData } = await supabase.auth.getUser()
+      const user = userData.user
+      setUserId(user?.id ?? null)
+      setCheckingAuth(false)
+
+      if (!user) return
+
       const { data, error } = await supabase
         .from('notes')
         .select('id, content')
@@ -30,10 +39,16 @@ export default function Home() {
   }, [])
 
   const addNote = async () => {
+    if (!userId) {
+      setStatus('Please sign in to add notes.')
+      return
+    }
+
     setStatus('Inserting…')
 
     const { error } = await supabase.from('notes').insert({
       content: `Hello from localhost at ${new Date().toISOString()}`,
+      user_id: userId,
     })
 
     if (error) {
@@ -61,9 +76,15 @@ export default function Home() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="mb-2">Supabase Notes</h2>
-            <p className="text-sm text-gray-600">Test inserting notes into your Supabase database</p>
+            <p className="text-sm text-gray-600">
+              {checkingAuth
+                ? 'Checking your session…'
+                : userId
+                  ? 'Test inserting notes into your Supabase database'
+                  : 'Sign in to create and view your notes'}
+            </p>
           </div>
-          <Button onClick={addNote} variant="primary">
+          <Button onClick={addNote} variant="primary" disabled={checkingAuth || !userId}>
             Insert note
           </Button>
         </div>

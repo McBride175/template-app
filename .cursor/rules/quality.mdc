@@ -1,0 +1,25 @@
+---
+alwaysApply: false
+---
+# TypeScript / Next.js Quality Rules
+
+## Type discipline
+- No `any` unless explicitly justified.
+- Use zod (or equivalent) for runtime validation at API boundaries.
+
+## Next.js patterns
+- Server-only secrets: only read env vars on server.
+- Never expose secret keys to the client bundle.
+- Prefer `NEXT_PUBLIC_` only for truly public values.
+
+## Logging
+- No logging of request bodies that may include tokens/PII.
+- Redact headers like Authorization.
+
+## Output determinism (avoid false confidence)
+- Do not make conclusions from truncated command output.
+- If output must be limited, say what was omitted and why.
+- Prefer complete runs + summarise, rather than early truncation.
+
+## PR hygiene
+- Small diffs, clear names, no drive-by refactors unless asked.

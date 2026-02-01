@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "middleware.ts"
+		}
+	],
+	"settings": {
+		"chatgpt.openOnStartup": true
+	}
+}

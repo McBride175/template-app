@@ -15,7 +15,12 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get('code')
   const tokenHash = searchParams.get('token_hash')
   const type = searchParams.get('type')
-  const next = '/dashboard'
+  const rawNext = searchParams.get('next')
+  // Prevent open redirects: only allow same-origin relative paths.
+  const next =
+    rawNext && rawNext.startsWith('/') && !rawNext.startsWith('//')
+      ? rawNext
+      : '/dashboard'
 
   // Create Supabase client with request/response cookies
   let response = NextResponse.redirect(`${origin}${next}`)

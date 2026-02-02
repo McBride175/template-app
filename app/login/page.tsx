@@ -8,7 +8,6 @@ import Input from '@/app/components/Input'
 import {
   signInWithPassword,
   signUpWithPassword,
-  signInWithEmailOtp,
   signInWithGoogle,
 } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
@@ -18,20 +17,19 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [sending, setSending] = useState(false)
   const [signingIn, setSigningIn] = useState(false)
   const [signingUp, setSigningUp] = useState(false)
+  const [sendingLink, setSendingLink] = useState(false)
+  const [sendingReset, setSendingReset] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
+  const [status, setStatus] = useState<string | null>(null)
 
   useEffect(() => {
-    // initial check
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) router.replace('/dashboard')
       setLoading(false)
     })
 
-    // keep in sync after redirect/callback
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) router.replace('/dashboard')
     })
@@ -42,94 +40,131 @@ export default function LoginPage() {
   if (loading) return null
 
   const getAuthRedirectUrl = () => {
-    // Use same-origin callback to work across localhost + Vercel preview.
     const origin = typeof window !== 'undefined' ? window.location.origin : ''
     return `${origin}/auth/callback`
   }
 
-  const signInWithGoogle = async () => {
-    // TEMPLATE CODE: Redirect to server-side callback route that exchanges code for session
-    // Uses window.location.origin to work in preview and production environments
+  const handleSignIn = async () => {
     setError(null)
-    setSuccess(null)
-    await signInWithGoogle(getAuthRedirectUrl())
-  }
+    setStatus(null)
 
-  const signInWithEmail = async () => {
-    setError(null)
-    setSuccess(null)
-
-    const trimmed = email.trim()
-    if (!trimmed) {
-      setError('Please enter an email address.')
-      return
-    }
-
-    setSending(true)
-    const { error: otpError } = await signInWithEmailOtp(
-      trimmed,
-      getAuthRedirectUrl()
-    )
-    setSending(false)
-
-    if (otpError) {
-      setError(otpError.message)
-      return
-    }
-
-    setSuccess('Check your email for the sign-in link.')
-  }
-
-  const signInWithEmailPassword = async () => {
-    setError(null)
-    setSuccess(null)
-
-    const trimmed = email.trim()
-    if (!trimmed || !password) {
+    const trimmedEmail = email.trim()
+    if (!trimmedEmail || !password) {
       setError('Email and password are required.')
       return
     }
 
     setSigningIn(true)
-    const { error: signInError } = await signInWithPassword(trimmed, password)
+    const { error: signInError } = await signInWithPassword(
+      trimmedEmail,
+      password
+    )
     setSigningIn(false)
 
     if (signInError) {
-      setError(signInError.message)
+      const lower = signInError.message.toLowerCase()
+      const message = lower.includes('invalid login credentials')
+        ? 'If you originally used Google or magic link, you won’t have a password yet. Use Google/magic link or click “Forgot password / Set password”.'
+        : lower.includes('email') && lower.includes('confirm')
+          ? 'Please confirm your email first.'
+          : signInError.message
+      setError(message)
       return
     }
 
     router.replace('/dashboard')
   }
 
-  const createAccountWithEmailPassword = async () => {
+  const handleSignUp = async () => {
     setError(null)
-    setSuccess(null)
+    setStatus(null)
 
-    const trimmed = email.trim()
-    if (!trimmed || !password) {
+    const trimmedEmail = email.trim()
+    if (!trimmedEmail || !password) {
       setError('Email and password are required.')
       return
     }
 
     setSigningUp(true)
-    const { data, error: signUpError } = await signUpWithPassword(
-      trimmed,
+    const { error: signUpError } = await signUpWithPassword(
+      trimmedEmail,
       password
     )
     setSigningUp(false)
 
     if (signUpError) {
-      setError(signUpError.message)
+      const lower = signUpError.message.toLowerCase()
+      const message = lower.includes('already') || lower.includes('registered')
+        ? 'Account already exists. Use Sign in, Google, Magic link, or set a password.'
+        : signUpError.message
+      setError(message)
       return
     }
 
-    if (data.session) {
-      router.replace('/dashboard')
+    setStatus('Check your email to confirm your account.')
+  }
+
+  const handleMagicLink = async () => {
+    setError(null)
+    setStatus(null)
+
+    const trimmedEmail = email.trim()
+    if (!trimmedEmail) {
+      setError('Email is required.')
       return
     }
 
-    setSuccess('Account created. Check your email to confirm before signing in.')
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    const emailRedirectTo = `${origin}/auth/callback`
+
+    setSendingLink(true)
+    const { error: otpError } = await supabase.auth.signInWithOtp({
+      email: trimmedEmail,
+      options: { emailRedirectTo },
+    })
+    setSendingLink(false)
+
+    if (otpError) {
+      setError(otpError.message)
+      return
+    }
+
+    setStatus('Check your email for the sign-in link.')
+  }
+
+  const handlePasswordReset = async () => {
+    setError(null)
+    setStatus(null)
+
+    const trimmedEmail = email.trim()
+    if (!trimmedEmail) {
+      setError('Email is required.')
+      return
+    }
+
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    const redirectTo = `${origin}/auth/callback?next=/reset-password`
+    console.log('[auth] resetPasswordForEmail redirectTo', { redirectTo })
+
+    setSendingReset(true)
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+      trimmedEmail,
+      { redirectTo }
+    )
+    setSendingReset(false)
+
+    if (resetError) {
+      setError(resetError.message)
+      return
+    }
+
+    setStatus('Check your email for a password reset link.')
+  }
+
+  const handleGoogleSignIn = async () => {
+    setError(null)
+    setStatus(null)
+    await signInWithGoogle(getAuthRedirectUrl())
   }
 
   return (
@@ -137,12 +172,18 @@ export default function LoginPage() {
       <Card className="w-full max-w-md text-center">
         <h1 className="mb-2">Welcome</h1>
         <p className="mb-8 text-gray-600">Sign in to continue</p>
-        <div className="space-y-4">
-          <Button onClick={signInWithGoogle} variant="primary" size="lg" className="w-full">
-            Sign in with Google
+
+        <div className="space-y-4 text-left">
+          <Button
+            onClick={handleGoogleSignIn}
+            variant="primary"
+            size="lg"
+            className="w-full"
+          >
+            Continue with Google
           </Button>
 
-          <div className="text-left space-y-2">
+          <div className="space-y-2">
             <label className="text-xs text-gray-500">Email</label>
             <Input
               type="email"
@@ -159,41 +200,51 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
             />
-            <Button
-              onClick={signInWithEmailPassword}
-              variant="primary"
-              size="lg"
-              className="w-full"
-              disabled={signingIn}
-            >
-              {signingIn ? 'Signing in…' : 'Sign in'}
-            </Button>
-            <Button
-              onClick={createAccountWithEmailPassword}
-              variant="secondary"
-              size="lg"
-              className="w-full"
-              disabled={signingUp}
-            >
-              {signingUp ? 'Creating…' : 'Create account'}
-            </Button>
           </div>
 
-          <div className="text-left space-y-2">
-            <label className="text-xs text-gray-500">Email link</label>
-            <Button
-              onClick={signInWithEmail}
-              variant="secondary"
-              size="lg"
-              className="w-full"
-              disabled={sending}
-            >
-              {sending ? 'Sending…' : 'Send sign-in link'}
-            </Button>
-          </div>
+          <Button
+            onClick={handleSignIn}
+            variant="primary"
+            size="lg"
+            className="w-full"
+            disabled={signingIn}
+          >
+            {signingIn ? 'Signing in…' : 'Sign in'}
+          </Button>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          {success && <p className="text-sm text-green-600">{success}</p>}
+          <Button
+            onClick={handleSignUp}
+            variant="secondary"
+            size="lg"
+            className="w-full"
+            disabled={signingUp}
+          >
+            {signingUp ? 'Creating…' : 'Sign up'}
+          </Button>
+
+          <Button
+            onClick={handleMagicLink}
+            variant="secondary"
+            size="lg"
+            className="w-full"
+            disabled={sendingLink}
+          >
+            {sendingLink ? 'Sending…' : 'Email me a sign-in link'}
+          </Button>
+
+          <button
+            onClick={handlePasswordReset}
+            className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+            disabled={sendingReset}
+          >
+            {sendingReset ? 'Sending…' : 'Forgot password / Set password'}
+          </button>
+
+          {(error || status) && (
+            <p className={`text-sm ${error ? 'text-red-600' : 'text-green-600'}`}>
+              {error ?? status}
+            </p>
+          )}
         </div>
       </Card>
     </div>

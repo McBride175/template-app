@@ -202,7 +202,8 @@
 **Server-Only (Never Exposed to Client):**
 - `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key (bypasses RLS)
 - `STRIPE_SECRET_KEY` - Stripe secret key (`sk_test_...` or `sk_live_...`)
-- `STRIPE_PRICE_ID_PRO` - Stripe Price ID for Pro subscription plan
+- `STRIPE_PRICE_ID_PRO` - Comma-separated Stripe Price IDs for Pro (live + test allowed)
+- `STRIPE_PRICE_ID_BASIC` - Comma-separated Stripe Price IDs for Basic (live + test allowed)
 - `STRIPE_WEBHOOK_SECRET` - Stripe webhook signing secret
 
 ### Environment Scoping in Vercel

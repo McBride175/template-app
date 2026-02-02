@@ -105,12 +105,22 @@ export async function GET(request: NextRequest) {
           new Date(subscription.current_period_end) > now)
       : false
 
-    // DB field: stripe_price_id; env vars: STRIPE_PRICE_ID_BASIC/PRO
+    // DB field: stripe_price_id; env vars: STRIPE_PRICE_ID_BASIC/PRO (comma-separated)
     const priceId = subscription?.stripe_price_id ?? null
+    const basicList = (process.env.STRIPE_PRICE_ID_BASIC ?? '')
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean)
+    const proList = (process.env.STRIPE_PRICE_ID_PRO ?? '')
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean)
+
+    // Backward compatible: if a single value was set, it still works via the list
     const plan =
-      priceId && priceId === process.env.STRIPE_PRICE_ID_PRO
+      priceId && proList.includes(priceId)
         ? 'pro'
-        : priceId && priceId === process.env.STRIPE_PRICE_ID_BASIC
+        : priceId && basicList.includes(priceId)
           ? 'basic'
           : null
 

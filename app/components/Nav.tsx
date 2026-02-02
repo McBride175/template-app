@@ -46,6 +46,10 @@ export default function Nav() {
             Home
           </Link>
 
+          <Link href="/pricing" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
+            Pricing
+          </Link>
+
           {!user && (
             <Link href="/login" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
               Login

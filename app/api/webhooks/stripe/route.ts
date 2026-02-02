@@ -294,6 +294,7 @@ export async function POST(request: NextRequest) {
 
         // Get customer ID from retrieved subscription
         const customerId = fullSubscription.customer as string
+        const priceId = fullSubscription.items?.data?.[0]?.price?.id ?? null
 
         // TEMPLATE CODE: Resolve user_id reliably
         // 1) Try stripe_customers table mapping by stripe_customer_id
@@ -340,7 +341,6 @@ export async function POST(request: NextRequest) {
         // Get period end from retrieved subscription (unix seconds)
         // Type assertion needed because Stripe SDK types may not expose this field directly
         const periodEnd = (fullSubscription as any).current_period_end as number | null | undefined
-        const priceId = fullSubscription.items?.data?.[0]?.price?.id ?? null
 
         // Convert unix seconds to ISO string (or null if undefined/null)
         const currentPeriodEnd = periodEnd
@@ -408,6 +408,37 @@ export async function POST(request: NextRequest) {
           )
         }
 
+        // Backfill stripe_price_id if missing but subscription exists (one-off safety)
+        if (priceId) {
+          const { data: backfillTarget, error: backfillLookupError } = await supabaseAdmin
+            .from('subscriptions')
+            .select('user_id')
+            .eq('stripe_subscription_id', subscriptionId)
+            .is('stripe_price_id', null)
+            .single()
+
+          if (backfillLookupError && backfillLookupError.code !== 'PGRST116') {
+            console.warn('[webhook] customer.subscription.created: backfill lookup failed', {
+              error: backfillLookupError.message,
+              subscription_id: subscriptionId,
+            })
+          }
+
+          if (backfillTarget?.user_id) {
+            const { error: backfillError } = await supabaseAdmin
+              .from('subscriptions')
+              .update({ stripe_price_id: priceId })
+              .eq('stripe_subscription_id', subscriptionId)
+
+            if (backfillError) {
+              console.warn('[webhook] customer.subscription.created: backfill failed', {
+                error: backfillError.message,
+                subscription_id: subscriptionId,
+              })
+            }
+          }
+        }
+
         // Also upsert stripe_customers mapping if customer ID is present
         if (customerId) {
           const { error: mappingError } = await supabaseAdmin
@@ -467,6 +498,7 @@ export async function POST(request: NextRequest) {
 
         // Get customer ID from retrieved subscription
         const customerId = fullSubscription.customer as string
+        const priceId = fullSubscription.items?.data?.[0]?.price?.id ?? null
 
         // TEMPLATE CODE: Resolve user_id reliably
         // 1) Try stripe_customers table mapping by stripe_customer_id
@@ -513,7 +545,6 @@ export async function POST(request: NextRequest) {
         // Get period end from retrieved subscription (unix seconds)
         // Type assertion needed because Stripe SDK types may not expose this field directly
         const periodEnd = (fullSubscription as any).current_period_end as number | null | undefined
-        const priceId = fullSubscription.items?.data?.[0]?.price?.id ?? null
 
         // Convert unix seconds to ISO string (or null if undefined/null)
         const currentPeriodEnd = periodEnd
@@ -579,6 +610,37 @@ export async function POST(request: NextRequest) {
             { error: 'Failed to update subscription record' },
             { status: 500 }
           )
+        }
+
+        // Backfill stripe_price_id if missing but subscription exists (one-off safety)
+        if (priceId) {
+          const { data: backfillTarget, error: backfillLookupError } = await supabaseAdmin
+            .from('subscriptions')
+            .select('user_id')
+            .eq('stripe_subscription_id', subscriptionId)
+            .is('stripe_price_id', null)
+            .single()
+
+          if (backfillLookupError && backfillLookupError.code !== 'PGRST116') {
+            console.warn('[webhook] customer.subscription.updated: backfill lookup failed', {
+              error: backfillLookupError.message,
+              subscription_id: subscriptionId,
+            })
+          }
+
+          if (backfillTarget?.user_id) {
+            const { error: backfillError } = await supabaseAdmin
+              .from('subscriptions')
+              .update({ stripe_price_id: priceId })
+              .eq('stripe_subscription_id', subscriptionId)
+
+            if (backfillError) {
+              console.warn('[webhook] customer.subscription.updated: backfill failed', {
+                error: backfillError.message,
+                subscription_id: subscriptionId,
+              })
+            }
+          }
         }
 
         // Also upsert stripe_customers mapping if customer ID is present

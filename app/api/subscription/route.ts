@@ -105,6 +105,7 @@ export async function GET(request: NextRequest) {
           new Date(subscription.current_period_end) > now)
       : false
 
+    // DB field: stripe_price_id; env vars: STRIPE_PRICE_ID_BASIC/PRO
     const priceId = subscription?.stripe_price_id ?? null
     const plan =
       priceId && priceId === process.env.STRIPE_PRICE_ID_PRO

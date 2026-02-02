@@ -130,10 +130,10 @@ export async function POST(request: NextRequest) {
 
     // Get the price ID from environment variable
     // APP-SPECIFIC: Replace with your actual Stripe Price ID
-    const priceId = process.env.STRIPE_PRICE_ID
+    const priceId = process.env.STRIPE_PRICE_ID_PRO
     if (!priceId) {
       return NextResponse.json(
-        { error: 'STRIPE_PRICE_ID not configured' },
+        { error: 'STRIPE_PRICE_ID_PRO not configured' },
         { status: 500 }
       )
     }
@@ -175,7 +175,7 @@ if (secret?.startsWith('sk_live_') && priceId.includes('test')) {
         ? {
             VERCEL_ENV: process.env.VERCEL_ENV,
             STRIPE_SECRET_KEY_prefix: (process.env.STRIPE_SECRET_KEY ?? '').slice(0, 8),
-            STRIPE_PRICE_ID: process.env.STRIPE_PRICE_ID,
+            STRIPE_PRICE_ID_PRO: process.env.STRIPE_PRICE_ID_PRO,
             VERCEL_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA,
           }
         : undefined

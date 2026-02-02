@@ -21,6 +21,17 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState<string | null>(null)
   const [noSession, setNoSession] = useState(false)
 
+  const hasLower = /[a-z]/.test(password)
+  const hasUpper = /[A-Z]/.test(password)
+  const hasNumber = /[0-9]/.test(password)
+  const hasSymbol = /[^A-Za-z0-9]/.test(password)
+  const categoryCount =
+    (hasLower ? 1 : 0) +
+    (hasUpper ? 1 : 0) +
+    (hasNumber ? 1 : 0) +
+    (hasSymbol ? 1 : 0)
+  const hasMinLength = password.length >= 10
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (!data.session) {
@@ -103,6 +114,29 @@ export default function ResetPasswordPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password"
               />
+              <div className="text-xs text-gray-500 space-y-1">
+                <p>Password requirements:</p>
+                <ul className="space-y-1">
+                  <li className={hasMinLength ? 'text-green-600' : ''}>
+                    {hasMinLength ? '✓' : '•'} At least 10 characters
+                  </li>
+                  <li className={categoryCount >= 2 ? 'text-green-600' : ''}>
+                    {categoryCount >= 2 ? '✓' : '•'} At least 2 of: lowercase, uppercase, number, symbol
+                  </li>
+                  <li className={hasLower ? 'text-green-600' : ''}>
+                    {hasLower ? '✓' : '•'} Lowercase letter
+                  </li>
+                  <li className={hasUpper ? 'text-green-600' : ''}>
+                    {hasUpper ? '✓' : '•'} Uppercase letter
+                  </li>
+                  <li className={hasNumber ? 'text-green-600' : ''}>
+                    {hasNumber ? '✓' : '•'} Number
+                  </li>
+                  <li className={hasSymbol ? 'text-green-600' : ''}>
+                    {hasSymbol ? '✓' : '•'} Symbol
+                  </li>
+                </ul>
+              </div>
               <label className="text-xs text-gray-500">Confirm password</label>
               <Input
                 type="password"

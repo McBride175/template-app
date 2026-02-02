@@ -202,25 +202,27 @@ export default function LoginPage() {
             />
           </div>
 
-          <Button
-            onClick={handleSignIn}
-            variant="primary"
-            size="lg"
-            className="w-full"
-            disabled={signingIn}
-          >
-            {signingIn ? 'Signing in…' : 'Sign in'}
-          </Button>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              onClick={handleSignIn}
+              variant="primary"
+              size="lg"
+              className="w-full"
+              disabled={signingIn}
+            >
+              {signingIn ? 'Signing in…' : 'Sign in'}
+            </Button>
 
-          <Button
-            onClick={handleSignUp}
-            variant="secondary"
-            size="lg"
-            className="w-full"
-            disabled={signingUp}
-          >
-            {signingUp ? 'Creating…' : 'Sign up'}
-          </Button>
+            <Button
+              onClick={handleSignUp}
+              variant="secondary"
+              size="lg"
+              className="w-full"
+              disabled={signingUp}
+            >
+              {signingUp ? 'Creating…' : 'Sign up'}
+            </Button>
+          </div>
 
           <Button
             onClick={handleMagicLink}
@@ -234,7 +236,7 @@ export default function LoginPage() {
 
           <button
             onClick={handlePasswordReset}
-            className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+            className="text-sm text-gray-700 hover:text-gray-900 underline underline-offset-4 transition-colors w-full text-left py-2 px-2 rounded focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
             disabled={sendingReset}
           >
             {sendingReset ? 'Sending…' : 'Forgot password / Set password'}

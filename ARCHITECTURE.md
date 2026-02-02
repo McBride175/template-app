@@ -150,7 +150,7 @@
 
 **Returns**: `{ url: string }` - Stripe Checkout URL
 
-**Error Handling**: Returns 500 if Stripe API fails or `STRIPE_PRICE_ID` missing
+**Error Handling**: Returns 500 if Stripe API fails or `STRIPE_PRICE_ID_PRO` missing
 
 ### `POST /api/webhooks/stripe`
 **Purpose**: Handle Stripe webhook events and sync subscription state to database
@@ -201,7 +201,7 @@
 **Server-Only (Never Exposed to Client):**
 - `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key (bypasses RLS)
 - `STRIPE_SECRET_KEY` - Stripe secret key (`sk_test_...` or `sk_live_...`)
-- `STRIPE_PRICE_ID` - Stripe Price ID for subscription plan
+- `STRIPE_PRICE_ID_PRO` - Stripe Price ID for Pro subscription plan
 - `STRIPE_WEBHOOK_SECRET` - Stripe webhook signing secret
 
 ### Environment Scoping in Vercel
@@ -288,5 +288,5 @@
 
 **Mitigation**:
 - Returns 500 with error details (debug info only in non-production)
-- Validates `STRIPE_PRICE_ID` exists before creating session
+- Validates `STRIPE_PRICE_ID_PRO` exists before creating session
 - Optional: Validates Stripe key mode matches price ID mode (live key with test price = error)

@@ -28,7 +28,7 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 
 ### Required for Stripe Subscriptions
 - `STRIPE_SECRET_KEY` - Your Stripe secret key (starts with `sk_`)
-- `STRIPE_PRICE_ID` - Your Stripe Price ID for the monthly subscription plan
+- `STRIPE_PRICE_ID_PRO` - Your Stripe Price ID for the Pro subscription plan
 - `STRIPE_WEBHOOK_SECRET` - Webhook signing secret from Stripe Dashboard
 - `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key (for webhook operations)
 
@@ -36,7 +36,7 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 
 1. Create a Stripe account and get your API keys
 2. Create a Product and Price in Stripe Dashboard (monthly subscription)
-3. Copy the Price ID to `STRIPE_PRICE_ID`
+3. Copy the Price ID to `STRIPE_PRICE_ID_PRO`
 4. Set up webhook endpoint in Stripe Dashboard:
    - URL: `https://yourdomain.com/api/webhooks/stripe`
    - Events to listen for:

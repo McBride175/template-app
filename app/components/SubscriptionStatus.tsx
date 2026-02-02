@@ -15,6 +15,7 @@ interface SubscriptionData {
   hasActive: boolean
   status: string | null
   current_period_end: string | null
+  plan?: 'basic' | 'pro' | null
 }
 
 function SubscriptionStatusContent() {
@@ -101,7 +102,8 @@ function SubscriptionStatusContent() {
       return 'Activating...'
     }
     if (subscription?.hasActive) {
-      return 'Active'
+      const plan = subscription.plan
+      return plan ? `Active — ${plan === 'pro' ? 'Pro' : 'Basic'}` : 'Active'
     }
     return 'Not subscribed'
   }

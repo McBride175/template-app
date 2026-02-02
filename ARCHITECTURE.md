@@ -48,6 +48,7 @@
 - `user_id` (UUID, PRIMARY KEY) - References `auth.users(id)` ON DELETE CASCADE
 - `stripe_customer_id` (TEXT, UNIQUE, NOT NULL) - Stripe customer ID
 - `stripe_subscription_id` (TEXT, UNIQUE, NOT NULL) - Stripe subscription ID
+- `stripe_price_id` (TEXT, NULLABLE) - Stripe price ID for plan mapping
 - `status` (TEXT, NOT NULL) - Subscription status: `active`, `trialing`, `past_due`, `canceled`, `pending`
 - `current_period_end` (TIMESTAMPTZ, NULLABLE) - End of current billing period (nullable for pending subscriptions)
 - `created_at` (TIMESTAMPTZ) - Row creation timestamp

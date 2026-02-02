@@ -88,6 +88,66 @@ export async function POST(request: NextRequest) {
       .single()
 
     let customerId = existingSubscription?.stripe_customer_id
+    let customerResolution = 'subscription_row'
+
+    const isActiveOrTrialing =
+      existingSubscription?.status === 'active' ||
+      existingSubscription?.status === 'trialing'
+
+    if (isActiveOrTrialing) {
+      if (!customerId) {
+        return NextResponse.json(
+          { error: 'stripe_customer_id missing for active subscription' },
+          { status: 500 }
+        )
+      }
+
+      const portalSession = await stripe.billingPortal.sessions.create({
+        customer: customerId,
+        return_url: `${request.nextUrl.origin}/dashboard`,
+      })
+
+      console.log('[checkout] sent_to_billing_portal', {
+        user_id: user.id,
+        customer_id: customerId,
+      })
+
+      return NextResponse.json({ url: portalSession.url })
+    }
+
+    // If no customer from subscriptions, try stripe_customers mapping
+    if (!customerId) {
+      const { data: customerMappings, error: mappingError } = await supabaseAdmin
+        .from('stripe_customers')
+        .select('stripe_customer_id, created_at')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+
+      if (mappingError) {
+        console.warn('[checkout] stripe_customers lookup failed', {
+          user_id: user.id,
+          error: mappingError.message,
+        })
+      } else if (customerMappings && customerMappings.length > 0) {
+        customerId = customerMappings[0].stripe_customer_id
+        customerResolution = 'stripe_customers'
+
+        if (customerMappings.length > 1) {
+          console.warn('[checkout] multiple stripe_customers rows', {
+            user_id: user.id,
+            count: customerMappings.length,
+          })
+        }
+      } else {
+        customerResolution = 'none'
+      }
+    }
+
+    console.log('[checkout] customer_resolution', {
+      user_id: user.id,
+      customer_id: customerId ?? null,
+      source: customerResolution,
+    })
 
     // Create Stripe customer if doesn't exist
     if (!customerId) {
@@ -98,6 +158,7 @@ export async function POST(request: NextRequest) {
         },
       })
       customerId = customer.id
+      customerResolution = 'stripe_create'
     }
 
     // TEMPLATE CODE: Upsert customer mapping to enable webhook user_id resolution
@@ -128,13 +189,20 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Get the price ID from environment variable
-    // APP-SPECIFIC: Replace with your actual Stripe Price ID
-    const priceId = process.env.STRIPE_PRICE_ID_PRO
-    if (!priceId) {
+    const body = await request.json().catch(() => ({}))
+    const plan = body?.plan
+
+    const priceId =
+      plan === 'basic'
+        ? process.env.STRIPE_PRICE_ID_BASIC
+        : plan === 'pro'
+          ? process.env.STRIPE_PRICE_ID_PRO
+          : null
+
+    if (!plan || !priceId) {
       return NextResponse.json(
-        { error: 'STRIPE_PRICE_ID_PRO not configured' },
-        { status: 500 }
+        { error: 'Invalid or missing plan. Use plan=basic or plan=pro.' },
+        { status: 400 }
       )
     }
 
@@ -148,21 +216,38 @@ if (secret?.startsWith('sk_live_') && priceId.includes('test')) {
   )
 }
     // Create Checkout Session
-    const session = await stripe.checkout.sessions.create({
-      customer: customerId,
-      mode: 'subscription',
-      payment_method_types: ['card'],
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
+    const idempotencyKey = `checkout:${user.id}:${plan}`
+
+    const session = await stripe.checkout.sessions.create(
+      {
+        customer: customerId,
+        mode: 'subscription',
+        payment_method_types: ['card'],
+        line_items: [
+          {
+            price: priceId,
+            quantity: 1,
+          },
+        ],
+        success_url: `${request.nextUrl.origin}/dashboard?checkout=success`,
+        cancel_url: `${request.nextUrl.origin}/dashboard?checkout=cancelled`,
+        metadata: {
+          supabase_user_id: user.id,
+          plan,
         },
-      ],
-      success_url: `${request.nextUrl.origin}/dashboard?checkout=success`,
-      cancel_url: `${request.nextUrl.origin}/dashboard?checkout=cancelled`,
-      metadata: {
-        supabase_user_id: user.id,
       },
+      { idempotencyKey }
+    )
+
+    console.log('[checkout] idempotency', {
+      user_id: user.id,
+      idempotency_key: idempotencyKey,
+    })
+
+    console.log('[checkout] created_checkout_session', {
+      user_id: user.id,
+      customer_id: customerId,
+      plan,
     })
 
     return NextResponse.json({ url: session.url })

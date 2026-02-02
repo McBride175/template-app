@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     // TEMPLATE CODE: Use ANON key with RLS - reads should work for logged-in user
     const { data: subscription, error: subError } = await supabase
       .from('subscriptions')
-      .select('status, current_period_end, stripe_customer_id, stripe_subscription_id')
+      .select('status, current_period_end, stripe_customer_id, stripe_subscription_id, stripe_price_id')
       .eq('user_id', user.id)
       .order('updated_at', { ascending: false })
       .limit(1)
@@ -105,12 +105,21 @@ export async function GET(request: NextRequest) {
           new Date(subscription.current_period_end) > now)
       : false
 
+    const priceId = subscription?.stripe_price_id ?? null
+    const plan =
+      priceId && priceId === process.env.STRIPE_PRICE_ID_PRO
+        ? 'pro'
+        : priceId && priceId === process.env.STRIPE_PRICE_ID_BASIC
+          ? 'basic'
+          : null
+
     // Create JSON response with subscription data
     const res = NextResponse.json(
       {
         hasActive: isActive,
         status: subscription?.status ?? null,
         current_period_end: subscription?.current_period_end ?? null,
+        plan,
       },
       { status: 200 }
     )

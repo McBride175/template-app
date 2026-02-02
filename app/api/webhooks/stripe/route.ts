@@ -340,6 +340,7 @@ export async function POST(request: NextRequest) {
         // Get period end from retrieved subscription (unix seconds)
         // Type assertion needed because Stripe SDK types may not expose this field directly
         const periodEnd = (fullSubscription as any).current_period_end as number | null | undefined
+        const priceId = fullSubscription.items?.data?.[0]?.price?.id ?? null
 
         // Convert unix seconds to ISO string (or null if undefined/null)
         const currentPeriodEnd = periodEnd
@@ -355,6 +356,7 @@ export async function POST(request: NextRequest) {
           .update({
             stripe_subscription_id: subscriptionId,
             stripe_customer_id: customerId,
+            stripe_price_id: priceId,
             status: fullSubscription.status,
             current_period_end: currentPeriodEnd,
           })
@@ -370,6 +372,7 @@ export async function POST(request: NextRequest) {
                 user_id: userId,
                 stripe_subscription_id: subscriptionId,
                 stripe_customer_id: customerId,
+                stripe_price_id: priceId,
                 status: fullSubscription.status,
                 current_period_end: currentPeriodEnd,
               },
@@ -510,6 +513,7 @@ export async function POST(request: NextRequest) {
         // Get period end from retrieved subscription (unix seconds)
         // Type assertion needed because Stripe SDK types may not expose this field directly
         const periodEnd = (fullSubscription as any).current_period_end as number | null | undefined
+        const priceId = fullSubscription.items?.data?.[0]?.price?.id ?? null
 
         // Convert unix seconds to ISO string (or null if undefined/null)
         const currentPeriodEnd = periodEnd
@@ -525,6 +529,7 @@ export async function POST(request: NextRequest) {
           .update({
             stripe_subscription_id: subscriptionId,
             stripe_customer_id: customerId,
+            stripe_price_id: priceId,
             status: fullSubscription.status,
             current_period_end: currentPeriodEnd,
           })
@@ -540,6 +545,7 @@ export async function POST(request: NextRequest) {
                 user_id: userId,
                 stripe_subscription_id: subscriptionId,
                 stripe_customer_id: customerId,
+                stripe_price_id: priceId,
                 status: fullSubscription.status,
                 current_period_end: currentPeriodEnd,
               },

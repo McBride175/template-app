@@ -45,6 +45,7 @@ export default function SubscribeButton() {
           // This allows the server to verify the user's identity
           Authorization: `Bearer ${accessToken}`,
         },
+        body: JSON.stringify({ plan: 'pro' }),
       })
 
       if (!response.ok) {

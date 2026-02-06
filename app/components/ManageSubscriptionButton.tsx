@@ -11,9 +11,11 @@ import Button from './Button'
 
 export default function ManageSubscriptionButton() {
   const [loading, setLoading] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const handleManage = async () => {
     setLoading(true)
+    setErrorMessage(null)
     try {
       const response = await fetch('/api/portal', {
         method: 'POST',
@@ -23,8 +25,16 @@ export default function ManageSubscriptionButton() {
       })
 
       if (!response.ok) {
-        const text = await response.text()
-        throw new Error(text || 'Failed to create portal session')
+        let message = 'Failed to create portal session'
+        try {
+          const payload = await response.json()
+          if (payload?.error && typeof payload.error === 'string') {
+            message = payload.error
+          }
+        } catch {
+          // ignore parse errors and keep fallback message
+        }
+        throw new Error(message)
       }
 
       const data = await response.json()
@@ -35,15 +45,24 @@ export default function ManageSubscriptionButton() {
       window.location.href = data.url
     } catch (error) {
       console.error('Error opening customer portal:', error)
-      alert(error instanceof Error ? error.message : 'Failed to open customer portal')
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Failed to open customer portal'
+      )
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <Button onClick={handleManage} variant="secondary" disabled={loading}>
-      {loading ? 'Loading…' : 'Manage subscription'}
-    </Button>
+    <div className="flex flex-col items-end gap-1">
+      <Button onClick={handleManage} variant="secondary" disabled={loading}>
+        {loading ? 'Loading…' : 'Manage subscription'}
+      </Button>
+      {errorMessage && (
+        <p className="text-xs text-red-600" role="status" aria-live="polite">
+          {errorMessage}
+        </p>
+      )}
+    </div>
   )
 }

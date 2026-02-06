@@ -28,8 +28,8 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 
 ### Required for Stripe Subscriptions
 - `STRIPE_SECRET_KEY` - Your Stripe secret key (starts with `sk_`)
-- `STRIPE_PRICE_ID_PRO` - Comma-separated Stripe Price IDs for Pro (live + test allowed)
-- `STRIPE_PRICE_ID_BASIC` - Comma-separated Stripe Price IDs for Basic (live + test allowed)
+- `STRIPE_PRICE_ID_PRO` - Your Stripe Price ID for the Pro subscription plan
+- `STRIPE_PRICE_ID_BASIC` - Your Stripe Price ID for the Basic subscription plan
 - `STRIPE_WEBHOOK_SECRET` - Webhook signing secret from Stripe Dashboard
 - `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key (for webhook operations)
 

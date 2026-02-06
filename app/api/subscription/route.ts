@@ -105,22 +105,12 @@ export async function GET(request: NextRequest) {
           new Date(subscription.current_period_end) > now)
       : false
 
-    // DB field: stripe_price_id; env vars: STRIPE_PRICE_ID_BASIC/PRO (comma-separated)
+    // DB field: stripe_price_id; env vars: STRIPE_PRICE_ID_BASIC/PRO
     const priceId = subscription?.stripe_price_id ?? null
-    const basicList = (process.env.STRIPE_PRICE_ID_BASIC ?? '')
-      .split(',')
-      .map((v) => v.trim())
-      .filter(Boolean)
-    const proList = (process.env.STRIPE_PRICE_ID_PRO ?? '')
-      .split(',')
-      .map((v) => v.trim())
-      .filter(Boolean)
-
-    // Backward compatible: if a single value was set, it still works via the list
     const plan =
-      priceId && proList.includes(priceId)
+      priceId && priceId === process.env.STRIPE_PRICE_ID_PRO
         ? 'pro'
-        : priceId && basicList.includes(priceId)
+        : priceId && priceId === process.env.STRIPE_PRICE_ID_BASIC
           ? 'basic'
           : null
 
@@ -130,6 +120,7 @@ export async function GET(request: NextRequest) {
         hasActive: isActive,
         status: subscription?.status ?? null,
         current_period_end: subscription?.current_period_end ?? null,
+        hasCustomer: Boolean(subscription?.stripe_customer_id),
         plan,
       },
       { status: 200 }

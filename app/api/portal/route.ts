@@ -40,8 +40,8 @@ export async function POST(request: NextRequest) {
     const customerId = subscription?.stripe_customer_id
     if (!customerId) {
       return NextResponse.json(
-        { error: 'No Stripe customer on file' },
-        { status: 404 }
+        { error: 'No billing customer found. Please choose a plan first.' },
+        { status: 400 }
       )
     }
 

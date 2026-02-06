@@ -216,7 +216,8 @@ if (secret?.startsWith('sk_live_') && priceId.includes('test')) {
   )
 }
     // Create Checkout Session
-    const idempotencyKey = `checkout:${user.id}:${plan}`
+    // Use resolved Stripe price ID so idempotency keys stay unique per actual checkout params.
+    const idempotencyKey = `checkout:${user.id}:${priceId}`
 
     const session = await stripe.checkout.sessions.create(
       {

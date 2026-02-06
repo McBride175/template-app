@@ -3,6 +3,7 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --radius-button: 0.75rem;
   
   /* Neutral palette */
   --gray-50: #fafafa;
@@ -63,6 +64,10 @@ body {
   line-height: var(--line-height-normal);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+button {
+  border-radius: var(--radius-button);
 }
 
 /* Typographic scale */

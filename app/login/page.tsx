@@ -236,7 +236,7 @@ export default function LoginPage() {
 
           <button
             onClick={handlePasswordReset}
-            className="text-sm text-gray-700 hover:text-gray-900 underline underline-offset-4 transition-colors w-full text-left py-2 px-2 rounded focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
+            className="text-sm text-gray-700 hover:text-gray-900 underline underline-offset-4 transition-colors w-full text-left py-2 px-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
             disabled={sendingReset}
           >
             {sendingReset ? 'Sending…' : 'Forgot password / Set password'}

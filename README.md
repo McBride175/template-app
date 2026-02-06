@@ -33,6 +33,13 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 - `STRIPE_WEBHOOK_SECRET` - Webhook signing secret from Stripe Dashboard
 - `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key (for webhook operations)
 
+### Required for Contact Support Notifications
+- `RESEND_API_KEY` - Resend API key used to send support notification emails
+- `SUPPORT_INBOX_EMAIL` - Destination inbox that receives new support tickets
+- `SUPPORT_FROM_EMAIL` - Optional sender identity for support emails
+
+These contact-support variables are server-only and must be set in Vercel Preview and Production environments. Do not expose them as `NEXT_PUBLIC_*`.
+
 ### Setting up Stripe
 
 1. Create a Stripe account and get your API keys

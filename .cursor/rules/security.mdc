@@ -46,3 +46,42 @@ Always ask permission for:
 2) Add tests for failure modes + edge cases.
 3) Run: lint + typecheck + unit tests (or explain what failed and why).
 4) Summarise changes + how to verify.
+
+---
+
+# DB Security Contract (ALWAYS)
+- **No SQL string concatenation** or template interpolation with user input.
+- **Parameterized queries only** (placeholders + params array / query builder bindings).
+- **No dynamic identifiers** from user input unless strict allowlist mapping is used.
+- **Validate inputs at boundaries** (IDs, pagination, filters, sort keys, search).
+- **Multi-tenant scoping required** (user_id/org_id on every tenant-owned query).
+- **No secret logging** (tokens, cookies, API keys, raw bodies).
+- **Least privilege** for DB roles; document any required elevated usage.
+
+# Build → Red Team → Gate
+Risk Path is **MANDATORY** if a change:
+- Adds or modifies DB queries
+- Touches auth/session logic
+- Reads or writes tenant-owned data
+- Introduces or modifies raw SQL
+- Changes request logging
+- Handles secrets or tokens
+Otherwise Fast Path applies.
+
+Fast Path (non-risk changes)
+- Run normal tests/lint as usual.
+- Optionally run `pnpm security:sqlcheck`.
+- Mark SECURITY_GATE checklist as “N/A”.
+
+Risk Path (risky changes; timeboxed)
+- BUILD: implement change; ensure DB access follows contract; add proof snippets.
+- RED TEAM (strict 5 minutes): only report high-confidence issues; no speculative findings.
+- GATE: use `SECURITY_GATE.md` checklist + run `pnpm security:sqlcheck`.
+
+5‑minute Red Team prompt (copy/paste; output must be exact)
+```
+Check only: (1) SQL interpolation/unsafe raw queries, (2) missing tenant scoping,
+(3) secret/token logging, (4) auth bypass risks.
+If none found, output exactly: "No issues found."
+Do not add extra commentary if no issues exist.
+```

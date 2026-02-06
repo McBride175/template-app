@@ -3,13 +3,14 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import type { User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import Button from './Button'
 
 export default function Nav() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<User | null>(null)
 
   useEffect(() => {
     // Get initial session
@@ -38,7 +39,7 @@ export default function Nav() {
   if (loading) return null // prevents flicker
 
   return (
-    <nav className="border-b border-gray-200 bg-white">
+    <nav className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur">
       <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
         {/* Left side */}
         <div className="flex gap-6">
@@ -50,12 +51,6 @@ export default function Nav() {
             Pricing
           </Link>
 
-          {!user && (
-            <Link href="/login" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
-              Login
-            </Link>
-          )}
-
           {user && (
             <Link href="/dashboard" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
               Dashboard
@@ -65,6 +60,20 @@ export default function Nav() {
           {user && (
             <Link href="/account" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
               Account
+            </Link>
+          )}
+
+          <Link href="/blog" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
+            Blog
+          </Link>
+
+          <Link href="/contact" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
+            Contact
+          </Link>
+
+          {!user && (
+            <Link href="/login" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
+              Login
             </Link>
           )}
         </div>

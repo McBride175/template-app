@@ -38,12 +38,18 @@ export default function ChangePasswordButton({ email }: { email: string }) {
   }
 
   return (
-    <div className="space-y-2 text-right">
-      <Button onClick={handleChangePassword} variant="secondary" size="sm" disabled={loading}>
+    <div className="w-72 space-y-2 text-right">
+      <Button
+        onClick={handleChangePassword}
+        variant="secondary"
+        size="md"
+        disabled={loading}
+        className="w-full"
+      >
         {loading ? 'Sending…' : 'Change password'}
       </Button>
-      {error && <p className="text-xs text-red-600">{error}</p>}
-      {status && <p className="text-xs text-green-600">{status}</p>}
+      {error && <p className="text-xs break-words text-red-600">{error}</p>}
+      {status && <p className="text-xs break-words text-green-600">{status}</p>}
     </div>
   )
 }

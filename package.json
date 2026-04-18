@@ -4,10 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "security:sqlcheck": "bash scripts/security-sql-check.sh"
+    "security:sqlcheck": "bash scripts/security-sql-check.sh",
+    "test:privacy": "node --test tests/privacy/privacy-utils.test.mjs",
+    "test:xero-concurrency": "node --test tests/xero/grant-refresh-concurrency.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",

@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation'
 import { getAllPostMetadata, getPostBySlug } from '@/lib/blog'
 
 interface BlogPostPageProps {
-  params: Promise<{ slug: string }> | { slug: string }
+  params: Promise<{ slug: string }>
 }
 
 export async function generateStaticParams() {
@@ -115,7 +115,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
       <header className="space-y-3">
         <h1>{post.title}</h1>
         <p className="text-sm text-gray-600">{post.description}</p>
-        <p className="text-xs text-gray-500">
+        <p className="text-[11px] italic text-gray-500">
           Published: {new Date(post.date).toLocaleDateString()}
         </p>
       </header>

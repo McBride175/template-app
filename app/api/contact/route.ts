@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { Resend } from 'resend'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
-import { resend } from '@/lib/resend'
 
-const WINDOW_MS = 60_000
-const MAX_REQUESTS_PER_WINDOW = 5
+const RATE_LIMIT_WINDOW_MS = 10 * 60_000
+const MAX_REQUESTS_PER_IP = 5
+const MAX_REQUESTS_PER_EMAIL = 3
+const DEFAULT_SUPPORT_FROM_EMAIL = 'onboarding@resend.dev'
 
 type RateLimitEntry = {
   count: number
@@ -12,6 +14,7 @@ type RateLimitEntry = {
 }
 
 const rateLimitStore = new Map<string, RateLimitEntry>()
+const emailRateLimitStore = new Map<string, RateLimitEntry>()
 
 function getClientIp(request: NextRequest) {
   const forwardedFor = request.headers.get('x-forwarded-for')
@@ -25,22 +28,39 @@ function getClientIp(request: NextRequest) {
   return 'unknown'
 }
 
-function isRateLimited(ip: string) {
+function isRateLimited(
+  store: Map<string, RateLimitEntry>,
+  key: string,
+  maxRequests: number
+) {
   const now = Date.now()
-  const existing = rateLimitStore.get(ip)
+  const existing = store.get(key)
 
-  if (!existing || now - existing.windowStart >= WINDOW_MS) {
-    rateLimitStore.set(ip, { count: 1, windowStart: now })
+  if (!existing || now - existing.windowStart >= RATE_LIMIT_WINDOW_MS) {
+    store.set(key, { count: 1, windowStart: now })
     return false
   }
 
-  if (existing.count >= MAX_REQUESTS_PER_WINDOW) {
+  if (existing.count >= maxRequests) {
     return true
   }
 
   existing.count += 1
-  rateLimitStore.set(ip, existing)
+  store.set(key, existing)
   return false
+}
+
+function createRequestId() {
+  return crypto.randomUUID()
+}
+
+function logContactRequest(result: 'accepted' | 'rejected', reason: string, requestId: string) {
+  const logger = result === 'accepted' ? console.info : console.warn
+  logger('[contact] request', {
+    result,
+    reason,
+    request_id: requestId,
+  })
 }
 
 function isValidInput(input: unknown): input is { email: string; subject: string; message: string; company?: string } {
@@ -66,15 +86,78 @@ function isValidInput(input: unknown): input is { email: string; subject: string
   return true
 }
 
+function isMissingSupportTicketsTableError(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+
+  const value = error as { code?: unknown; message?: unknown }
+  const code = typeof value.code === 'string' ? value.code : ''
+  const message = typeof value.message === 'string' ? value.message.toLowerCase() : ''
+
+  if (code === 'PGRST205') return true
+  return message.includes('support_tickets') && message.includes('could not find the table')
+}
+
+function isMissingSupportTicketsColumnError(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+
+  const value = error as { code?: unknown; message?: unknown }
+  const code = typeof value.code === 'string' ? value.code : ''
+  const message = typeof value.message === 'string' ? value.message.toLowerCase() : ''
+
+  if (code === '42703' || code === 'PGRST204') return true
+
+  return (
+    message.includes('support_tickets') &&
+    message.includes('column') &&
+    message.includes('could not find')
+  )
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (!error || typeof error !== 'object') return fallback
+
+  const message = (error as { message?: unknown }).message
+  if (typeof message !== 'string' || !message.trim()) return fallback
+
+  return message
+}
+
+type TicketEmailColumn = 'sent_at' | 'resend_message_id' | 'email_error'
+
+async function updateTicketEmailColumn(
+  admin: any,
+  ticketId: string,
+  column: TicketEmailColumn,
+  value: string
+) {
+  const { error } = await admin
+    .from('support_tickets')
+    .update({ [column]: value })
+    .eq('id', ticketId)
+
+  if (!error) return
+  if (isMissingSupportTicketsColumnError(error)) return
+
+  const errorCode =
+    typeof error === 'object' && error && 'code' in error
+      ? String((error as { code?: unknown }).code ?? 'unknown')
+      : 'unknown'
+
+  console.warn('[contact] support_ticket_email_metadata_update_failed', {
+    ticket_id: ticketId,
+    column,
+    error_code: errorCode,
+  })
+}
+
 export async function POST(request: NextRequest) {
+  const requestId = createRequestId()
   const ip = getClientIp(request)
-  if (isRateLimited(ip)) {
-    return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
-  }
 
   try {
     const payload: unknown = await request.json().catch(() => null)
 
+    // Honeypot trap: bots filling hidden fields get a successful no-op response.
     if (
       payload &&
       typeof payload === 'object' &&
@@ -82,16 +165,36 @@ export async function POST(request: NextRequest) {
       typeof (payload as { company?: unknown }).company === 'string' &&
       (payload as { company?: string }).company?.trim()
     ) {
-      return NextResponse.json({ ok: true }, { status: 200 })
+      logContactRequest('rejected', 'honeypot_triggered', requestId)
+      return NextResponse.json({ ok: true, emailSent: false }, { status: 200 })
     }
 
     if (!isValidInput(payload)) {
+      logContactRequest('rejected', 'invalid_input', requestId)
       return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
     }
 
     const email = payload.email.trim()
     const subject = payload.subject.trim()
     const message = payload.message.trim()
+    const normalizedEmail = email.toLowerCase()
+
+    // In-memory fixed-window limits to reduce abuse with minimal user friction.
+    if (isRateLimited(rateLimitStore, ip, MAX_REQUESTS_PER_IP)) {
+      logContactRequest('rejected', 'rate_limit_ip', requestId)
+      return NextResponse.json(
+        { ok: false, error: 'Too many requests. Please try again later.' },
+        { status: 429 }
+      )
+    }
+
+    if (isRateLimited(emailRateLimitStore, normalizedEmail, MAX_REQUESTS_PER_EMAIL)) {
+      logContactRequest('rejected', 'rate_limit_email', requestId)
+      return NextResponse.json(
+        { ok: false, error: 'Too many requests. Please try again later.' },
+        { status: 429 }
+      )
+    }
 
     const supabaseSessionClient = await createServerSupabaseClient()
     const {
@@ -109,39 +212,119 @@ export async function POST(request: NextRequest) {
       }
     )
 
-    const { error: insertError } = await admin.from('support_tickets').insert({
-      user_id: user?.id ?? null,
-      email,
-      subject,
-      message,
-      status: 'open',
-    })
+    const { data: insertedTicket, error: insertError } = await admin
+      .from('support_tickets')
+      .insert({
+        user_id: user?.id ?? null,
+        email,
+        subject,
+        message,
+        status: 'open',
+      })
+      .select('id')
+      .single()
 
     if (insertError) {
+      if (isMissingSupportTicketsTableError(insertError)) {
+        logContactRequest('rejected', 'support_ticket_table_missing', requestId)
+        return NextResponse.json(
+          {
+            error:
+              'Support ticket storage is not configured yet. Please run the latest database migrations.',
+          },
+          { status: 503 }
+        )
+      }
       throw insertError
     }
 
-    const supportInboxEmail = process.env.SUPPORT_INBOX_EMAIL
-    if (!supportInboxEmail) {
-      throw new Error('SUPPORT_INBOX_EMAIL is missing')
+    const ticketId = insertedTicket?.id
+    if (!ticketId) {
+      throw new Error('Support ticket insert succeeded but ticket id was missing')
     }
 
-    await resend.emails.send({
-      to: supportInboxEmail,
-      from: process.env.SUPPORT_FROM_EMAIL || 'Support <support@yourdomain.com>',
-      subject: `New support ticket: ${subject}`,
-      text: [
-        `Email: ${email}`,
-        user?.id ? `User ID: ${user.id}` : 'User ID: (not signed in)',
-        '',
-        'Message:',
-        message,
-      ].join('\n'),
-    })
+    let emailSent = false
+    let emailError = ''
+    let emailFailureCode = ''
 
-    return NextResponse.json({ ok: true }, { status: 200 })
-  } catch (error: any) {
-    console.error('[contact]', error?.message ?? 'Unknown error')
+    const supportInboxEmail = process.env.SUPPORT_INBOX_EMAIL?.trim()
+    const resendApiKey = process.env.RESEND_API_KEY?.trim()
+    const supportFromEmail =
+      process.env.SUPPORT_FROM_EMAIL?.trim() || DEFAULT_SUPPORT_FROM_EMAIL
+
+    if (!supportInboxEmail) {
+      emailError = 'SUPPORT_INBOX_EMAIL is not configured'
+      emailFailureCode = 'missing_support_inbox_email'
+    } else if (!resendApiKey) {
+      emailError = 'RESEND_API_KEY is not configured'
+      emailFailureCode = 'missing_resend_api_key'
+    } else {
+      try {
+        const resendClient = new Resend(resendApiKey)
+        const { data: emailResult, error: resendError } =
+          await resendClient.emails.send({
+            to: supportInboxEmail,
+            from: supportFromEmail,
+            subject: `New support ticket: ${subject}`,
+            text: [
+              `Email: ${email}`,
+              user?.id ? `User ID: ${user.id}` : 'User ID: (not signed in)',
+              '',
+              'Message:',
+              message,
+            ].join('\n'),
+          })
+
+        if (resendError) {
+          emailError = `Resend send failed: ${resendError.message ?? 'Unknown error'}`
+          emailFailureCode = 'resend_send_failed'
+        } else {
+          emailSent = true
+          await updateTicketEmailColumn(
+            admin,
+            ticketId,
+            'sent_at',
+            new Date().toISOString()
+          )
+
+          if (emailResult?.id) {
+            await updateTicketEmailColumn(
+              admin,
+              ticketId,
+              'resend_message_id',
+              emailResult.id
+            )
+          }
+        }
+      } catch (error: unknown) {
+        emailError = `Resend send failed: ${getErrorMessage(error, 'Unknown error')}`
+        emailFailureCode = 'resend_send_failed'
+      }
+    }
+
+    if (!emailSent) {
+      await updateTicketEmailColumn(
+        admin,
+        ticketId,
+        'email_error',
+        emailError || 'Email delivery was skipped'
+      )
+
+      console.warn('[contact] support_email_not_sent', {
+        ticket_id: ticketId,
+        failure_code: emailFailureCode || 'email_delivery_skipped',
+      })
+    }
+
+    logContactRequest('accepted', emailSent ? 'accepted' : 'accepted_email_pending', requestId)
+    return NextResponse.json({ ok: true, emailSent }, { status: 200 })
+  } catch (error: unknown) {
+    const errorMessage = getErrorMessage(error, 'Unknown error')
+    logContactRequest('rejected', 'server_error', requestId)
+    console.error('[contact] request_failed', {
+      request_id: requestId,
+      error_type: errorMessage === 'Unknown error' ? 'unknown' : 'runtime_error',
+    })
     return NextResponse.json({ error: 'Server error' }, { status: 500 })
   }
 }

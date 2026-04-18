@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import Card from '@/app/components/Card'
 import { getAllPostMetadata } from '@/lib/blog'
+import { SITEMAP_PAGE_LINKS } from '@/lib/sitemap-links'
 
 export const metadata: Metadata = {
   title: 'Sitemap',
@@ -10,19 +11,6 @@ export const metadata: Metadata = {
     canonical: '/sitemap',
   },
 }
-
-const staticLinks = [
-  { href: '/', label: 'Home' },
-  { href: '/blog', label: 'Blog' },
-  { href: '/pricing', label: 'Pricing' },
-  { href: '/login', label: 'Login' },
-  { href: '/dashboard', label: 'Dashboard' },
-  { href: '/account', label: 'Account' },
-  { href: '/legal/terms', label: 'Terms of Service' },
-  { href: '/legal/privacy', label: 'Privacy Policy' },
-  { href: '/legal/cookies', label: 'Cookie Policy' },
-  { href: '/sitemap.xml', label: 'XML Sitemap' },
-]
 
 export default async function SitemapPage() {
   const posts = await getAllPostMetadata()
@@ -38,7 +26,7 @@ export default async function SitemapPage() {
         <div className="space-y-3">
           <h2>Pages</h2>
           <ul className="space-y-2 text-sm text-gray-700">
-            {staticLinks.map((link) => (
+            {SITEMAP_PAGE_LINKS.map((link) => (
               <li key={link.href}>
                 <Link href={link.href} className="hover:text-gray-900 underline underline-offset-2">
                   {link.label}

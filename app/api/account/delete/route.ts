@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { stripe } from '@/lib/stripe'
+import {
+  appendPrivacyEvent,
+  createPrivacyRequest,
+  getAuthenticatedContext,
+  hasRecentSession,
+} from '@/lib/privacy-service'
+import { getErasureAuditActions } from '@/lib/privacy-utils.js'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -30,6 +37,7 @@ function isSameOrigin(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const handler = '[account_delete]'
+  let erasureRequestId: string | null = null
 
   try {
     const requestedWith = request.headers.get('x-requested-with')
@@ -37,17 +45,52 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 })
     }
 
-    const supabase = await createServerSupabaseClient()
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
+    const auth = await getAuthenticatedContext()
+    if (!auth.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    if (!hasRecentSession(auth.session?.access_token)) {
+      return NextResponse.json(
+        { error: 'Recent sign-in required. Please sign in again and retry.' },
+        { status: 403 }
+      )
+    }
+
+    const supabase = await createServerSupabaseClient()
+    const user = auth.user
+
     console.log(`${handler} start`, { user_id: user.id })
+    const erasureActions = getErasureAuditActions()
+
+    const erasureRequest = await createPrivacyRequest({
+      userId: user.id,
+      type: 'ERASURE',
+      status: 'VERIFYING',
+      details: {
+        source: 'account_delete_endpoint',
+      },
+    })
+    erasureRequestId = erasureRequest.id
+
+    await appendPrivacyEvent({
+      requestId: erasureRequest.id,
+      actorUserId: user.id,
+      actorRole: 'user',
+      action: erasureActions[0],
+    })
+
+    await supabaseAdmin
+      .from('privacy_requests')
+      .update({ status: 'IN_PROGRESS' })
+      .eq('id', erasureRequest.id)
+
+    await appendPrivacyEvent({
+      requestId: erasureRequest.id,
+      actorUserId: user.id,
+      actorRole: 'system',
+      action: erasureActions[1],
+    })
 
     const { data: subscription } = await supabaseAdmin
       .from('subscriptions')
@@ -65,8 +108,11 @@ export async function POST(request: NextRequest) {
           cancel_at_period_end: false,
         })
         await stripe.subscriptions.cancel(subscriptionId)
-      } catch (error: any) {
-        const message = String(error?.message ?? '').toLowerCase()
+      } catch (error: unknown) {
+        const message =
+          typeof error === 'object' && error !== null && 'message' in error
+            ? String((error as { message?: unknown }).message ?? '').toLowerCase()
+            : ''
         const alreadyCanceled =
           message.includes('no such subscription') ||
           message.includes('already canceled') ||
@@ -84,6 +130,15 @@ export async function POST(request: NextRequest) {
       .eq('user_id', user.id)
     if (notesDeleteError) {
       console.error(`${handler} notes_delete_failed`, { user_id: user.id })
+      return NextResponse.json({ error: 'Failed to delete account' }, { status: 500 })
+    }
+
+    const { error: supportTicketsDeleteError } = await supabaseAdmin
+      .from('support_tickets')
+      .delete()
+      .eq('user_id', user.id)
+    if (supportTicketsDeleteError) {
+      console.error(`${handler} support_tickets_delete_failed`, { user_id: user.id })
       return NextResponse.json({ error: 'Failed to delete account' }, { status: 500 })
     }
 
@@ -114,11 +169,38 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (erasureRequestId) {
+      await supabaseAdmin
+        .from('privacy_requests')
+        .update({
+          status: 'FULFILLED',
+          fulfilled_at: new Date().toISOString(),
+        })
+        .eq('id', erasureRequestId)
+
+      await appendPrivacyEvent({
+        requestId: erasureRequestId,
+        actorUserId: user.id,
+        actorRole: 'system',
+        action: erasureActions[2],
+      })
+    }
+
     await supabase.auth.signOut()
 
     console.log(`${handler} success`, { user_id: user.id })
     return NextResponse.json({ ok: true }, { status: 200 })
   } catch {
+    if (erasureRequestId) {
+      await supabaseAdmin
+        .from('privacy_requests')
+        .update({
+          status: 'DENIED',
+          denial_reason: 'Automated erasure flow failed before completion',
+        })
+        .eq('id', erasureRequestId)
+    }
+
     console.error(`${handler} unexpected_error`, { user_id: 'unknown' })
     return NextResponse.json({ error: 'Failed to delete account' }, { status: 500 })
   }

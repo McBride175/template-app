@@ -3,19 +3,19 @@ import PricingClient from './PricingClient'
 
 export const metadata: Metadata = {
   title: 'Pricing',
-  description: 'Compare plans and choose the subscription that fits your needs.',
+  description: 'Explore suggested Basic and Pro pricing ideas for a collections decision engine.',
   alternates: {
     canonical: '/pricing',
   },
   openGraph: {
     title: 'Pricing | Template App',
-    description: 'Compare plans and choose the subscription that fits your needs.',
+    description: 'Explore suggested Basic and Pro pricing ideas for a collections decision engine.',
     url: '/pricing',
     type: 'website',
   },
   twitter: {
     title: 'Pricing | Template App',
-    description: 'Compare plans and choose the subscription that fits your needs.',
+    description: 'Explore suggested Basic and Pro pricing ideas for a collections decision engine.',
   },
 }
 

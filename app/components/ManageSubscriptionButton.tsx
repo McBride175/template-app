@@ -54,12 +54,21 @@ export default function ManageSubscriptionButton() {
   }
 
   return (
-    <div className="flex flex-col items-end gap-1">
-      <Button onClick={handleManage} variant="secondary" disabled={loading}>
+    <div className="flex w-72 flex-col items-end gap-1">
+      <Button
+        onClick={handleManage}
+        variant="secondary"
+        disabled={loading}
+        className="w-full"
+      >
         {loading ? 'Loading…' : 'Manage subscription'}
       </Button>
       {errorMessage && (
-        <p className="text-xs text-red-600" role="status" aria-live="polite">
+        <p
+          className="text-xs break-words text-red-600"
+          role="status"
+          aria-live="polite"
+        >
           {errorMessage}
         </p>
       )}

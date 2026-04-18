@@ -1,14 +1,17 @@
 ---
-title: Welcome to Template App
-description: A quick look at what this starter app includes.
+title: Optimizing Cash Collection for Time and Effort
+description: A practical framework for collecting more cash with fewer touches and less manual work.
 date: 2026-02-05
-slug: welcome-to-template-app
+slug: optimizing-cash-collection-for-time-and-effort
 ---
-## What This App Includes
-Template App starts with authentication, subscriptions, and a simple dashboard workflow.
+## Start With Collection Efficiency, Not Just DSO
+Track cash collected per collector hour and average touches per paid invoice. These metrics quickly reveal where effort is high but return is low.
 
-## Why We Added a Blog
-The blog section is a lightweight place to publish product updates and helpful guides.
+## Prioritise Accounts by Expected Return
+Score invoices by amount, aging, dispute risk, and payer behaviour. Work the highest expected-return accounts first so team time turns into cash faster.
+
+## Standardize Follow-Up Paths
+Use clear playbooks for first reminder, escalation, and final notice. Consistent steps reduce decision fatigue and improve throughput.
 
 ## What Comes Next
-You can replace this placeholder post with real launch notes, changelogs, or tutorials.
+This blog will focus on workflows, dashboard patterns, and experiments that maximize collected cash per unit of team effort.

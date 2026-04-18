@@ -1,14 +1,14 @@
 ---
-title: Security and Privacy Basics
-description: How this project handles authentication, billing, and user data.
+title: Security and Privacy for Accounts Receivable Data
+description: Protect invoice and payer data while running high-volume cash collection workflows.
 date: 2026-02-06
-slug: security-and-privacy-basics
+slug: security-and-privacy-for-ar-data
 ---
-## Authentication and Sessions
-User authentication and session handling are powered by Supabase with secure server-side checks.
+## Access Control and Permissions
+Collection data should be role-scoped so users only access accounts and actions relevant to their region or portfolio.
 
-## Billing
-Subscription checkout and billing management are handled by Stripe.
+## Communication Safety
+Email and call notes can contain sensitive payer details. Mask personal data where possible and retain only what operations need.
 
-## Data Deletion
-Users can remove their account from the account page, which removes owned records and access.
+## Auditability and Deletion
+Keep an audit trail for status changes and outreach attempts, and enforce clear retention and deletion policies for compliance.

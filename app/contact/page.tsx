@@ -12,7 +12,8 @@ export default async function ContactPage() {
       <div className="max-w-2xl mx-auto">
         <h1 className="text-3xl font-semibold text-gray-900">Contact</h1>
         <p className="mt-2 text-sm text-gray-600">
-          Send us a message and we&apos;ll get back to you by email.
+          Send us a message and we&apos;ll get back to you by email. Signed-in users can
+          also track their recent support tickets below.
         </p>
       </div>
 

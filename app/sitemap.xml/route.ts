@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAllPostMetadata } from '@/lib/blog'
+import { SITEMAP_PAGE_LINKS } from '@/lib/sitemap-links'
 import { getSiteUrl } from '@/lib/site-url'
 
 function toIsoDate(value: string) {
@@ -12,17 +13,9 @@ export async function GET() {
   const now = new Date().toISOString()
   const posts = await getAllPostMetadata()
 
-  const staticPaths = [
-    '/',
-    '/pricing',
-    '/login',
-    '/dashboard',
-    '/account',
-    '/legal/terms',
-    '/legal/privacy',
-    '/legal/cookies',
-    '/blog',
-  ]
+  const staticPaths = SITEMAP_PAGE_LINKS
+    .filter((link) => link.includeInXml)
+    .map((link) => link.href)
 
   const urls = [
     ...staticPaths.map((path) => ({

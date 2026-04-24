@@ -13,10 +13,57 @@ import {
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 200
 const DEFAULT_OVERRIDE_LEVEL: CustomerOverrideLevel = 'normal'
+const COLLECTION_ACTION_TYPES = ['called', 'emailed', 'postponed'] as const
+const COLLECTION_ACTION_OUTCOMES = [
+  'no_response',
+  'spoke_to_customer',
+  'promised_to_pay',
+  'disputed',
+] as const
+
+type CollectionActionType = (typeof COLLECTION_ACTION_TYPES)[number]
+type CollectionActionOutcome = (typeof COLLECTION_ACTION_OUTCOMES)[number]
 
 interface CustomerOverrideRow {
   customer_source_id: string
   override_level: CustomerOverrideLevel
+}
+
+interface CollectionActionRow {
+  id: string
+  customer_source_id: string
+  action_type: string
+  outcome: string | null
+  next_action_date: string | null
+  action_timestamp: string
+}
+
+interface LoggedCollectionAction {
+  type: CollectionActionType
+  takenAtIso: string
+  outcome: CollectionActionOutcome | null
+  nextActionDate: string | null
+  actionId: string
+}
+
+function toUtcDateIso(value: string) {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.toISOString().slice(0, 10)
+}
+
+function shouldSuppressCustomerFromQueue(
+  latestAction: LoggedCollectionAction | undefined,
+  todayDateIso: string
+) {
+  if (!latestAction?.nextActionDate) return false
+
+  const suppressesQueue =
+    latestAction.type === 'postponed' || latestAction.outcome === 'promised_to_pay'
+
+  if (!suppressesQueue) return false
+
+  return latestAction.nextActionDate > todayDateIso
 }
 
 function parseLimit(value: string | null) {
@@ -43,6 +90,21 @@ function parseOverrideLevel(value: string | null | undefined): CustomerOverrideL
   return DEFAULT_OVERRIDE_LEVEL
 }
 
+function parseCollectionActionType(value: string): CollectionActionType | null {
+  if (COLLECTION_ACTION_TYPES.includes(value as CollectionActionType)) {
+    return value as CollectionActionType
+  }
+  return null
+}
+
+function parseCollectionActionOutcome(value: string | null): CollectionActionOutcome | null {
+  if (!value) return null
+  if (COLLECTION_ACTION_OUTCOMES.includes(value as CollectionActionOutcome)) {
+    return value as CollectionActionOutcome
+  }
+  return null
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient()
@@ -62,6 +124,9 @@ export async function GET(request: NextRequest) {
 
     const tenantId = await resolveCollectionsTenantId(supabase, user.id, requestedTenantId)
     const overrideLevelByCustomerSourceId = new Map<string, CustomerOverrideLevel>()
+    const latestActionByCustomerSourceId = new Map<string, LoggedCollectionAction>()
+    const actionsTakenByCustomerId: Record<string, LoggedCollectionAction> = {}
+    const todayDateIso = new Date().toISOString().slice(0, 10)
 
     if (tenantId) {
       const { data: overrideRows, error: overrideError } = await supabase
@@ -82,6 +147,43 @@ export async function GET(request: NextRequest) {
           )
         }
       }
+
+      const { data: actionRows, error: actionError } = await supabase
+        .from('collection_actions')
+        .select(
+          'id, customer_source_id, action_type, outcome, next_action_date, action_timestamp'
+        )
+        .eq('user_id', user.id)
+        .eq('tenant_id', tenantId)
+        .order('action_timestamp', { ascending: false })
+
+      if (actionError) {
+        if (!isMissingRelationError(actionError, 'collection_actions')) {
+          throw new Error(`Failed to load collection actions: ${actionError.message}`)
+        }
+      } else {
+        for (const row of (actionRows ?? []) as CollectionActionRow[]) {
+          if (latestActionByCustomerSourceId.has(row.customer_source_id)) continue
+
+          const actionType = parseCollectionActionType(row.action_type)
+          if (!actionType) continue
+
+          latestActionByCustomerSourceId.set(row.customer_source_id, {
+            type: actionType,
+            takenAtIso: row.action_timestamp,
+            outcome: parseCollectionActionOutcome(row.outcome),
+            nextActionDate: row.next_action_date,
+            actionId: row.id,
+          })
+        }
+
+        for (const [customerSourceId, latestAction] of latestActionByCustomerSourceId.entries()) {
+          const actionDateIso = toUtcDateIso(latestAction.takenAtIso)
+          if (actionDateIso === todayDateIso) {
+            actionsTakenByCustomerId[customerSourceId] = latestAction
+          }
+        }
+      }
     }
 
     if (!tenantId) {
@@ -90,9 +192,14 @@ export async function GET(request: NextRequest) {
 
     const summaryRows = await loadCustomerCollectionsSummary(supabase, user.id, tenantId)
 
+    const queueEligibleRows = summaryRows.filter((row) => {
+      const latestAction = latestActionByCustomerSourceId.get(row.customer_source_id)
+      return !shouldSuppressCustomerFromQueue(latestAction, todayDateIso)
+    })
+
     const filteredRows = overdueOnly
-      ? summaryRows.filter((row) => row.overdue_outstanding > 0)
-      : summaryRows
+      ? queueEligibleRows.filter((row) => row.overdue_outstanding > 0)
+      : queueEligibleRows
     const overdueRows = filteredRows.filter((row) => row.overdue_outstanding > 0)
     const totalOverdueOutstanding = filteredRows.reduce(
       (sum, row) => sum + Math.max(0, row.overdue_outstanding),
@@ -161,31 +268,39 @@ export async function GET(request: NextRequest) {
         })
       })
       .slice(0, limit)
-      .map((row) => ({
-        customer_source_id: row.customer_source_id,
-        customer_name: row.customer_name,
-        customer_email: row.customer_email,
-        overdue_outstanding: row.overdue_outstanding,
-        total_outstanding: row.total_outstanding,
-        overdue_invoices_count: row.overdue_invoices_count,
-        open_invoices_count: row.open_invoices_count,
-        weighted_avg_overdue_days: row.weighted_avg_overdue_days,
-        last_payment_date: row.last_payment_date,
-        override_level: row.override_level,
-        override_multiplier: row.override_multiplier,
-        base_score: row.base_score,
-        final_score: row.final_score,
-        priority_score: row.priority_score,
-        recommended_action: row.recommended_action,
-        reason: row.reason,
-        score_breakdown_lines: row.score_breakdown_lines,
-        currency_code: row.currency_code ?? null,
-      }))
+      .map((row) => {
+        const latestAction = latestActionByCustomerSourceId.get(row.customer_source_id)
+
+        return {
+          customer_source_id: row.customer_source_id,
+          customer_name: row.customer_name,
+          customer_email: row.customer_email,
+          overdue_outstanding: row.overdue_outstanding,
+          total_outstanding: row.total_outstanding,
+          overdue_invoices_count: row.overdue_invoices_count,
+          open_invoices_count: row.open_invoices_count,
+          weighted_avg_overdue_days: row.weighted_avg_overdue_days,
+          last_payment_date: row.last_payment_date,
+          override_level: row.override_level,
+          override_multiplier: row.override_multiplier,
+          base_score: row.base_score,
+          final_score: row.final_score,
+          priority_score: row.priority_score,
+          recommended_action: row.recommended_action,
+          reason: row.reason,
+          score_breakdown_lines: row.score_breakdown_lines,
+          currency_code: row.currency_code ?? null,
+          last_action_type: latestAction?.type ?? null,
+          last_action_outcome: latestAction?.outcome ?? null,
+          last_action_timestamp: latestAction?.takenAtIso ?? null,
+        }
+      })
 
     return NextResponse.json({
       ok: true,
       tenantId,
       rows: prioritizedRows,
+      actionsTakenByCustomerId,
     })
   } catch (error) {
     console.error('[collections.actions.get] Failed to load prioritised collection actions', {

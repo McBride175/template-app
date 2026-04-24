@@ -99,6 +99,13 @@ export async function POST(request: Request) {
       )
     }
 
+    if (actionType === 'postponed' && !parsedNextActionDate) {
+      return NextResponse.json(
+        { error: 'next_action_date is required when action_type is postponed.' },
+        { status: 400 }
+      )
+    }
+
     const tenantId = await resolveCollectionsTenantId(supabase, user.id, requestedTenantId)
     if (!tenantId) {
       return NextResponse.json({ error: 'No tenant context found' }, { status: 400 })

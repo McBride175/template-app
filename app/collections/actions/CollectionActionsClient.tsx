@@ -25,11 +25,15 @@ interface CollectionActionRow {
   reason: string
   score_breakdown_lines: string[]
   currency_code: string | null
+  last_action_type: 'called' | 'emailed' | 'postponed' | null
+  last_action_outcome: 'no_response' | 'spoke_to_customer' | 'promised_to_pay' | 'disputed' | null
+  last_action_timestamp: string | null
 }
 
 interface CollectionActionsApiResponse {
   ok?: boolean
   rows?: CollectionActionRow[]
+  actionsTakenByCustomerId?: Record<string, ActionTakenLog>
   error?: string
 }
 
@@ -56,7 +60,7 @@ interface CollectionActionsClientProps {
 
 type ActionType = 'called' | 'emailed' | 'postponed'
 type ActionOutcome = 'no_response' | 'spoke_to_customer' | 'promised_to_pay' | 'disputed'
-type DetailPanel = 'none' | 'fast_postpone' | 'call_outcome' | 'email_outcome' | 'detail_postpone'
+type DetailPanel = 'none' | 'call_outcome' | 'detail_postpone'
 type OverrideLevel = 'safe' | 'normal' | 'priority' | 'do_not_chase'
 
 interface ActionTakenLog {
@@ -125,6 +129,30 @@ function formatDate(value: string | null) {
   const date = new Date(`${value}T00:00:00Z`)
   if (Number.isNaN(date.getTime())) return '—'
   return date.toLocaleDateString()
+}
+
+function formatRelativeTimeFromNow(value: string | null) {
+  if (!value) return null
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+
+  const diffMs = date.getTime() - Date.now()
+  const absDiffMs = Math.abs(diffMs)
+  const minuteMs = 60 * 1000
+  const hourMs = 60 * minuteMs
+  const dayMs = 24 * hourMs
+  const relativeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+
+  if (absDiffMs < hourMs) {
+    return relativeFormat.format(Math.round(diffMs / minuteMs), 'minute')
+  }
+
+  if (absDiffMs < dayMs) {
+    return relativeFormat.format(Math.round(diffMs / hourMs), 'hour')
+  }
+
+  return relativeFormat.format(Math.round(diffMs / dayMs), 'day')
 }
 
 function formatWeightedDays(value: number) {
@@ -336,6 +364,7 @@ export default function CollectionActionsClient({
             ? nextRows.filter((row) => row.overdue_invoices_count > 0 || row.overdue_outstanding > 0)
             : nextRows
         )
+        setActionsTakenByCustomerId(payload.actionsTakenByCustomerId ?? {})
       } catch (fetchError) {
         setError(
           fetchError instanceof Error ? fetchError.message : 'Failed to load collection actions.'
@@ -356,9 +385,30 @@ export default function CollectionActionsClient({
     () => rows.filter((row) => !actionsTakenByCustomerId[row.customer_source_id]),
     [actionsTakenByCustomerId, rows]
   )
+  const todayActionSummary = useMemo(() => {
+    const summary: Record<ActionType, number> = {
+      called: 0,
+      emailed: 0,
+      postponed: 0,
+    }
+
+    for (const action of Object.values(actionsTakenByCustomerId)) {
+      summary[action.type] += 1
+    }
+
+    return {
+      called: summary.called,
+      emailed: summary.emailed,
+      postponed: summary.postponed,
+      total: summary.called + summary.emailed + summary.postponed,
+    }
+  }, [actionsTakenByCustomerId])
 
   const currentQueueRow = queueRows[queueCardIndex] ?? null
   const queuePosition = currentQueueRow ? queueCardIndex + 1 : 0
+  const currentQueueRowLastActionRelativeTime = formatRelativeTimeFromNow(
+    currentQueueRow?.last_action_timestamp ?? null
+  )
 
   useEffect(() => {
     setQueueCardIndex((prev) => {
@@ -638,12 +688,8 @@ export default function CollectionActionsClient({
     [applyLoggedAction, currentQueueRow, logAction, submittingAction, undoingAction]
   )
 
-  const selectedOutcomeActionType: 'called' | 'emailed' | null =
-    detailPanel === 'call_outcome'
-      ? 'called'
-      : detailPanel === 'email_outcome'
-        ? 'emailed'
-        : null
+  const selectedOutcomeActionType: 'called' | null =
+    detailPanel === 'call_outcome' ? 'called' : null
 
   const handleSubmitActionWithOutcome = useCallback(async () => {
     if (
@@ -817,6 +863,9 @@ export default function CollectionActionsClient({
   const customersHref = tenantId
     ? `/customers?tenantId=${encodeURIComponent(tenantId)}`
     : '/customers'
+  const disputesHref = tenantId
+    ? `/disputes?tenantId=${encodeURIComponent(tenantId)}`
+    : '/disputes'
   const accountHref = tenantId
     ? `/account?tenantId=${encodeURIComponent(tenantId)}`
     : '/account'
@@ -872,68 +921,102 @@ export default function CollectionActionsClient({
       {showQueueSection && (
         <Card>
           <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            {queueRows.length > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Next to chase</h3>
+                  <p className="text-sm text-gray-600">{`${queueRows.length} remaining in your queue`}</p>
+                </div>
+                <Button
+                  onClick={() => void loadRows(true)}
+                  variant="secondary"
+                  size="sm"
+                  disabled={refreshing}
+                >
+                  {refreshing ? 'Refreshing…' : 'Refresh'}
+                </Button>
+                <div className="flex items-center gap-2">
+                  {queueRows.length > 1 && (
+                    <p className="text-xs text-gray-500">
+                      Card {queuePosition} of {queueRows.length}
+                    </p>
+                  )}
+                  {!loading && lastAction && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void handleUndoLastAction()}
+                      disabled={disableQueueActions}
+                    >
+                      {undoingAction ? 'Undoing…' : 'Undo'}
+                    </Button>
+                  )}
+                  {!loading && currentQueueRow && (
+                    <>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => moveQueueCard('prev')}
+                        disabled={queueCardIndex === 0 || disableQueueActions}
+                      >
+                        Previous
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => moveQueueCard('next')}
+                        disabled={queueCardIndex >= queueRows.length - 1 || disableQueueActions}
+                      >
+                        Next
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ) : (
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Next to chase</h3>
-                <p className="text-sm text-gray-600">
-                  {queueRows.length > 0
-                    ? `${queueRows.length} remaining in your queue`
-                    : 'All queued customers are actioned for this session.'}
-                </p>
+                <h3 className="text-lg font-semibold text-gray-900">Queue complete</h3>
+                <p className="text-sm text-gray-600">All queued customers are actioned for today.</p>
               </div>
-              <Button
-                onClick={() => void loadRows(true)}
-                variant="secondary"
-                size="sm"
-                disabled={refreshing}
-              >
-                {refreshing ? 'Refreshing…' : 'Refresh'}
-              </Button>
-              <div className="flex items-center gap-2">
-                {queueRows.length > 1 && (
-                  <p className="text-xs text-gray-500">
-                    Card {queuePosition} of {queueRows.length}
-                  </p>
-                )}
-                {!loading && lastAction && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => void handleUndoLastAction()}
-                    disabled={disableQueueActions}
-                  >
-                    {undoingAction ? 'Undoing…' : 'Undo'}
-                  </Button>
-                )}
-                {!loading && currentQueueRow && (
-                  <>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => moveQueueCard('prev')}
-                      disabled={queueCardIndex === 0 || disableQueueActions}
-                    >
-                      Previous
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => moveQueueCard('next')}
-                      disabled={queueCardIndex >= queueRows.length - 1 || disableQueueActions}
-                    >
-                      Next
-                    </Button>
-                  </>
-                )}
-              </div>
-            </div>
+            )}
 
             {loading && <p className="text-sm text-gray-600">Loading next customer…</p>}
 
             {!loading && !currentQueueRow && (
-              <p className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
-                Queue complete. Refresh when you want to recalculate priorities.
-              </p>
+              <div className="space-y-3 rounded-md border border-green-200 bg-green-50 px-3 py-3 text-sm text-green-900">
+                <div className="rounded-md border border-green-200 bg-white/80 px-2.5 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-green-700">
+                    Today&apos;s action summary
+                  </p>
+                  <p className="mt-1 text-xs text-green-900">
+                    Called <span className="font-semibold">{todayActionSummary.called}</span> · Emailed{' '}
+                    <span className="font-semibold">{todayActionSummary.emailed}</span> · Postponed{' '}
+                    <span className="font-semibold">{todayActionSummary.postponed}</span> · Total{' '}
+                    <span className="font-semibold">{todayActionSummary.total}</span>
+                  </p>
+                </div>
+
+                <div className="space-y-3 rounded-md border border-green-300 bg-white px-3 py-3">
+                  <p className="text-base font-semibold text-green-900">Next steps</p>
+                  <p className="text-sm text-green-800">
+                    Review customer summary and disputes section before ending today&apos;s run.
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Link
+                      href={customersHref}
+                      className="inline-flex min-h-11 items-center justify-center rounded-md border border-green-400 bg-green-50 px-3 py-2 text-sm font-semibold text-green-900 hover:bg-green-100"
+                    >
+                      Review customer summary
+                    </Link>
+                    <Link
+                      href={disputesHref}
+                      className="inline-flex min-h-11 items-center justify-center rounded-md border border-green-400 bg-green-50 px-3 py-2 text-sm font-semibold text-green-900 hover:bg-green-100"
+                    >
+                      Review disputes section
+                    </Link>
+                  </div>
+                </div>
+              </div>
             )}
 
             {!loading && currentQueueRow && (
@@ -947,6 +1030,27 @@ export default function CollectionActionsClient({
                   <div className="space-y-0.5">
                     <p className="text-lg font-semibold text-gray-900">{currentQueueRow.customer_name}</p>
                     <p className="text-xs text-gray-500">{currentQueueRow.customer_email || 'No email on file'}</p>
+                    {currentQueueRow.last_action_type && (
+                      <div className="pt-1 text-xs text-gray-500">
+                        <p>
+                          Last action:{' '}
+                          <span className="font-medium text-gray-700">
+                            {getActionLabel(currentQueueRow.last_action_type)}
+                          </span>
+                          {currentQueueRowLastActionRelativeTime
+                            ? ` (${currentQueueRowLastActionRelativeTime})`
+                            : ''}
+                        </p>
+                        {currentQueueRow.last_action_outcome && (
+                          <p>
+                            Outcome:{' '}
+                            <span className="font-medium text-gray-700">
+                              {getOutcomeLabel(currentQueueRow.last_action_outcome)}
+                            </span>
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <span
@@ -999,20 +1103,14 @@ export default function CollectionActionsClient({
                     </Button>
                     <Button
                       onClick={() => {
-                        if (disableQueueActions) return
-                        setDetailPanel((prev) =>
-                          prev === 'fast_postpone' ? 'none' : 'fast_postpone'
-                        )
-                        setSelectedOutcome(null)
-                        setSelectedOutcomeDate(null)
-                        setCustomDateValue(getDateOffsetIso(1))
+                        void handlePostponeWithDate(getDateOffsetIso(1))
                       }}
                       variant="ghost"
                       size="sm"
                       className="w-full justify-center"
                       disabled={disableQueueActions}
                     >
-                      Postpone
+                      Postpone 1 day
                     </Button>
                   </div>
 
@@ -1039,23 +1137,6 @@ export default function CollectionActionsClient({
                       onClick={() => {
                         if (disableQueueActions) return
                         setDetailPanel((prev) =>
-                          prev === 'email_outcome' ? 'none' : 'email_outcome'
-                        )
-                        setSelectedOutcome(null)
-                        setSelectedOutcomeDate(null)
-                        setCustomDateValue(getDateOffsetIso(1))
-                      }}
-                      variant="secondary"
-                      size="md"
-                      className="w-full"
-                      disabled={disableQueueActions}
-                    >
-                      Email + outcome
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        if (disableQueueActions) return
-                        setDetailPanel((prev) =>
                           prev === 'detail_postpone' ? 'none' : 'detail_postpone'
                         )
                         setSelectedOutcome(null)
@@ -1072,12 +1153,10 @@ export default function CollectionActionsClient({
                   </div>
                 </div>
 
-                {(detailPanel === 'fast_postpone' || detailPanel === 'detail_postpone') && (
+                {detailPanel === 'detail_postpone' && (
                   <div className="space-y-3 rounded-md border border-gray-200 bg-gray-50 p-3">
                     <div>
-                      <p className="text-sm font-semibold text-gray-900">
-                        {detailPanel === 'fast_postpone' ? 'Postpone' : 'Postpone + date'}
-                      </p>
+                      <p className="text-sm font-semibold text-gray-900">Postpone + date</p>
                       <p className="text-xs text-gray-600">Choose the next action date.</p>
                     </div>
                     <QuickDatePicker
@@ -1103,12 +1182,10 @@ export default function CollectionActionsClient({
                   </div>
                 )}
 
-                {(detailPanel === 'call_outcome' || detailPanel === 'email_outcome') && (
+                {detailPanel === 'call_outcome' && (
                   <div className="space-y-3 rounded-md border border-gray-200 bg-gray-50 p-3">
                     <div>
-                      <p className="text-sm font-semibold text-gray-900">
-                        {detailPanel === 'call_outcome' ? 'Call + outcome' : 'Email + outcome'}
-                      </p>
+                      <p className="text-sm font-semibold text-gray-900">Call + outcome</p>
                       <p className="text-xs text-gray-600">
                         Optional structured detail. Choose an outcome and continue.
                       </p>

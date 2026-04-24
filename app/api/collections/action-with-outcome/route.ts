@@ -107,6 +107,16 @@ export async function POST(request: Request) {
     const requiresNextActionDate =
       actionType === 'postponed' || outcome === 'promised_to_pay'
 
+    if (hasNextActionDate && !requiresNextActionDate) {
+      return NextResponse.json(
+        {
+          error:
+            'next_action_date is only valid for postponed actions and promised_to_pay outcomes.',
+        },
+        { status: 400 }
+      )
+    }
+
     if (requiresNextActionDate && !parsedNextActionDate) {
       return NextResponse.json(
         {

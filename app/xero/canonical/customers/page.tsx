@@ -2,6 +2,11 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { resolveCollectionsTenantId } from '@/lib/collections/tenant-context'
+import {
+  CANONICAL_ACTION_LINK_CLASS,
+  CANONICAL_EMPTY_STATE_MESSAGE,
+  getCanonicalNavLinks,
+} from '@/app/xero/canonical/shared-copy'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,19 +49,18 @@ export default async function XeroCanonicalCustomersPage({
   const requestedTenantId = parseTenantId(resolvedSearchParams.tenantId)
   const tenantId = await resolveCollectionsTenantId(supabase, user.id, requestedTenantId)
   const tenantQuery = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''
+  const navLinks = getCanonicalNavLinks('customers', tenantQuery)
 
   if (!tenantId) {
     return (
       <main className="mx-auto max-w-6xl space-y-6 px-6 py-10">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">Canonical Customers</h1>
-          <p className="mt-2 text-sm text-gray-600">
-            No tenant selected. Connect Xero and choose an organisation first.
-          </p>
+          <p className="mt-2 text-sm text-gray-600">{CANONICAL_EMPTY_STATE_MESSAGE}</p>
         </div>
         <Link
           href="/account"
-          className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50"
+          className={CANONICAL_ACTION_LINK_CLASS}
         >
           Go to Account
         </Link>
@@ -82,30 +86,11 @@ export default async function XeroCanonicalCustomersPage({
           <p className="mt-1 text-sm text-gray-600">Mapped customer records from Xero raw data.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href="/admin"
-            className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50"
-          >
-            Admin
-          </Link>
-          <Link
-            href={`/xero/raw${tenantQuery}`}
-            className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50"
-          >
-            Xero raw
-          </Link>
-          <Link
-            href={`/xero/canonical/invoices${tenantQuery}`}
-            className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50"
-          >
-            Invoices
-          </Link>
-          <Link
-            href={`/xero/canonical/payments${tenantQuery}`}
-            className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50"
-          >
-            Payments
-          </Link>
+          {navLinks.map((link) => (
+            <Link key={link.href} href={link.href} className={CANONICAL_ACTION_LINK_CLASS}>
+              {link.label}
+            </Link>
+          ))}
         </div>
       </div>
 

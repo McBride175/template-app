@@ -1,3 +1,5 @@
+import { LEGAL_LAST_UPDATED_LABEL } from '@/app/legal/constants'
+
 const DEFAULT_CONTROLLER_NAME = 'Template App Operator'
 const DEFAULT_CONTROLLER_EMAIL = 'privacy@yourdomain.com'
 const DEFAULT_EU_REP_CONTACT = 'Not appointed'
@@ -24,7 +26,7 @@ export default function PrivacyPage() {
     <div className="max-w-3xl space-y-6">
       <header className="space-y-2">
         <h1>Privacy Policy</h1>
-        <p className="text-sm text-gray-500">Last updated: February 6, 2026</p>
+        <p className="text-sm text-gray-500">{LEGAL_LAST_UPDATED_LABEL}</p>
       </header>
 
       <section className="space-y-2">

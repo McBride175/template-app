@@ -1,9 +1,11 @@
+import { LEGAL_LAST_UPDATED_LABEL } from '@/app/legal/constants'
+
 export default function TermsPage() {
   return (
     <div className="max-w-3xl space-y-6">
       <header className="space-y-2">
         <h1>Terms of Service</h1>
-        <p className="text-sm text-gray-500">Last updated: February 6, 2026</p>
+        <p className="text-sm text-gray-500">{LEGAL_LAST_UPDATED_LABEL}</p>
       </header>
 
       <section className="space-y-2">

@@ -68,7 +68,7 @@ export default function Home() {
         <p className="text-sm font-semibold uppercase tracking-wide text-gray-600">
           Collections Decision Engine
         </p>
-        <h1 className="mt-5 max-w-5xl text-balance text-4xl font-semibold leading-[1.08] text-gray-900 sm:text-5xl">
+        <h1 className="mt-5 max-w-5xl text-balance text-5xl font-semibold leading-[1.08] text-gray-900 sm:text-6xl">
           Optimise effort spent per cash collected
         </h1>
         <p className="mt-6 max-w-3xl text-lg leading-relaxed text-gray-700">

@@ -1,23 +1,21 @@
 /**
- * Next.js Middleware: Supabase Session Refresh
+ * Next.js Proxy: Supabase Session Refresh
  * 
- * TEMPLATE CODE: This middleware refreshes Supabase session cookies on every request.
+ * TEMPLATE CODE: This proxy refreshes Supabase session cookies on every request.
  * Uses @supabase/ssr to keep the session in sync and prevent auth flicker.
- * 
- * Runs on Edge runtime - must use compatible APIs only.
  */
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   // Create a response object we can modify
-  let response = NextResponse.next({
+  const response = NextResponse.next({
     request: {
       headers: request.headers,
     },
   })
 
-  // Create Supabase client for middleware (Edge runtime compatible)
+  // Create the Supabase client used to refresh the request's session cookies.
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

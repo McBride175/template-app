@@ -1,293 +1,159 @@
-# Architecture Documentation
+# Application Architecture
 
-## Critical Gotchas
+This document is the high-level source of truth for environments, deployment, database workflow, security boundaries, and external integrations. Read it before making architecture, database, authentication, or deployment changes.
 
-1. **`subscriptions` table design**: PRIMARY KEY is `user_id` (one row per user, one-to-one relationship). `stripe_customer_id` and `stripe_subscription_id` are UNIQUE constraints to prevent duplicates.
+## Environments
 
-2. **Authentication pattern**: Application reads use ANON key + RLS policies (users can only read their own data). Webhooks and checkout write using SERVICE ROLE key (bypasses RLS, never exposed to client).
+| Environment | Application | Supabase | External-service intent |
+|---|---|---|---|
+| Local | `http://localhost:3000` | Test project `rbmxegyiwntomhpbepnu` (`Template app test`) | Test/sandbox credentials where the provider supports them |
+| Vercel Preview | Per-deployment Vercel URL | Test project `rbmxegyiwntomhpbepnu` | Stripe test mode; other provider applications may intentionally be shared with Production |
+| Vercel Production | `https://template-app-inky.vercel.app` | Production project `sswyxbugbdoadktyaows` (`McBride175's Project`) | Stripe live mode; reviewed Production credentials/configuration |
 
-3. **Webhook ordering**: Webhook events are not guaranteed to arrive in order. `customer.subscription.created` or `.updated` can arrive before `checkout.session.completed`. Duplicate events can also occur. All handlers use idempotent upsert logic to handle these cases.
+The Vercel Production branch is `test-stripe`. This task does not change that branch strategy.
 
-4. **`current_period_end` nullability**: `current_period_end` can be `null` temporarily (e.g., pending subscriptions before first billing period). The `hasActive` logic in `GET /api/subscription` handles this by treating `null` as "active if status is active/trialing".
+Use the same environment-variable names everywhere and scope their values in `.env.local` or Vercel. Never infer an environment from a secret prefix alone, and never commit an environment file.
 
-5. **Vercel environment scoping**: Use the same environment variable names across all environments. Scope values in Vercel: Preview = test-mode Stripe keys, Production = live-mode Stripe keys. Vercel automatically injects the correct values based on deployment environment.
+## Deployment
 
----
+- Local and Vercel Preview deliberately share the Test Supabase project.
+- Vercel Production uses the separate Production Supabase project.
+- Preview URLs are dynamic. OAuth and email links must use the request origin or `NEXT_PUBLIC_SITE_URL` rather than a hard-coded Preview hostname.
+- A deployment is not ready merely because the application build succeeds: its Supabase schema, Auth redirects, webhooks, OAuth callbacks, and environment-scoped credentials must also be ready.
+- Database changes go to Test first. Production receives the same reviewed forward migration only after Test validation.
 
-## Systems of Record
+## Database workflow
 
-### Supabase Auth
-- **Primary system** for user authentication and identity
-- Stores user accounts (`auth.users` table)
-- Manages OAuth sessions via cookies (httpOnly, secure)
-- Session refreshed on every request via Next.js middleware
-- User ID (`user_id`) is the primary key linking all user data
+The canonical schema starts at:
 
-### Stripe
-- **Source of truth** for subscription state and billing
-- Stores customer records, subscriptions, payment methods
-- Webhooks deliver subscription lifecycle events
-- Subscription status, period dates, and customer IDs originate here
+`supabase/migrations/20260813205201_baseline_current_schema.sql`
 
-### Supabase Database (Cache)
-- **Cached/denormalized** subscription data for fast reads
-- `subscriptions` table: mirrors Stripe subscription state
-- `stripe_customers` table: maps `stripe_customer_id` → `user_id`
-- Updated via webhooks, not directly by application code
-- Used for authorization checks and UI display
+The pre-baseline SQL files are preserved under `supabase/migrations_legacy/`. They are historical evidence, not an executable migration chain.
 
-**Key Principle**: Stripe is authoritative. Supabase DB is a cache that must be kept in sync via webhooks.
+Rules:
 
----
+1. The canonical baseline is the source of truth for an empty application database.
+2. Every later schema change gets a new 14-digit timestamped, forward-only migration in `supabase/migrations/`.
+3. Never edit a migration after it has been applied to a shared environment.
+4. Do not make manual hosted SQL changes without representing the same change in Git.
+5. Validate a clean local replay, then Test, before a reviewed Production rollout.
+6. Do not run `db push`, migration repair, or hosted SQL without explicit authorization and an exact project-ref preflight.
 
-## Database Schema
+At baseline creation time, neither hosted project has a reconciled migration ledger. Test already contains most schema objects from manual SQL; Production has no public application schema. A later controlled reconciliation must align Test and record the baseline appropriately, while Production should receive the verified baseline normally. Do not blindly replay the archived migrations or the baseline over Test's existing objects.
 
-### `subscriptions` Table
+## Database model
 
-**Columns:**
-- `user_id` (UUID, PRIMARY KEY) - References `auth.users(id)` ON DELETE CASCADE
-- `stripe_customer_id` (TEXT, UNIQUE, NOT NULL) - Stripe customer ID
-- `stripe_subscription_id` (TEXT, UNIQUE, NOT NULL) - Stripe subscription ID
-- `stripe_price_id` (TEXT, NULLABLE) - Stripe price ID for plan mapping
-- `status` (TEXT, NOT NULL) - Subscription status: `active`, `trialing`, `past_due`, `canceled`, `pending`
-- `current_period_end` (TIMESTAMPTZ, NULLABLE) - End of current billing period (nullable for pending subscriptions)
-- `created_at` (TIMESTAMPTZ) - Row creation timestamp
-- `updated_at` (TIMESTAMPTZ) - Auto-updated on row modification
+### Core and billing
 
-**Indexes:**
-- `idx_subscriptions_stripe_customer_id` on `stripe_customer_id`
-- `idx_subscriptions_stripe_subscription_id` on `stripe_subscription_id`
-- `idx_subscriptions_status` on `status`
+- `subscriptions` caches Stripe subscription state, keyed by `user_id`. Stripe customer and subscription IDs are unique. `current_period_end` is nullable for valid transient states.
+- `stripe_customers` maps Stripe customer IDs to Supabase users for server-side webhook resolution.
+- `notes` provides authenticated user-owned CRUD.
+- `billing_usage_days` records at most one free-use day per Xero tenant and calendar date. Billing code uses the service role and fails closed on database errors.
 
-**RLS Policies:**
-- `Users can view own subscription`: SELECT allowed where `auth.uid() = user_id`
-- Service role key required for INSERT/UPDATE (webhooks and checkout)
+Stripe remains authoritative for subscription state; the Supabase subscription row is a cache used for UI and entitlement checks.
 
-### `stripe_customers` Table
+### Support and privacy
 
-**Columns:**
-- `stripe_customer_id` (TEXT, PRIMARY KEY) - Stripe customer ID
-- `user_id` (UUID, NOT NULL) - References `auth.users(id)` ON DELETE CASCADE
-- `created_at` (TIMESTAMPTZ) - Row creation timestamp
+- `support_tickets` stores support submissions. The contact route inserts through the service role, including for signed-out users.
+- Email-delivery metadata is intentionally not persisted. `sent_at`, `resend_message_id`, and `email_error` were unused optional scaffolding and are not part of the canonical schema.
+- `user_privacy_preferences`, `privacy_requests`, `privacy_request_events`, and `privacy_exports` support GDPR/UK GDPR workflows.
+- Privacy routes authenticate and authorize the caller in application code, then use the service-role client for database operations.
 
-**Indexes:**
-- `idx_stripe_customers_user_id` on `user_id`
+### Xero and collections
 
-**RLS Policies:**
-- Service role key required for all operations (bypasses RLS)
-- Used by webhooks to resolve `user_id` when Stripe metadata is missing
+The final Xero design contains only:
 
-**Purpose**: Enables webhook handlers to map `stripe_customer_id` → `user_id` when subscription events lack metadata.
+- `xero_oauth_grants`: encrypted grant-scoped tokens and refresh locks
+- `xero_connections_public`: per-user/per-tenant public connection metadata, grant linkage, auth state, and tenant auto-sync locks
+- `xero_raw`: user/tenant-scoped raw API snapshots
+- `canonical_customers`, `canonical_invoices`, and `canonical_payments`: normalized accounting data
+- `customer_overrides`: user-controlled collection priority overrides
+- `xero_scheduled_sync_runs`: internal scheduler lock and cadence state
+- `collection_actions`: user-owned action history
 
----
+The legacy `xero_connections`, transient `xero_connection_secrets`, tenant-scoped refresh-lock RPCs, and orphaned `set_updated_at_xero_connections()` function are not part of the final architecture.
 
-## Request Flows
+Xero token, auto-sync, and scheduler RPCs are `SECURITY DEFINER`, have a fixed `pg_catalog, public` search path, and are executable only by `service_role`. The scheduled candidate RPC is the final stale-aware three-argument version.
 
-### Login Flow
-1. User clicks "Sign in with Google" → `app/login/page.tsx`
-2. Client calls `supabase.auth.signInWithOAuth()` with redirect to `/auth/callback`
-3. User authenticates with Google OAuth provider
-4. OAuth provider redirects to `/auth/callback?code=...`
-5. `app/auth/callback/route.ts` exchanges code for session via `supabase.auth.exchangeCodeForSession()`
-6. Session cookies set (httpOnly, secure)
-7. Redirect to `/dashboard`
-8. Middleware refreshes session on every subsequent request
+## Database access model
 
-### Notes CRUD Flow
-1. **Read**: Client calls `fetchNotes()` → Supabase client queries `notes` table with RLS
-2. **Create**: Client calls `addNote(content, userId)` → Supabase client inserts into `notes` table
-3. **Delete**: Client calls `deleteNote(id)` → Supabase client deletes from `notes` table
-4. All operations use Supabase client with session cookies (RLS enforces user isolation)
+RLS is enabled on every application table. Grants are explicit rather than relying on Supabase's broad default privileges.
 
-### Subscribe → Checkout → Stripe → Webhook → DB → UI Flow
+| Access | Tables |
+|---|---|
+| Authenticated user SELECT | `subscriptions`, `xero_connections_public`, `xero_raw`, canonical Xero tables |
+| Authenticated user CRUD | `notes`, `customer_overrides` |
+| Authenticated user SELECT/INSERT/DELETE | `collection_actions` |
+| Service role only | `stripe_customers`, `support_tickets`, all privacy tables, `xero_oauth_grants`, `xero_scheduled_sync_runs`, `billing_usage_days` |
+| Anonymous browser | No direct application-table access |
 
-1. **User initiates subscription** (`app/dashboard/page.tsx`)
-   - Client calls `POST /api/checkout` with session cookies
+User-accessible tables have `auth.uid() = user_id` policies. Server-only tables have RLS enabled, no browser policies, and explicit revocation from `anon` and `authenticated`. Service-role credentials are server-only and bypass RLS.
 
-2. **Checkout API** (`app/api/checkout/route.ts`)
-   - Authenticates user via session cookies or Bearer token
-   - Checks for existing subscription in `subscriptions` table
-   - Creates Stripe customer if missing (with `supabase_user_id` metadata)
-   - Upserts `stripe_customers` mapping (customer_id → user_id)
-   - Creates Stripe Checkout Session
-   - Returns checkout URL to client
+## Authentication and Google OAuth
 
-3. **User completes payment** (Stripe-hosted checkout page)
-   - User enters payment details on Stripe
-   - Stripe processes payment and creates subscription
+Supabase Auth is the identity system of record. Browser/server session clients use the public Supabase URL and anon key; the Next.js proxy refreshes cookie-based sessions.
 
-4. **Stripe webhook events** (delivered to `/api/webhooks/stripe`)
-   - `checkout.session.completed`: Creates/updates subscription record with `status='pending'`, `current_period_end=null`
-   - `customer.subscription.created`: Updates subscription with full details (status, `current_period_end`)
-   - `customer.subscription.updated`: Updates subscription status and period dates
-   - `customer.subscription.deleted`: Sets `status='canceled'`
+Google sign-in flow:
 
-5. **Webhook handler** (`app/api/webhooks/stripe/route.ts`)
-   - Verifies webhook signature
-   - Resolves `user_id` via `stripe_customers` table or existing subscription record
-   - Updates `subscriptions` table using service role key (bypasses RLS)
-   - Upserts `stripe_customers` mapping (non-critical, logs warning on failure)
+1. The login page calls `supabase.auth.signInWithOAuth({ provider: 'google' })`.
+2. Google returns through Supabase Auth.
+3. The application callback `/auth/callback` exchanges the authorization code for a session.
+4. The user is redirected to the application.
 
-6. **UI updates** (`app/dashboard/page.tsx`)
-   - Client polls `GET /api/subscription` to check status
-   - `SubscriptionStatus` component displays current subscription state
-   - `SubscribeSection` shows subscribe button or active status
+Application code controls the application callback and post-login redirect. Supabase controls provider enablement, Site URL, and allowed redirects. Google Cloud controls the OAuth client and Supabase callback URIs.
 
----
+Preview and Production may use the same Google OAuth client if every required Supabase callback URI and origin is configured. Because Test and Production are separate Supabase projects, both project callback URLs must be accounted for even when the Google client is shared.
 
-## API Routes
+## Stripe
 
-### `POST /api/checkout`
-**Purpose**: Create Stripe Checkout Session for authenticated user
+Stripe is authoritative for customers and subscriptions.
 
-**Authentication**: Session cookies or Bearer token
+- Checkout is created by authenticated server routes.
+- Stripe webhook signatures are verified before processing.
+- Webhook handlers use service-role writes and idempotent update/upsert logic because events can arrive more than once or out of order.
+- `checkout.session.completed` may create a transient row with `current_period_end = null`; later subscription events fill the period date.
+- Preview uses Stripe test mode and a Preview webhook secret. Production uses live mode and its own Production webhook secret and Price IDs.
+- Checkout success/cancel URLs are derived from the request origin.
 
-**Reads:**
-- `subscriptions` table (checks for existing subscription)
+## Xero
 
-**Writes:**
-- Stripe API (creates customer, creates checkout session)
-- `stripe_customers` table (upserts customer mapping via service role)
+Xero OAuth uses `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET`, `XERO_REDIRECT_URI`, and `XERO_TOKEN_ENCRYPTION_KEY`. The callback route is `/api/xero/callback`. Tokens are encrypted before storage in `xero_oauth_grants`; plaintext token tables are not permitted.
 
-**Returns**: `{ url: string }` - Stripe Checkout URL
+The code supports one Xero configuration per deployment environment. Preview and Production may intentionally share one Xero developer application if that application's redirect configuration supports both environments. Separate applications are not assumed or required by the code.
 
-**Error Handling**: Returns 500 if Stripe API fails or `STRIPE_PRICE_ID_PRO` missing
+Manual and scheduled synchronization use service-role database access. Internal sync endpoints require an internal/cron secret, and scheduled sync is disabled unless explicitly enabled.
 
-### `POST /api/webhooks/stripe`
-**Purpose**: Handle Stripe webhook events and sync subscription state to database
+## Resend
 
-**Authentication**: Webhook signature verification (not user auth)
+The contact route always attempts to persist a support ticket first, then sends a notification through Resend when the inbox and API key are configured. Email failure does not discard the ticket.
 
-**Reads:**
-- Stripe API (retrieves full subscription object for `.created` and `.updated` events)
-- `stripe_customers` table (resolves user_id from customer_id)
-- `subscriptions` table (fallback user_id resolution, checks for existing records)
+Preview and Production may intentionally share a Resend account and verified sending domain. The sender in `SUPPORT_FROM_EMAIL` must be permitted by that account. No database email-delivery metadata is maintained.
 
-**Writes:**
-- `subscriptions` table (upserts subscription records via service role)
-- `stripe_customers` table (upserts customer mapping via service role, non-critical)
+## Vercel
 
-**Events Handled:**
-- `checkout.session.completed`: Creates pending subscription record
-- `customer.subscription.created`: Updates subscription with full details
-- `customer.subscription.updated`: Updates subscription status/period
-- `customer.subscription.deleted`: Marks subscription as canceled
+Vercel provides Preview and Production deployment scoping and supplies `VERCEL_ENV`, `VERCEL_URL`, and `VERCEL_GIT_COMMIT_SHA`. The application uses `VERCEL_URL` as a fallback origin and `VERCEL_ENV` for environment-sensitive behavior.
 
-**Returns**: `{ received: true }` on success, `{ error: string }` on failure (triggers Stripe retry)
+Environment values—not variable names—must differ where required. In particular, Production must use the Production Supabase project and Stripe live configuration, while Preview uses Test Supabase and Stripe test configuration.
 
-### `GET /api/subscription`
-**Purpose**: Get current user's subscription status
+## Environment variables
 
-**Authentication**: Session cookies (via Supabase client)
+`.env.example` is the complete variable-name inventory. It contains no values. Broad groups are:
 
-**Reads:**
-- `subscriptions` table (queries by `user_id` with RLS)
+- Application URL and Vercel-provided runtime metadata
+- Supabase public/session and server-only service credentials
+- Stripe keys, Price IDs, and webhook secret
+- Resend/support sender and inbox
+- Xero OAuth, token encryption, internal access, and sync tuning
+- Retention/scheduling secrets
+- Privacy administration, export signing, and policy metadata
 
-**Writes**: None
+Google OAuth has no direct Google secret in application code; provider credentials live in Supabase and Google Cloud dashboards.
 
-**Returns**: `{ hasActive: boolean, status: string | null, current_period_end: string | null }`
+## Important failure modes
 
-**Caching**: No-cache headers set (subscription status must be fresh)
-
----
-
-## Environment Variable Strategy
-
-### Variable Names (Same Across All Environments)
-
-**Public (Client-Exposed):**
-- `NEXT_PUBLIC_SUPABASE_URL` - Supabase project URL
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - Supabase anonymous key
-
-**Server-Only (Never Exposed to Client):**
-- `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key (bypasses RLS)
-- `STRIPE_SECRET_KEY` - Stripe secret key (`sk_test_...` or `sk_live_...`)
-- `STRIPE_PRICE_ID_PRO` - Stripe Price ID for Pro subscription plan
-- `STRIPE_WEBHOOK_SECRET` - Stripe webhook signing secret
-
-### Environment Scoping in Vercel
-
-**Local Development:**
-- Set variables in `.env.local` (gitignored)
-- Use test-mode Stripe keys and test webhook secret
-
-**Vercel Preview:**
-- Set variables in Vercel project settings → Environment Variables
-- Scope to "Preview" environment
-- Use test-mode Stripe keys and preview webhook endpoint secret
-
-**Vercel Production:**
-- Set variables in Vercel project settings → Environment Variables
-- Scope to "Production" environment
-- Use live-mode Stripe keys and production webhook endpoint secret
-
-**Key Principle**: Same variable names, different values per environment. Vercel automatically injects the correct values based on deployment environment.
-
----
-
-## Invariants & Failure Modes
-
-### Invariants
-
-1. **One subscription per user**: `subscriptions.user_id` is PRIMARY KEY (one-to-one relationship)
-2. **Stripe is authoritative**: Database state must match Stripe state (enforced via webhooks)
-3. **Customer mapping must exist**: `stripe_customers` table should have entry for every active subscription
-4. **Webhook idempotency**: Webhook handlers use upsert logic to handle duplicate events safely
-
-### Failure Modes
-
-#### Webhook Ordering Issues
-**Problem**: Webhooks may arrive out of order (e.g., `customer.subscription.created` before `checkout.session.completed`)
-
-**Mitigation**:
-- `checkout.session.completed` handler uses UPDATE-then-INSERT pattern (avoids NOT NULL violations)
-- `customer.subscription.created` handler retrieves full subscription from Stripe API (ensures complete data)
-- Both handlers use upsert logic to handle race conditions
-
-#### Missing Metadata
-**Problem**: Stripe webhook events may lack `supabase_user_id` in metadata (e.g., subscription created via Stripe Dashboard)
-
-**Mitigation**:
-- Webhook handlers resolve `user_id` via `stripe_customers` table lookup (primary strategy)
-- Fallback: query `subscriptions` table by `stripe_subscription_id` to get existing `user_id`
-- If `user_id` cannot be resolved, webhook returns 200 with warning log (no DB write, prevents infinite retries)
-
-#### Duplicate Webhook Events
-**Problem**: Stripe may deliver the same webhook event multiple times
-
-**Mitigation**:
-- All webhook handlers use upsert operations (UPDATE preferred, INSERT if row missing)
-- Unique constraints on `user_id`, `stripe_customer_id`, `stripe_subscription_id` prevent duplicates
-- Handlers are idempotent (safe to retry)
-
-#### `current_period_end` Null
-**Problem**: `current_period_end` may be null for pending subscriptions (before first billing period starts)
-
-**Mitigation**:
-- Column is nullable (migration `20260127182739_make_current_period_end_nullable.sql`)
-- `checkout.session.completed` sets `current_period_end=null` (subscription pending)
-- `customer.subscription.created` and `.updated` retrieve period from Stripe API and set value
-- `GET /api/subscription` treats null `current_period_end` as "active if status is active/trialing"
-
-#### Webhook Signature Verification Failure
-**Problem**: Invalid or missing webhook signature header
-
-**Mitigation**:
-- Webhook handler verifies signature before processing
-- Returns 400 if signature missing or invalid (prevents unauthorized webhook calls)
-
-#### Database Write Failures
-**Problem**: Supabase database write fails during webhook processing
-
-**Mitigation**:
-- Webhook handler returns 500 on DB errors (triggers Stripe retry)
-- Structured logging includes operation type, user_id, subscription_id for debugging
-- Customer mapping upsert failures are non-critical (logged as warnings, don't fail webhook)
-
-#### Checkout Session Creation Failure
-**Problem**: Stripe API fails or environment misconfiguration
-
-**Mitigation**:
-- Returns 500 with error details (debug info only in non-production)
-- Validates `STRIPE_PRICE_ID_PRO` exists before creating session
-- Optional: Validates Stripe key mode matches price ID mode (live key with test price = error)
+- A missing or stale database schema must fail validation rather than be hidden by legacy-table fallbacks.
+- Billing usage writes/counts fail closed so a database error cannot silently grant unlimited free access.
+- Stripe events are unordered and duplicated; webhook handlers must remain idempotent.
+- Xero refresh and sync operations are concurrent; grant, tenant, and scheduler locks must remain service-only.
+- Dynamic Preview URLs require explicit OAuth/dashboard planning.
+- `supabase/.temp/` is local generated metadata and must never be committed because it can silently restore a hosted project link.

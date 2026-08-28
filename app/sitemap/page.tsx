@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import Card from '@/app/components/Card'
 import { getAllPostMetadata } from '@/lib/blog'
+import { getAllIndexableSeoProblemPages } from '@/lib/seo-pages'
 import { SITEMAP_PAGE_LINKS } from '@/lib/sitemap-links'
 
 export const metadata: Metadata = {
@@ -14,6 +15,7 @@ export const metadata: Metadata = {
 
 export default async function SitemapPage() {
   const posts = await getAllPostMetadata()
+  const guides = getAllIndexableSeoProblemPages()
 
   return (
     <div className="space-y-8">
@@ -30,6 +32,24 @@ export default async function SitemapPage() {
               <li key={link.href}>
                 <Link href={link.href} className="hover:text-gray-900 underline underline-offset-2">
                   {link.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </Card>
+
+      <Card>
+        <div className="space-y-3">
+          <h2>Guides</h2>
+          <ul className="space-y-2 text-sm text-gray-700">
+            {guides.map((guide) => (
+              <li key={guide.slug}>
+                <Link
+                  href={`/guides/${guide.slug}`}
+                  className="hover:text-gray-900 underline underline-offset-2"
+                >
+                  {guide.h1}
                 </Link>
               </li>
             ))}

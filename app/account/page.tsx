@@ -20,6 +20,22 @@ interface SubscriptionData {
   plan?: 'basic' | 'pro' | null
 }
 
+interface ActionsEntitlement {
+  plan: 'free' | 'paid'
+  isPaid: boolean
+  tenantId: string | null
+  usageDaysConsumed: number
+  usageDaysRemaining: number | null
+  freeUsageDaysLimit: number
+  hasActionsAccess: boolean
+}
+
+interface BillingEntitlementApiResponse {
+  ok?: boolean
+  entitlement?: ActionsEntitlement
+  error?: string
+}
+
 interface XeroConnectionStatus {
   connected: boolean
   needsReauth?: boolean
@@ -91,6 +107,9 @@ export default function AccountPage() {
   const router = useRouter()
   const [email, setEmail] = useState<string | null>(null)
   const [subscription, setSubscription] = useState<SubscriptionData | null>(null)
+  const [billingEntitlement, setBillingEntitlement] = useState<ActionsEntitlement | null>(null)
+  const [billingLoading, setBillingLoading] = useState(false)
+  const [billingError, setBillingError] = useState<string | null>(null)
   const [xeroStatus, setXeroStatus] = useState<XeroConnectionStatus | null>(null)
   const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null)
   const [xeroResult, setXeroResult] = useState<string | null>(null)
@@ -110,6 +129,41 @@ export default function AccountPage() {
   const [exportLoading, setExportLoading] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
   const [exportStatus, setExportStatus] = useState<string | null>(null)
+
+  const loadBillingEntitlement = useCallback(async (tenantId: string | null) => {
+    setBillingLoading(true)
+    setBillingError(null)
+
+    try {
+      const params = new URLSearchParams()
+      if (tenantId) {
+        params.set('tenantId', tenantId)
+      }
+      const url =
+        params.size > 0 ? `/api/billing/entitlement?${params.toString()}` : '/api/billing/entitlement'
+      const response = await fetch(url, {
+        cache: 'no-store',
+        credentials: 'include',
+      })
+
+      if (response.status === 401) {
+        router.replace('/login')
+        return
+      }
+
+      const payload = (await response.json().catch(() => null)) as BillingEntitlementApiResponse | null
+
+      if (!response.ok || !payload?.ok || !payload.entitlement) {
+        throw new Error(payload?.error || 'Could not load billing status right now.')
+      }
+
+      setBillingEntitlement(payload.entitlement)
+    } catch (error) {
+      setBillingError(error instanceof Error ? error.message : 'Could not load billing status right now.')
+    } finally {
+      setBillingLoading(false)
+    }
+  }, [router])
 
   const loadXeroStatus = useCallback(async (tenantId: string | null) => {
     setXeroLoading(true)
@@ -162,7 +216,10 @@ export default function AccountPage() {
             ? new URLSearchParams(window.location.search).get('tenantId')
             : null
         )
-        await loadXeroStatus(initialTenantId)
+        await Promise.all([
+          loadXeroStatus(initialTenantId),
+          loadBillingEntitlement(initialTenantId),
+        ])
         triggerXeroAutoSyncOnEntry({
           surface: 'account',
           tenantId: initialTenantId,
@@ -173,7 +230,7 @@ export default function AccountPage() {
     }
 
     load()
-  }, [loadXeroStatus, router])
+  }, [loadBillingEntitlement, loadXeroStatus, router])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -323,7 +380,10 @@ export default function AccountPage() {
         throw new Error(message)
       }
 
-      await loadXeroStatus(selectedTenantId)
+      await Promise.all([
+        loadXeroStatus(selectedTenantId),
+        loadBillingEntitlement(selectedTenantId),
+      ])
       setXeroCanonicalMapCounts(null)
       setXeroResult('disconnected')
       if (typeof window !== 'undefined') {
@@ -452,7 +512,10 @@ export default function AccountPage() {
       params.set('tenantId', tenantId)
       router.replace(`/account?${params.toString()}`)
     }
-    await loadXeroStatus(tenantId)
+    await Promise.all([
+      loadXeroStatus(tenantId),
+      loadBillingEntitlement(tenantId),
+    ])
   }
 
   if (loading) return null
@@ -496,6 +559,7 @@ export default function AccountPage() {
   const dashboardHref = selectedTenantId
     ? `/dashboard?tenantId=${encodeURIComponent(selectedTenantId)}#collection-actions`
     : '/dashboard#collection-actions'
+  const billingPlanLabel = billingEntitlement?.isPaid ? 'Paid' : 'Free'
 
   return (
     <div className="space-y-8">
@@ -505,6 +569,57 @@ export default function AccountPage() {
       </div>
 
       <SubscriptionStatus />
+
+      <Card>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-2">
+            <h2>Billing</h2>
+            {billingLoading && <p className="text-sm text-gray-600">Loading billing status…</p>}
+            {!billingLoading && billingEntitlement && (
+              <div className="space-y-1 text-sm text-gray-700">
+                <p>
+                  Plan: <span className="font-medium text-gray-900">{billingPlanLabel}</span>
+                </p>
+                {billingEntitlement.isPaid ? (
+                  <p>
+                    Collection days: <span className="font-medium text-gray-900">Unlimited</span>
+                  </p>
+                ) : (
+                  <>
+                    <p>
+                      Collection days used:{' '}
+                      <span className="font-medium text-gray-900">
+                        {billingEntitlement.usageDaysConsumed} / {billingEntitlement.freeUsageDaysLimit}
+                      </span>
+                    </p>
+                    <p>
+                      Days remaining:{' '}
+                      <span className="font-medium text-gray-900">
+                        {billingEntitlement.usageDaysRemaining ?? 0}
+                      </span>
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+            {billingError && <p className="text-sm text-red-600">{billingError}</p>}
+          </div>
+          {!billingLoading && billingEntitlement && (
+            billingEntitlement.isPaid ? (
+              <ManageSubscriptionButton />
+            ) : (
+              <Button
+                onClick={() => router.push('/pricing')}
+                variant="primary"
+                size="md"
+                className="w-72"
+              >
+                Upgrade
+              </Button>
+            )
+          )}
+        </div>
+      </Card>
 
       <Card>
         <div className="flex items-center justify-between">

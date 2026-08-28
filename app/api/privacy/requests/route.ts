@@ -8,7 +8,7 @@ import {
   withOverdue,
   type PrivacyRequestType,
 } from '@/lib/privacy-service'
-import { isPrivacyRequestType } from '@/lib/privacy-utils.js'
+import { isPrivacyRequestType } from '@/lib/privacy-utils.mjs'
 
 type RequestBody = {
   type?: string

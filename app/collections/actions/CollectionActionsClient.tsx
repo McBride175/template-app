@@ -32,9 +32,41 @@ interface CollectionActionRow {
 
 interface CollectionActionsApiResponse {
   ok?: boolean
+  code?: string
+  entitlement?: ActionsEntitlement
   rows?: CollectionActionRow[]
   actionsTakenByCustomerId?: Record<string, ActionTakenLog>
+  queue?: CollectionQueueInfo
   error?: string
+}
+
+type CollectionQueueStatus =
+  | 'ready'
+  | 'no_mapped_data'
+  | 'no_overdue_customers'
+  | 'no_eligible_customers'
+  | 'complete_today'
+
+interface CollectionQueueInfo {
+  status: CollectionQueueStatus
+  mappedCustomerCount: number
+  mappedInvoiceCount: number
+  mappedPaymentCount: number
+  eligibleCustomerCount: number
+  suppressedCustomerCount: number
+  actionedTodayCount: number
+  remainingCustomerCount: number
+  returnedCustomerCount: number
+}
+
+interface ActionsEntitlement {
+  plan: 'free' | 'paid'
+  isPaid: boolean
+  tenantId: string | null
+  usageDaysConsumed: number
+  usageDaysRemaining: number | null
+  freeUsageDaysLimit: number
+  hasActionsAccess: boolean
 }
 
 interface CollectionOverrideApiResponse {
@@ -306,6 +338,9 @@ export default function CollectionActionsClient({
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [entitlement, setEntitlement] = useState<ActionsEntitlement | null>(null)
+  const [usageLimitReached, setUsageLimitReached] = useState(false)
+  const [queueInfo, setQueueInfo] = useState<CollectionQueueInfo | null>(null)
   const defaultLoginNextPath = embedded ? '/dashboard' : '/collections/actions'
   const effectiveLoginNextPath =
     loginNextPath ??
@@ -354,10 +389,23 @@ export default function CollectionActionsClient({
         }
 
         const payload = (await response.json().catch(() => null)) as CollectionActionsApiResponse | null
+        if (payload?.entitlement) {
+          setEntitlement(payload.entitlement)
+        }
+
+        if (payload?.code === 'ACTION_USAGE_LIMIT_REACHED') {
+          setRows([])
+          setActionsTakenByCustomerId({})
+          setQueueInfo(null)
+          setUsageLimitReached(true)
+          return
+        }
+
         if (!response.ok || !payload?.ok) {
           throw new Error(payload?.error || 'Failed to load collection actions.')
         }
 
+        setUsageLimitReached(false)
         const nextRows = payload.rows ?? []
         setRows(
           effectiveOverdueOnly
@@ -365,6 +413,7 @@ export default function CollectionActionsClient({
             : nextRows
         )
         setActionsTakenByCustomerId(payload.actionsTakenByCustomerId ?? {})
+        setQueueInfo(payload.queue ?? null)
       } catch (fetchError) {
         setError(
           fetchError instanceof Error ? fetchError.message : 'Failed to load collection actions.'
@@ -603,6 +652,20 @@ export default function CollectionActionsClient({
           actionId,
         },
       }))
+      setQueueInfo((prev) => {
+        if (!prev) return prev
+
+        const remainingCustomerCount = Math.max(0, prev.remainingCustomerCount - 1)
+        return {
+          ...prev,
+          status:
+            prev.eligibleCustomerCount > 0 && remainingCustomerCount === 0
+              ? 'complete_today'
+              : prev.status,
+          actionedTodayCount: prev.actionedTodayCount + 1,
+          remainingCustomerCount,
+        }
+      })
 
       setLastAction({
         actionId,
@@ -782,6 +845,16 @@ export default function CollectionActionsClient({
         delete next[lastAction.customerSourceId]
         return next
       })
+      setQueueInfo((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: 'ready',
+              actionedTodayCount: Math.max(0, prev.actionedTodayCount - 1),
+              remainingCustomerCount: prev.remainingCustomerCount + 1,
+            }
+          : prev
+      )
 
       setRestoreCustomerSourceId(lastAction.customerSourceId)
       setQueueFeedback(
@@ -869,6 +942,10 @@ export default function CollectionActionsClient({
   const accountHref = tenantId
     ? `/account?tenantId=${encodeURIComponent(tenantId)}`
     : '/account'
+  const freeUsageIndicator =
+    entitlement && !entitlement.isPaid && !usageLimitReached
+      ? `Free collection days used: ${entitlement.usageDaysConsumed} / ${entitlement.freeUsageDaysLimit}`
+      : null
 
   const disableQueueActions = submittingAction || undoingAction
 
@@ -899,7 +976,37 @@ export default function CollectionActionsClient({
         </div>
       )}
 
-      {showFiltersSection && (
+      {freeUsageIndicator && (
+        <p className="text-xs font-medium text-gray-500">{freeUsageIndicator}</p>
+      )}
+
+      {usageLimitReached && entitlement && (
+        <Card>
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">
+                You&apos;ve used all {entitlement.freeUsageDaysLimit} free collection days.
+              </h2>
+              <p className="mt-1 text-sm text-gray-600">
+                Upgrade to continue using daily prioritisation and action workflows.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => router.push('/pricing')} variant="primary" size="md">
+                Upgrade
+              </Button>
+              <Link
+                href={customersHref}
+                className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50"
+              >
+                Back to collections summary
+              </Link>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {showFiltersSection && !usageLimitReached && (
         <Card>
           <div className="flex flex-wrap items-end gap-4">
             <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-700">
@@ -918,10 +1025,10 @@ export default function CollectionActionsClient({
         </Card>
       )}
 
-      {showQueueSection && (
+      {showQueueSection && !usageLimitReached && (
         <Card>
           <div className="space-y-4">
-            {queueRows.length > 0 ? (
+            {!loading && queueRows.length > 0 ? (
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">Next to chase</h3>
@@ -973,16 +1080,46 @@ export default function CollectionActionsClient({
                   )}
                 </div>
               </div>
-            ) : (
+            ) : !loading && queueInfo?.status === 'complete_today' ? (
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">Queue complete</h3>
-                <p className="text-sm text-gray-600">All queued customers are actioned for today.</p>
+                <p className="text-sm text-gray-600">
+                  All eligible customers are actioned or deferred for today.
+                </p>
               </div>
-            )}
+            ) : !loading && queueInfo?.status === 'no_mapped_data' ? (
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Collections data not ready</h3>
+                <p className="text-sm text-gray-600">
+                  Sync Xero to load and map customer and invoice data.
+                </p>
+              </div>
+            ) : !loading && queueInfo?.status === 'no_overdue_customers' ? (
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">No overdue customers</h3>
+                <p className="text-sm text-gray-600">
+                  No mapped customers currently have overdue receivables.
+                </p>
+              </div>
+            ) : !loading && queueInfo?.status === 'no_eligible_customers' ? (
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">No eligible customers</h3>
+                <p className="text-sm text-gray-600">
+                  No mapped customers currently meet the collection queue criteria.
+                </p>
+              </div>
+            ) : !loading ? (
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  No collection actions available
+                </h3>
+                <p className="text-sm text-gray-600">Refresh to check for queue updates.</p>
+              </div>
+            ) : null}
 
             {loading && <p className="text-sm text-gray-600">Loading next customer…</p>}
 
-            {!loading && !currentQueueRow && (
+            {!loading && !currentQueueRow && queueInfo?.status === 'complete_today' && (
               <div className="space-y-3 rounded-md border border-green-200 bg-green-50 px-3 py-3 text-sm text-green-900">
                 <div className="rounded-md border border-green-200 bg-white/80 px-2.5 py-2">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-green-700">
@@ -1311,7 +1448,7 @@ export default function CollectionActionsClient({
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      {showTable && !error && !loading && rows.length > 0 && (
+      {showTable && !usageLimitReached && !error && !loading && rows.length > 0 && (
         <div className="overflow-x-auto rounded-md border border-gray-200 bg-white">
           <table className="min-w-full divide-y divide-gray-200 text-sm">
             <thead className="bg-gray-50 text-left text-gray-700">

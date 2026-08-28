@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
-import { loadCustomerCollectionsSummary } from '@/lib/collections/customer-summary'
+import { loadCustomerCollectionsSummaryWithMetadata } from '@/lib/collections/customer-summary'
 import {
   type CustomerOverrideLevel,
   prioritiseCustomer,
 } from '@/lib/collections/prioritization'
 import {
   isMissingRelationError,
-  resolveCollectionsTenantId,
 } from '@/lib/collections/tenant-context'
+import {
+  getActionsEntitlementStatus,
+  recordFreeActionsUsageDay,
+} from '@/lib/billing/entitlements'
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 200
@@ -23,6 +26,12 @@ const COLLECTION_ACTION_OUTCOMES = [
 
 type CollectionActionType = (typeof COLLECTION_ACTION_TYPES)[number]
 type CollectionActionOutcome = (typeof COLLECTION_ACTION_OUTCOMES)[number]
+type CollectionQueueStatus =
+  | 'ready'
+  | 'no_mapped_data'
+  | 'no_overdue_customers'
+  | 'no_eligible_customers'
+  | 'complete_today'
 
 interface CustomerOverrideRow {
   customer_source_id: string
@@ -122,75 +131,103 @@ export async function GET(request: NextRequest) {
     const overdueOnly = parseOverdueOnly(searchParams.get('overdueOnly'))
     const requestedTenantId = parseTenantId(searchParams.get('tenantId'))
 
-    const tenantId = await resolveCollectionsTenantId(supabase, user.id, requestedTenantId)
+    let entitlement = await getActionsEntitlementStatus({
+      userId: user.id,
+      preferredTenantId: requestedTenantId,
+      supabase,
+    })
+    const tenantId = entitlement.tenantId
+
+    if (!tenantId) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: 'NO_XERO_TENANT',
+          error: 'No connected Xero tenant found',
+          entitlement,
+        },
+        { status: 400 }
+      )
+    }
+
+    if (!entitlement.hasActionsAccess) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: 'ACTION_USAGE_LIMIT_REACHED',
+          entitlement,
+        },
+        { status: 402 }
+      )
+    }
+
     const overrideLevelByCustomerSourceId = new Map<string, CustomerOverrideLevel>()
     const latestActionByCustomerSourceId = new Map<string, LoggedCollectionAction>()
     const actionsTakenByCustomerId: Record<string, LoggedCollectionAction> = {}
     const todayDateIso = new Date().toISOString().slice(0, 10)
 
-    if (tenantId) {
-      const { data: overrideRows, error: overrideError } = await supabase
-        .from('customer_overrides')
-        .select('customer_source_id, override_level')
-        .eq('user_id', user.id)
-        .eq('tenant_id', tenantId)
+    const { data: overrideRows, error: overrideError } = await supabase
+      .from('customer_overrides')
+      .select('customer_source_id, override_level')
+      .eq('user_id', user.id)
+      .eq('tenant_id', tenantId)
 
-      if (overrideError) {
-        if (!isMissingRelationError(overrideError, 'customer_overrides')) {
-          throw new Error(`Failed to load customer overrides: ${overrideError.message}`)
-        }
-      } else {
-        for (const row of (overrideRows ?? []) as CustomerOverrideRow[]) {
-          overrideLevelByCustomerSourceId.set(
-            row.customer_source_id,
-            parseOverrideLevel(row.override_level)
-          )
-        }
+    if (overrideError) {
+      if (!isMissingRelationError(overrideError, 'customer_overrides')) {
+        throw new Error(`Failed to load customer overrides: ${overrideError.message}`)
       }
-
-      const { data: actionRows, error: actionError } = await supabase
-        .from('collection_actions')
-        .select(
-          'id, customer_source_id, action_type, outcome, next_action_date, action_timestamp'
+    } else {
+      for (const row of (overrideRows ?? []) as CustomerOverrideRow[]) {
+        overrideLevelByCustomerSourceId.set(
+          row.customer_source_id,
+          parseOverrideLevel(row.override_level)
         )
-        .eq('user_id', user.id)
-        .eq('tenant_id', tenantId)
-        .order('action_timestamp', { ascending: false })
+      }
+    }
 
-      if (actionError) {
-        if (!isMissingRelationError(actionError, 'collection_actions')) {
-          throw new Error(`Failed to load collection actions: ${actionError.message}`)
-        }
-      } else {
-        for (const row of (actionRows ?? []) as CollectionActionRow[]) {
-          if (latestActionByCustomerSourceId.has(row.customer_source_id)) continue
+    const { data: actionRows, error: actionError } = await supabase
+      .from('collection_actions')
+      .select(
+        'id, customer_source_id, action_type, outcome, next_action_date, action_timestamp'
+      )
+      .eq('user_id', user.id)
+      .eq('tenant_id', tenantId)
+      .order('action_timestamp', { ascending: false })
 
-          const actionType = parseCollectionActionType(row.action_type)
-          if (!actionType) continue
+    if (actionError) {
+      if (!isMissingRelationError(actionError, 'collection_actions')) {
+        throw new Error(`Failed to load collection actions: ${actionError.message}`)
+      }
+    } else {
+      for (const row of (actionRows ?? []) as CollectionActionRow[]) {
+        if (latestActionByCustomerSourceId.has(row.customer_source_id)) continue
 
-          latestActionByCustomerSourceId.set(row.customer_source_id, {
-            type: actionType,
-            takenAtIso: row.action_timestamp,
-            outcome: parseCollectionActionOutcome(row.outcome),
-            nextActionDate: row.next_action_date,
-            actionId: row.id,
-          })
-        }
+        const actionType = parseCollectionActionType(row.action_type)
+        if (!actionType) continue
 
-        for (const [customerSourceId, latestAction] of latestActionByCustomerSourceId.entries()) {
-          const actionDateIso = toUtcDateIso(latestAction.takenAtIso)
-          if (actionDateIso === todayDateIso) {
-            actionsTakenByCustomerId[customerSourceId] = latestAction
-          }
+        latestActionByCustomerSourceId.set(row.customer_source_id, {
+          type: actionType,
+          takenAtIso: row.action_timestamp,
+          outcome: parseCollectionActionOutcome(row.outcome),
+          nextActionDate: row.next_action_date,
+          actionId: row.id,
+        })
+      }
+
+      for (const [customerSourceId, latestAction] of latestActionByCustomerSourceId.entries()) {
+        const actionDateIso = toUtcDateIso(latestAction.takenAtIso)
+        if (actionDateIso === todayDateIso) {
+          actionsTakenByCustomerId[customerSourceId] = latestAction
         }
       }
     }
 
-    if (!tenantId) {
-      return NextResponse.json({ error: 'No tenant context found' }, { status: 400 })
-    }
+    const { rows: summaryRows, sourceCounts } =
+      await loadCustomerCollectionsSummaryWithMetadata(supabase, user.id, tenantId)
 
-    const summaryRows = await loadCustomerCollectionsSummary(supabase, user.id, tenantId)
+    const scopeRows = overdueOnly
+      ? summaryRows.filter((row) => row.overdue_outstanding > 0)
+      : summaryRows
 
     const queueEligibleRows = summaryRows.filter((row) => {
       const latestAction = latestActionByCustomerSourceId.get(row.customer_source_id)
@@ -200,6 +237,23 @@ export async function GET(request: NextRequest) {
     const filteredRows = overdueOnly
       ? queueEligibleRows.filter((row) => row.overdue_outstanding > 0)
       : queueEligibleRows
+    const suppressedCustomerCount = scopeRows.length - filteredRows.length
+    const actionedTodayCount = filteredRows.filter(
+      (row) => actionsTakenByCustomerId[row.customer_source_id]
+    ).length
+    const remainingCustomerCount = filteredRows.length - actionedTodayCount
+    const mappedRecordCount =
+      sourceCounts.customers + sourceCounts.invoices + sourceCounts.payments
+    let queueStatus: CollectionQueueStatus = 'ready'
+
+    if (mappedRecordCount === 0) {
+      queueStatus = 'no_mapped_data'
+    } else if (scopeRows.length === 0) {
+      queueStatus = overdueOnly ? 'no_overdue_customers' : 'no_eligible_customers'
+    } else if (remainingCustomerCount === 0) {
+      queueStatus = 'complete_today'
+    }
+
     const overdueRows = filteredRows.filter((row) => row.overdue_outstanding > 0)
     const totalOverdueOutstanding = filteredRows.reduce(
       (sum, row) => sum + Math.max(0, row.overdue_outstanding),
@@ -296,11 +350,31 @@ export async function GET(request: NextRequest) {
         }
       })
 
+    if (!entitlement.isPaid) {
+      entitlement = await recordFreeActionsUsageDay({
+        tenantId,
+        userId: user.id,
+        usageDate: todayDateIso,
+      })
+    }
+
     return NextResponse.json({
       ok: true,
       tenantId,
+      entitlement,
       rows: prioritizedRows,
       actionsTakenByCustomerId,
+      queue: {
+        status: queueStatus,
+        mappedCustomerCount: sourceCounts.customers,
+        mappedInvoiceCount: sourceCounts.invoices,
+        mappedPaymentCount: sourceCounts.payments,
+        eligibleCustomerCount: scopeRows.length,
+        suppressedCustomerCount,
+        actionedTodayCount,
+        remainingCustomerCount,
+        returnedCustomerCount: prioritizedRows.length,
+      },
     })
   } catch (error) {
     console.error('[collections.actions.get] Failed to load prioritised collection actions', {

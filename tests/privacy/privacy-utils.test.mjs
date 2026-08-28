@@ -8,7 +8,7 @@ import {
   getErasureAuditActions,
   isOverdue,
   stripSecretsFromObject,
-} from '../../lib/privacy-utils.js'
+} from '../../lib/privacy-utils.mjs'
 
 test('unauthorized access is blocked by ownership helper', () => {
   assert.equal(

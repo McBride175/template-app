@@ -24,6 +24,9 @@ function createFakeSupabaseAdminClient(state) {
     if (table === 'xero_connections_public') return state.connections
     if (table === 'xero_oauth_grants') return state.grants
     if (table === 'xero_raw') return state.rawRows
+    if (table === 'canonical_customers') return state.canonicalCustomers
+    if (table === 'canonical_invoices') return state.canonicalInvoices
+    if (table === 'canonical_payments') return state.canonicalPayments
     throw new Error(`Unsupported table: ${table}`)
   }
 
@@ -53,6 +56,7 @@ function createFakeSupabaseAdminClient(state) {
       filters: [],
       order: null,
       limit: null,
+      range: null,
     }
 
     function applyFilters() {
@@ -76,6 +80,9 @@ function createFakeSupabaseAdminClient(state) {
       }
       if (typeof context.limit === 'number') {
         output = output.slice(0, context.limit)
+      }
+      if (context.range) {
+        output = output.slice(context.range.from, context.range.to + 1)
       }
       return output
     }
@@ -126,6 +133,10 @@ function createFakeSupabaseAdminClient(state) {
         context.limit = limit
         return query
       },
+      range(from, to) {
+        context.range = { from, to }
+        return query
+      },
       maybeSingle() {
         return execute().then((result) => ({
           data: result.data[0] ?? null,
@@ -151,23 +162,22 @@ function createFakeSupabaseAdminClient(state) {
       return {
         ...createQuery(table),
         upsert(rows) {
-          if (table !== 'xero_raw') {
-            throw new Error(`Unsupported upsert table: ${table}`)
-          }
-
           for (const row of rows) {
-            const existing = state.rawRows.find(
-              (candidate) =>
+            const existing = tableRows(table).find((candidate) => {
+              const sameScope =
                 candidate.user_id === row.user_id &&
                 candidate.tenant_id === row.tenant_id &&
-                candidate.resource_type === row.resource_type &&
                 candidate.source_id === row.source_id
-            )
+              if (table === 'xero_raw') {
+                return sameScope && candidate.resource_type === row.resource_type
+              }
+              return sameScope && candidate.source_system === row.source_system
+            })
 
             if (existing) {
               Object.assign(existing, row)
             } else {
-              state.rawRows.push({ ...row })
+              tableRows(table).push({ ...row })
             }
           }
 
@@ -218,6 +228,9 @@ export function buildBaseSyncState() {
     connections: [],
     grants: [],
     rawRows: [],
+    canonicalCustomers: [],
+    canonicalInvoices: [],
+    canonicalPayments: [],
     grantLocks: new Map(),
   }
 }
@@ -226,6 +239,7 @@ export function createSyncHarness(options) {
   const refreshCalls = []
   const refreshBehavior = options.refreshBehavior
   const fetchCalls = []
+  const mappingCalls = []
   const fakeSupabaseAdmin = createFakeSupabaseAdminClient(options.state)
 
   class XeroTokenRefreshError extends Error {
@@ -248,7 +262,7 @@ export function createSyncHarness(options) {
     }
   }
 
-  const module = loadTypeScriptModule(options.syncModuleSpecifier, {
+  const loadedModule = loadTypeScriptModule(options.syncModuleSpecifier, {
     mocks: {
       'next/server': createNextServerMock(),
       '@/lib/supabase-admin': {
@@ -267,6 +281,9 @@ export function createSyncHarness(options) {
         },
         async fetchXeroAccountingResource(resourceType, accessToken, tenantId) {
           fetchCalls.push({ resourceType, accessToken, tenantId })
+          if (options.fetchBehavior) {
+            return options.fetchBehavior({ resourceType, accessToken, tenantId })
+          }
           return [{ id: `${resourceType}-${tenantId}` }]
         },
         getXeroSourceId(_resourceType, record) {
@@ -283,16 +300,31 @@ export function createSyncHarness(options) {
           return value
         },
       },
+      'server-only': {},
+      ...(options.useActualCanonicalMapper
+        ? {}
+        : {
+            '@/lib/xero/canonical-mapper': {
+              async mapXeroRawToCanonical(params) {
+                mappingCalls.push(params)
+                if (options.mappingBehavior) {
+                  return options.mappingBehavior({ params, callCount: mappingCalls.length })
+                }
+                return { customers: 1, invoices: 1, payments: 0 }
+              },
+            },
+          }),
       ...(options.extraMocks ?? {}),
     },
   })
 
   return {
-    syncXeroTenantForUser: module.syncXeroTenantForUser,
-    parseTenantId: module.parseTenantId,
+    syncXeroTenantForUser: loadedModule.syncXeroTenantForUser,
+    parseTenantId: loadedModule.parseTenantId,
     state: options.state,
     refreshCalls,
     fetchCalls,
+    mappingCalls,
     XeroTokenRefreshError,
   }
 }

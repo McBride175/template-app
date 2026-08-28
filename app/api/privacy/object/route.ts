@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { applyObjectionFlags } from '@/lib/privacy-utils.js'
+import { applyObjectionFlags } from '@/lib/privacy-utils.mjs'
 import { consumeRateLimit } from '@/lib/rate-limit'
 import {
   appendPrivacyEvent,

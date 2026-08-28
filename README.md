@@ -22,52 +22,9 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 
 ## Environment Variables
 
-### Required for Supabase Auth
-- `NEXT_PUBLIC_SUPABASE_URL` - Your Supabase project URL
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - Your Supabase anonymous key
+Copy `.env.example` to `.env.local` and populate only the values needed for local development. `.env.example` is the complete variable-name inventory and contains no credentials.
 
-### Required for Stripe Subscriptions
-- `STRIPE_SECRET_KEY` - Your Stripe secret key (starts with `sk_`)
-- `STRIPE_PRICE_ID_PRO` - Your Stripe Price ID for the Pro subscription plan
-- `STRIPE_PRICE_ID_BASIC` - Your Stripe Price ID for the Basic subscription plan
-- `STRIPE_WEBHOOK_SECRET` - Webhook signing secret from Stripe Dashboard
-- `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key (for webhook operations)
-
-### Required for Contact Support Notifications
-- `SUPPORT_INBOX_EMAIL` - Destination inbox that receives support notification emails. If missing, tickets are still created and API returns `ok: true` with `emailSent: false`.
-- `RESEND_API_KEY` - Required only for sending support notification emails. If missing, tickets are still created and API returns `ok: true` with `emailSent: false`.
-- `SUPPORT_FROM_EMAIL` - Optional sender identity for support emails. Defaults to `onboarding@resend.dev` when unset.
-
-### Required for Xero Connection Management
-- `XERO_CLIENT_ID` - OAuth client ID from your Xero app
-- `XERO_CLIENT_SECRET` - OAuth client secret from your Xero app
-- `XERO_REDIRECT_URI` - OAuth callback URL (must match `/api/xero/callback`)
-- `XERO_TOKEN_ENCRYPTION_KEY` - 32-byte key (base64 or 64-char hex) used to encrypt Xero OAuth tokens at rest
-
-### Optional for Internal Xero Sync Jobs
-- `XERO_SYNC_INTERNAL_SECRET` - Secret used by `/api/internal/xero/sync` and `/api/internal/xero/scheduled-sync` (or use `CRON_SECRET`)
-- `XERO_SCHEDULED_SYNC_ENABLED` - Off-switch flag for scheduled sync path. Defaults to disabled (`false`).
-- `XERO_SCHEDULED_SYNC_BATCH_SIZE` - Maximum eligible connections processed per run. Defaults to `25`.
-- `XERO_SCHEDULED_SYNC_ACTIVITY_WINDOW_HOURS` - Only users with `last_sign_in_at` in this recent window are eligible. Defaults to `168` (7 days).
-- `XERO_SCHEDULED_SYNC_MIN_INTERVAL_MINUTES` - Minimum interval between run starts. Defaults to `120` (2 hours).
-- `XERO_SCHEDULED_SYNC_RUN_LOCK_TTL_SECONDS` - Safety TTL for the scheduled run lock. Defaults to `900` (15 minutes).
-
-### Optional for Xero Activity-Based Auto Sync
-- `XERO_AUTO_SYNC_STALE_MINUTES` - Data freshness threshold used by `/api/xero/sync/auto` before triggering background sync (defaults to `60`)
-- `XERO_AUTO_SYNC_COOLDOWN_SECONDS` - Minimum delay between automatic sync triggers per tenant (defaults to `300`)
-- `XERO_AUTO_SYNC_LOCK_TTL_SECONDS` - Lock TTL used to prevent duplicate in-flight automatic syncs per tenant (defaults to `180`)
-
-### Required for Retention Cleanup Automation
-- `RETENTION_CRON_SECRET` - Secret used by `/api/internal/retention` (or use `CRON_SECRET`)
-
-### Optional GDPR Template Metadata
-- `DATA_CONTROLLER_NAME` - Displayed in the privacy policy controller section
-- `DATA_CONTROLLER_EMAIL` - Privacy request email shown in the privacy policy
-- `DATA_PROTECTION_OFFICER_CONTACT` - DPO contact shown in privacy policy (if appointed)
-- `EU_REPRESENTATIVE_CONTACT` - EU representative contact shown in privacy policy (if required)
-- `SUPPORT_TICKET_RETENTION_DAYS` - Retention period for support tickets (defaults to `365`)
-
-Server-only variables must be set in Vercel Preview and Production environments. Do not expose them as `NEXT_PUBLIC_*`.
+Never commit `.env.local` or put a server secret in a `NEXT_PUBLIC_*` variable. Preview and Production use the same variable names with environment-scoped values in Vercel. See `ARCHITECTURE.md` for the confirmed Supabase and deployment mapping.
 
 ### Setting up Stripe
 
@@ -78,21 +35,21 @@ Server-only variables must be set in Vercel Preview and Production environments.
    - URL: `https://yourdomain.com/api/webhooks/stripe`
    - Events to listen for:
      - `checkout.session.completed`
+     - `customer.subscription.created`
      - `customer.subscription.updated`
      - `customer.subscription.deleted`
 5. Copy the webhook signing secret to `STRIPE_WEBHOOK_SECRET`
 
 ### Database Setup
 
-Run the migration to create the subscriptions table:
+The active database chain contains one canonical baseline plus future forward-only migrations. Historical SQL is archived under `supabase/migrations_legacy/` and must not be replayed.
 
 ```bash
-# If using Supabase CLI
-supabase db push
-
-# Or run the SQL manually in Supabase Dashboard SQL Editor
-# File: supabase/migrations/001_create_subscriptions_table.sql
+supabase start
+supabase db reset
 ```
+
+These commands target the local Supabase stack. Do not run hosted `db push`, migration repair, or manual SQL without explicit authorization and an exact project-ref preflight.
 
 ### Retention Job Setup
 

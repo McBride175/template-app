@@ -97,22 +97,6 @@ function isMissingSupportTicketsTableError(error: unknown) {
   return message.includes('support_tickets') && message.includes('could not find the table')
 }
 
-function isMissingSupportTicketsColumnError(error: unknown) {
-  if (!error || typeof error !== 'object') return false
-
-  const value = error as { code?: unknown; message?: unknown }
-  const code = typeof value.code === 'string' ? value.code : ''
-  const message = typeof value.message === 'string' ? value.message.toLowerCase() : ''
-
-  if (code === '42703' || code === 'PGRST204') return true
-
-  return (
-    message.includes('support_tickets') &&
-    message.includes('column') &&
-    message.includes('could not find')
-  )
-}
-
 function getErrorMessage(error: unknown, fallback: string) {
   if (!error || typeof error !== 'object') return fallback
 
@@ -120,34 +104,6 @@ function getErrorMessage(error: unknown, fallback: string) {
   if (typeof message !== 'string' || !message.trim()) return fallback
 
   return message
-}
-
-type TicketEmailColumn = 'sent_at' | 'resend_message_id' | 'email_error'
-
-async function updateTicketEmailColumn(
-  admin: any,
-  ticketId: string,
-  column: TicketEmailColumn,
-  value: string
-) {
-  const { error } = await admin
-    .from('support_tickets')
-    .update({ [column]: value })
-    .eq('id', ticketId)
-
-  if (!error) return
-  if (isMissingSupportTicketsColumnError(error)) return
-
-  const errorCode =
-    typeof error === 'object' && error && 'code' in error
-      ? String((error as { code?: unknown }).code ?? 'unknown')
-      : 'unknown'
-
-  console.warn('[contact] support_ticket_email_metadata_update_failed', {
-    ticket_id: ticketId,
-    column,
-    error_code: errorCode,
-  })
 }
 
 export async function POST(request: NextRequest) {
@@ -244,7 +200,6 @@ export async function POST(request: NextRequest) {
     }
 
     let emailSent = false
-    let emailError = ''
     let emailFailureCode = ''
 
     const supportInboxEmail = process.env.SUPPORT_INBOX_EMAIL?.trim()
@@ -253,63 +208,36 @@ export async function POST(request: NextRequest) {
       process.env.SUPPORT_FROM_EMAIL?.trim() || DEFAULT_SUPPORT_FROM_EMAIL
 
     if (!supportInboxEmail) {
-      emailError = 'SUPPORT_INBOX_EMAIL is not configured'
       emailFailureCode = 'missing_support_inbox_email'
     } else if (!resendApiKey) {
-      emailError = 'RESEND_API_KEY is not configured'
       emailFailureCode = 'missing_resend_api_key'
     } else {
       try {
         const resendClient = new Resend(resendApiKey)
-        const { data: emailResult, error: resendError } =
-          await resendClient.emails.send({
-            to: supportInboxEmail,
-            from: supportFromEmail,
-            subject: `New support ticket: ${subject}`,
-            text: [
-              `Email: ${email}`,
-              user?.id ? `User ID: ${user.id}` : 'User ID: (not signed in)',
-              '',
-              'Message:',
-              message,
-            ].join('\n'),
-          })
+        const { error: resendError } = await resendClient.emails.send({
+          to: supportInboxEmail,
+          from: supportFromEmail,
+          subject: `New support ticket: ${subject}`,
+          text: [
+            `Email: ${email}`,
+            user?.id ? `User ID: ${user.id}` : 'User ID: (not signed in)',
+            '',
+            'Message:',
+            message,
+          ].join('\n'),
+        })
 
         if (resendError) {
-          emailError = `Resend send failed: ${resendError.message ?? 'Unknown error'}`
           emailFailureCode = 'resend_send_failed'
         } else {
           emailSent = true
-          await updateTicketEmailColumn(
-            admin,
-            ticketId,
-            'sent_at',
-            new Date().toISOString()
-          )
-
-          if (emailResult?.id) {
-            await updateTicketEmailColumn(
-              admin,
-              ticketId,
-              'resend_message_id',
-              emailResult.id
-            )
-          }
         }
-      } catch (error: unknown) {
-        emailError = `Resend send failed: ${getErrorMessage(error, 'Unknown error')}`
+      } catch {
         emailFailureCode = 'resend_send_failed'
       }
     }
 
     if (!emailSent) {
-      await updateTicketEmailColumn(
-        admin,
-        ticketId,
-        'email_error',
-        emailError || 'Email delivery was skipped'
-      )
-
       console.warn('[contact] support_email_not_sent', {
         ticket_id: ticketId,
         failure_code: emailFailureCode || 'email_delivery_skipped',

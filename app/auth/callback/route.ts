@@ -4,11 +4,25 @@
  * TEMPLATE CODE: This route handles OAuth callbacks from Supabase Auth.
  * Exchanges the authorization code for a session server-side and sets cookies.
  * 
- * This ensures SSR cookies are properly established so middleware and API routes
+ * This ensures SSR cookies are properly established so the proxy and API routes
  * can read the session.
  */
 import { createServerClient } from '@supabase/ssr'
+import type { EmailOtpType } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+
+const EMAIL_OTP_TYPES = new Set<string>([
+  'signup',
+  'invite',
+  'magiclink',
+  'recovery',
+  'email_change',
+  'email',
+] satisfies EmailOtpType[])
+
+function isEmailOtpType(value: string): value is EmailOtpType {
+  return EMAIL_OTP_TYPES.has(value)
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url)
@@ -23,7 +37,7 @@ export async function GET(request: NextRequest) {
       : '/dashboard'
 
   // Create Supabase client with request/response cookies
-  let response = NextResponse.redirect(`${origin}${next}`)
+  const response = NextResponse.redirect(`${origin}${next}`)
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -52,8 +66,12 @@ export async function GET(request: NextRequest) {
   }
 
   if (tokenHash && type) {
+    if (!isEmailOtpType(type)) {
+      return NextResponse.redirect(`${origin}/login?error=auth_otp_error`)
+    }
+
     const { error } = await supabase.auth.verifyOtp({
-      type: type as any,
+      type,
       token_hash: tokenHash,
     })
     if (!error) return response

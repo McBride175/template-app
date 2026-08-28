@@ -8,7 +8,7 @@ import {
   getAuthenticatedContext,
   hasRecentSession,
 } from '@/lib/privacy-service'
-import { getErasureAuditActions } from '@/lib/privacy-utils.js'
+import { getErasureAuditActions } from '@/lib/privacy-utils.mjs'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

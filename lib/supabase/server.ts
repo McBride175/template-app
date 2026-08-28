@@ -7,7 +7,7 @@
  * SECURITY: This file MUST NOT be imported in client components.
  * It uses server-only APIs (cookies from next/headers).
  * 
- * Note: In Server Components, cookies cannot be set (middleware handles refresh).
+ * Note: In Server Components, cookies cannot be set (the proxy handles refresh).
  * The setAll method is kept for type compatibility but is a no-op.
  */
 import 'server-only'
@@ -18,7 +18,7 @@ import { cookies } from 'next/headers'
  * Create a Supabase server client for use in Server Components and Route Handlers
  * 
  * TEMPLATE CODE: Uses @supabase/ssr with Next.js cookies() API.
- * Middleware handles session refresh, so setAll is a no-op in Server Components.
+ * The proxy handles session refresh, so setAll is a no-op in Server Components.
  */
 export async function createSupabaseServerClient() {
   const cookieStore = await cookies()
@@ -33,14 +33,14 @@ export async function createSupabaseServerClient() {
         },
         setAll(cookiesToSet) {
           try {
-            // In Server Components, we can't set cookies (middleware handles this)
+            // In Server Components, we can't set cookies (the proxy handles this)
             // This is kept for type compatibility but is effectively a no-op
             cookiesToSet.forEach(({ name, value, options }) => {
               cookieStore.set(name, value, options)
             })
           } catch {
             // The `setAll` method was called from a Server Component.
-            // This can be ignored if you have middleware refreshing user sessions.
+            // This can be ignored because the proxy refreshes user sessions.
           }
         },
       },

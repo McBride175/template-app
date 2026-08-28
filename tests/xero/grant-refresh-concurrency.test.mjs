@@ -10,17 +10,17 @@ import {
 const SYNC_LIB_PATH = new URL('../../lib/xero/sync.ts', import.meta.url)
 const CALLBACK_ROUTE_PATH = new URL('../../app/api/xero/callback/route.ts', import.meta.url)
 const MIGRATION_PATH = new URL(
-  '../../supabase/migrations/20260417170000_refactor_xero_grant_scoped_tokens.sql',
+  '../../supabase/migrations/20260813205201_baseline_current_schema.sql',
   import.meta.url
 )
 
 test('grant-scoped locking primitives are present and tenant-scoped lock functions are removed', async () => {
   const migrationSql = await readFile(MIGRATION_PATH, 'utf8')
 
-  assert.match(migrationSql, /create or replace function public\.acquire_xero_grant_refresh_lock\(/)
-  assert.match(migrationSql, /create or replace function public\.release_xero_grant_refresh_lock\(/)
-  assert.match(migrationSql, /drop function if exists public\.acquire_xero_refresh_lock\(/)
-  assert.match(migrationSql, /drop function if exists public\.release_xero_refresh_lock\(/)
+  assert.match(migrationSql, /create function public\.acquire_xero_grant_refresh_lock\(/)
+  assert.match(migrationSql, /create function public\.release_xero_grant_refresh_lock\(/)
+  assert.doesNotMatch(migrationSql, /function public\.acquire_xero_refresh_lock\(/)
+  assert.doesNotMatch(migrationSql, /function public\.release_xero_refresh_lock\(/)
 })
 
 test('sync flow uses grant-scoped lock RPCs and shared grant token persistence', async () => {

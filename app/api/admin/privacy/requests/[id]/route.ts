@@ -6,7 +6,7 @@ import {
   isAdminUser,
   withOverdue,
 } from '@/lib/privacy-service'
-import { isPrivacyRequestStatus } from '@/lib/privacy-utils.js'
+import { isPrivacyRequestStatus } from '@/lib/privacy-utils.mjs'
 
 type Params = {
   params: Promise<{ id: string }>

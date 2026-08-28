@@ -6,7 +6,7 @@ import {
   hasRecentSession,
   isAdminUser,
 } from '@/lib/privacy-service'
-import { verifyExportToken } from '@/lib/privacy-utils.js'
+import { verifyExportToken } from '@/lib/privacy-utils.mjs'
 
 type Params = {
   params: Promise<{ exportId: string }>

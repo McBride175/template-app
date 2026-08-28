@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAllPostMetadata } from '@/lib/blog'
+import { getAllIndexableSeoProblemPages } from '@/lib/seo-pages'
 import { SITEMAP_PAGE_LINKS } from '@/lib/sitemap-links'
 import { getSiteUrl } from '@/lib/site-url'
 
@@ -12,6 +13,7 @@ export async function GET() {
   const siteUrl = getSiteUrl()
   const now = new Date().toISOString()
   const posts = await getAllPostMetadata()
+  const guides = getAllIndexableSeoProblemPages()
 
   const staticPaths = SITEMAP_PAGE_LINKS
     .filter((link) => link.includeInXml)
@@ -25,6 +27,10 @@ export async function GET() {
     ...posts.map((post) => ({
       loc: `${siteUrl}/blog/${post.slug}`,
       lastmod: toIsoDate(post.date),
+    })),
+    ...guides.map((guide) => ({
+      loc: `${siteUrl}/guides/${guide.slug}`,
+      lastmod: now,
     })),
   ]
 

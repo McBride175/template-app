@@ -32,6 +32,15 @@ export interface CustomerCollectionsSummaryRow {
   currency_code: string | null
 }
 
+export interface CustomerCollectionsSummaryResult {
+  rows: CustomerCollectionsSummaryRow[]
+  sourceCounts: {
+    customers: number
+    invoices: number
+    payments: number
+  }
+}
+
 interface CanonicalCustomerRow {
   source_id: string
   name: string
@@ -275,11 +284,11 @@ async function fetchCanonicalPayments(
   return rows
 }
 
-export async function loadCustomerCollectionsSummary(
+export async function loadCustomerCollectionsSummaryWithMetadata(
   supabase: ServerSupabaseClient,
   userId: string,
   tenantId: string
-) {
+): Promise<CustomerCollectionsSummaryResult> {
   const { todayIso, todayUtcMs } = getTodayContext()
 
   const [customers, invoices, payments] = await Promise.all([
@@ -478,5 +487,21 @@ export async function loadCustomerCollectionsSummary(
     })
   }
 
-  return rows
+  return {
+    rows,
+    sourceCounts: {
+      customers: customers.length,
+      invoices: invoices.length,
+      payments: payments.length,
+    },
+  }
+}
+
+export async function loadCustomerCollectionsSummary(
+  supabase: ServerSupabaseClient,
+  userId: string,
+  tenantId: string
+) {
+  const result = await loadCustomerCollectionsSummaryWithMetadata(supabase, userId, tenantId)
+  return result.rows
 }

@@ -4,7 +4,7 @@ import {
   isOverdue,
   isSessionRecent,
   isAdminEmail,
-} from '@/lib/privacy-utils.js'
+} from '@/lib/privacy-utils.mjs'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 
 export const PRIVACY_MAX_SESSION_AGE_SECONDS = 30 * 60

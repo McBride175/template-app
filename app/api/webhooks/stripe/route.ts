@@ -17,7 +17,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { stripe } from '@/lib/stripe'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type PostgrestError } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 
 // Use service role key for webhook operations (bypasses RLS)
@@ -117,12 +117,12 @@ export async function POST(request: NextRequest) {
           .select()
 
         let operation = 'update'
-        let dbError: any = null
+        let dbError: PostgrestError | null = null
 
         // If UPDATE affected 0 rows, try INSERT
         if (!updateError && (!updateData || updateData.length === 0)) {
           operation = 'insert'
-          const { data: insertData, error: insertError } = await supabaseAdmin
+          const { error: insertError } = await supabaseAdmin
             .from('subscriptions')
             .insert({
               user_id: userId,
@@ -294,7 +294,8 @@ export async function POST(request: NextRequest) {
 
         // Get customer ID from retrieved subscription
         const customerId = fullSubscription.customer as string
-        const priceId = fullSubscription.items?.data?.[0]?.price?.id ?? null
+        const primarySubscriptionItem = fullSubscription.items.data[0]
+        const priceId = primarySubscriptionItem?.price.id ?? null
 
         // TEMPLATE CODE: Resolve user_id reliably
         // 1) Try stripe_customers table mapping by stripe_customer_id
@@ -338,9 +339,8 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ received: true })
         }
 
-        // Get period end from retrieved subscription (unix seconds)
-        // Type assertion needed because Stripe SDK types may not expose this field directly
-        const periodEnd = (fullSubscription as any).current_period_end as number | null | undefined
+        // Stripe API 2025-03-31+ exposes billing periods on subscription items.
+        const periodEnd = primarySubscriptionItem?.current_period_end
 
         // Convert unix seconds to ISO string (or null if undefined/null)
         const currentPeriodEnd = periodEnd
@@ -498,7 +498,8 @@ export async function POST(request: NextRequest) {
 
         // Get customer ID from retrieved subscription
         const customerId = fullSubscription.customer as string
-        const priceId = fullSubscription.items?.data?.[0]?.price?.id ?? null
+        const primarySubscriptionItem = fullSubscription.items.data[0]
+        const priceId = primarySubscriptionItem?.price.id ?? null
 
         // TEMPLATE CODE: Resolve user_id reliably
         // 1) Try stripe_customers table mapping by stripe_customer_id
@@ -542,9 +543,8 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ received: true })
         }
 
-        // Get period end from retrieved subscription (unix seconds)
-        // Type assertion needed because Stripe SDK types may not expose this field directly
-        const periodEnd = (fullSubscription as any).current_period_end as number | null | undefined
+        // Stripe API 2025-03-31+ exposes billing periods on subscription items.
+        const periodEnd = primarySubscriptionItem?.current_period_end
 
         // Convert unix seconds to ISO string (or null if undefined/null)
         const currentPeriodEnd = periodEnd

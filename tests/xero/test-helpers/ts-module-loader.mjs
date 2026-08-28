@@ -66,8 +66,8 @@ export function loadTypeScriptModule(entrySpecifier, options = {}) {
       fileName: normalizedPath,
     })
 
-    const module = { exports: {} }
-    moduleCache.set(normalizedPath, module)
+    const moduleShim = { exports: {} }
+    moduleCache.set(normalizedPath, moduleShim)
 
     const dirname = path.dirname(normalizedPath)
 
@@ -98,8 +98,8 @@ export function loadTypeScriptModule(entrySpecifier, options = {}) {
 
     const wrapped = `(function (exports, require, module, __filename, __dirname) {\n${transpiled.outputText}\n})`
     const compiledFn = vm.runInThisContext(wrapped, { filename: normalizedPath })
-    compiledFn(module.exports, localRequire, module, normalizedPath, dirname)
-    return module.exports
+    compiledFn(moduleShim.exports, localRequire, moduleShim, normalizedPath, dirname)
+    return moduleShim.exports
   }
 
   const normalizedEntry = normalizePathSpecifier(entrySpecifier)

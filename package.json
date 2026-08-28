@@ -7,6 +7,9 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/billing/*.test.mjs tests/privacy/*.test.mjs tests/xero/*.test.mjs tests/database/*.test.mjs tests/seo/*.test.mjs",
+    "test:baseline": "node --test tests/database/baseline-contract.test.mjs",
     "security:sqlcheck": "bash scripts/security-sql-check.sh",
     "test:privacy": "node --test tests/privacy/privacy-utils.test.mjs",
     "test:xero-concurrency": "node --test tests/xero/grant-refresh-concurrency.test.mjs"

@@ -252,7 +252,7 @@ if (secret?.startsWith('sk_live_') && priceId.includes('test')) {
     })
 
     return NextResponse.json({ url: session.url })
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating checkout session:', error)
 
     // Debug output only in non-production environments
@@ -268,7 +268,7 @@ if (secret?.startsWith('sk_live_') && priceId.includes('test')) {
 
     return NextResponse.json(
       {
-        error: error?.message || 'Failed to create checkout session',
+        error: 'Failed to create checkout session',
         ...(debug && { debug }),
       },
       { status: 500 }

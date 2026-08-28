@@ -1,5 +1,5 @@
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
-import { getSafeAuthUser } from '@/lib/privacy-utils.js'
+import { getSafeAuthUser } from '@/lib/privacy-utils.mjs'
 
 export async function buildUserExportBundle(userId: string) {
   const admin = createSupabaseAdminClient()

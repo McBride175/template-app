@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 
 const SCHEDULED_SYNC_LIB_PATH = new URL('../../lib/xero/scheduled-sync.ts', import.meta.url)
 const STALE_AWARE_MIGRATION_PATH = new URL(
-  '../../supabase/migrations/20260417213000_make_scheduled_sync_candidates_stale_aware.sql',
+  '../../supabase/migrations/20260813205201_baseline_current_schema.sql',
   import.meta.url
 )
 

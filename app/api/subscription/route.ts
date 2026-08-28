@@ -10,13 +10,13 @@
  * Returns: { hasActive: boolean, status: string | null, current_period_end: string | null }
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
 
 export async function GET(request: NextRequest) {
   try {
     // TEMPLATE CODE: Create Supabase client in route handler with request/response cookies
     // Collect cookies that need to be set during auth refresh
-    const cookiesToSet: Array<{ name: string; value: string; options?: any }> = []
+    const cookiesToSet: Array<{ name: string; value: string; options: CookieOptions }> = []
 
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -137,7 +137,7 @@ export async function GET(request: NextRequest) {
     res.headers.set('Expires', '0')
 
     return res
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error getting subscription status:', error)
     const res = NextResponse.json(
       { error: 'Failed to get subscription status' },

@@ -11,6 +11,7 @@ import {
   type XeroResourceType,
 } from '@/lib/xero/accounting'
 import { decryptXeroToken, encryptXeroToken } from '@/lib/xero/secrets'
+import { mapXeroRawToCanonical } from '@/lib/xero/canonical-mapper'
 import { XERO_REFRESH_ISSUE_CODES } from '@/lib/xero/sync-status'
 
 interface XeroConnectionPublicRow {
@@ -660,7 +661,6 @@ async function getValidXeroAccessTokenForTenant(params: {
             grant_id: grantId,
             message: updateError.message,
           })
-          const message = updateError.message
           await markGrantConnectionsRetryableFailure({
             userId,
             grantId,
@@ -891,6 +891,17 @@ export async function syncXeroTenantForUser(params: { userId: string; tenantId: 
   }
 
   const fetchedAt = new Date().toISOString()
+  const fetchedCounts = {
+    accounts: resources.accounts.length,
+    contacts: resources.contacts.length,
+    invoices: resources.invoices.length,
+  }
+  const persistedCounts: Record<XeroResourceType, number> = {
+    accounts: 0,
+    contacts: 0,
+    invoices: 0,
+  }
+
   for (const resourceType of RESOURCE_TYPES) {
     const rows = resources[resourceType]
       .map((record) => {
@@ -922,6 +933,41 @@ export async function syncXeroTenantForUser(params: { userId: string; tenantId: 
       })
       return NextResponse.json({ error: 'Failed to store Xero raw data' }, { status: 500 })
     }
+
+    persistedCounts[resourceType] = rows.length
+  }
+
+  let mappedCounts: Awaited<ReturnType<typeof mapXeroRawToCanonical>>
+  try {
+    mappedCounts = await mapXeroRawToCanonical({
+      userId,
+      tenantId: connection.tenant_id,
+      supabaseAdmin,
+    })
+  } catch (error) {
+    console.error('[xero.sync] Canonical mapping failed after raw persistence', {
+      user_id: userId,
+      tenant_id: connection.tenant_id,
+      raw_fetched: fetchedCounts,
+      raw_persisted: persistedCounts,
+      message: error instanceof Error ? error.message : 'Unknown error',
+    })
+
+    return NextResponse.json(
+      {
+        error: 'Xero data was fetched but could not be prepared for collections',
+        code: 'XERO_CANONICAL_MAPPING_FAILED',
+        tenantId: connection.tenant_id,
+        raw: {
+          fetched: fetchedCounts,
+          persisted: persistedCounts,
+        },
+        canonical: {
+          ready: false,
+        },
+      },
+      { status: 500 }
+    )
   }
 
   if (connection.grant_id) {
@@ -937,18 +983,22 @@ export async function syncXeroTenantForUser(params: { userId: string; tenantId: 
   console.info('[xero.sync] Sync complete', {
     user_id: userId,
     tenant_id: connection.tenant_id,
-    accounts: resources.accounts.length,
-    contacts: resources.contacts.length,
-    invoices: resources.invoices.length,
+    raw_fetched: fetchedCounts,
+    raw_persisted: persistedCounts,
+    canonical_mapped: mappedCounts,
   })
 
   return NextResponse.json({
     ok: true,
     tenantId: connection.tenant_id,
-    counts: {
-      accounts: resources.accounts.length,
-      contacts: resources.contacts.length,
-      invoices: resources.invoices.length,
+    counts: fetchedCounts,
+    raw: {
+      fetched: fetchedCounts,
+      persisted: persistedCounts,
+    },
+    canonical: {
+      ready: true,
+      mapped: mappedCounts,
     },
     syncedAt: fetchedAt,
   })

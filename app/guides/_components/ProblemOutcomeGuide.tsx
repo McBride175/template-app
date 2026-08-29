@@ -1,11 +1,12 @@
 import Link from 'next/link'
 import Card from '@/app/components/Card'
-import type { SeoProblemPage } from '@/content/seo-pages'
+import type { SeoGuideCategory, SeoProblemPage } from '@/content/seo-pages'
 import PrioritisationSignals from './PrioritisationSignals'
 import WorkedPrioritisationExample from './WorkedPrioritisationExample'
 
 interface ProblemOutcomeGuideProps {
   page: SeoProblemPage
+  category: SeoGuideCategory
   relatedPages: SeoProblemPage[]
 }
 
@@ -29,6 +30,7 @@ const defaultHeadings = {
 
 export default function ProblemOutcomeGuide({
   page,
+  category,
   relatedPages,
 }: ProblemOutcomeGuideProps) {
   const headings = { ...defaultHeadings, ...page.sectionHeadings }
@@ -36,6 +38,21 @@ export default function ProblemOutcomeGuide({
   return (
     <article className="mx-auto max-w-3xl pb-8">
       <header className="space-y-6">
+        <nav aria-label="Breadcrumb">
+          <ol className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-600">
+            <li>
+              <Link href="/blog" className="hover:text-gray-900">
+                Credit control guides
+              </Link>
+            </li>
+            <li aria-hidden="true">/</li>
+            <li>
+              <Link href={`/blog#${category.slug}`} className="hover:text-gray-900">
+                {category.title}
+              </Link>
+            </li>
+          </ol>
+        </nav>
         <h1
           className="text-balance text-4xl leading-tight sm:text-5xl"
           style={guideTextColors.heading}

@@ -32,9 +32,43 @@ export type GuideSectionHeadings = {
   relatedGuides?: string
 }
 
+export const SEO_INTENT_FAMILIES = [
+  'prioritisation',
+  'cash-outcome',
+  'customer-risk',
+  'credit-control-process',
+  'xero',
+] as const
+
+export type SeoIntentFamily = (typeof SEO_INTENT_FAMILIES)[number]
+
+export const SEO_FUNNEL_STAGES = [
+  'problem-aware',
+  'solution-aware',
+  'product-aware',
+] as const
+
+export type SeoFunnelStage = (typeof SEO_FUNNEL_STAGES)[number]
+
+export type SeoGuideCategory = {
+  intentFamily: SeoIntentFamily
+  slug:
+    | 'prioritising-overdue-invoices'
+    | 'get-paid-faster'
+    | 'late-paying-customers-and-risk'
+    | 'credit-control-process'
+    | 'xero-credit-control'
+  title: string
+  shortDescription: string
+  description: string
+  topics: readonly string[]
+}
+
 export type SeoProblemPage = {
   slug: string
   pageType: 'problem-outcome'
+  intentFamily: SeoIntentFamily
+  funnelStage: SeoFunnelStage
   primaryKeyword: string
   secondaryKeywords: string[]
   searchIntent: 'informational' | 'commercial' | 'mixed'
@@ -58,6 +92,74 @@ export type SeoProblemPage = {
   relatedSlugs: string[]
   indexable: boolean
 }
+
+export const seoGuideCategories = [
+  {
+    intentFamily: 'prioritisation',
+    slug: 'prioritising-overdue-invoices',
+    title: 'Prioritising overdue invoices',
+    shortDescription: 'Decide which customers deserve your attention first.',
+    description:
+      'Turn a long overdue list into a defensible order of action using cash value, payment behaviour and the risks only your business can see.',
+    topics: [
+      'Ranking customers instead of isolated invoices',
+      'Combining value, lateness and recent-payment signals',
+      'Refreshing priorities when the facts change',
+    ],
+  },
+  {
+    intentFamily: 'cash-outcome',
+    slug: 'get-paid-faster',
+    title: 'Get paid faster',
+    shortDescription: 'Use limited credit-control time where it can release cash sooner.',
+    description:
+      'Build focused daily actions, clearer follow-ups and a repeatable rhythm that moves overdue balances towards payment without chasing everyone at once.',
+    topics: [
+      'Building a short daily chase queue',
+      'Choosing the next useful collection action',
+      'Learning from payments, promises and responses',
+    ],
+  },
+  {
+    intentFamily: 'customer-risk',
+    slug: 'late-paying-customers-and-risk',
+    title: 'Late-paying customers and risk',
+    shortDescription: 'Spot worsening payment behaviour before it becomes a bigger problem.',
+    description:
+      'Separate a one-off delay from a pattern of risk, then use missed promises, disputes and loss of contact to choose a proportionate response.',
+    topics: [
+      'Recognising habitual and worsening lateness',
+      'Using missed promises and disputes as risk signals',
+      'Escalating without damaging good customer relationships',
+    ],
+  },
+  {
+    intentFamily: 'credit-control-process',
+    slug: 'credit-control-process',
+    title: 'Credit control process',
+    shortDescription: 'Create a consistent process from invoice to follow-up and escalation.',
+    description:
+      'Give each overdue account a clear owner, next action and outcome so credit control becomes a manageable operating process rather than an occasional scramble.',
+    topics: [
+      'Setting ownership, cadences and escalation points',
+      'Recording contact outcomes and payment promises',
+      'Reviewing the measures that improve the process',
+    ],
+  },
+  {
+    intentFamily: 'xero',
+    slug: 'xero-credit-control',
+    title: 'Xero credit control',
+    shortDescription: 'Turn Xero invoice and payment data into a useful chase plan.',
+    description:
+      'Move beyond an aged receivables report by grouping debt at customer level and combining Xero data with the business context that accounting software cannot know.',
+    topics: [
+      'Creating a customer-level overdue view',
+      'Reading payment behaviour from Xero data',
+      'Keeping a priority queue current as payments arrive',
+    ],
+  },
+] satisfies readonly SeoGuideCategory[]
 
 export const customerPrioritisationSignals = [
   {
@@ -86,19 +188,20 @@ export const seoProblemPages = [
   {
     slug: 'how-to-prioritise-overdue-invoices',
     pageType: 'problem-outcome',
+    intentFamily: 'prioritisation',
+    funnelStage: 'solution-aware',
     primaryKeyword: 'how to prioritise overdue invoices',
     secondaryKeywords: [
-      'which customer should I chase first for payment',
       'overdue invoice prioritisation',
       'invoice chasing order',
       'collections priority list',
     ],
     searchIntent: 'informational',
-    queryCluster: 'overdue-customer-prioritisation',
+    queryCluster: 'overdue-ledger-prioritisation-method',
     readerJob:
-      'Decide which overdue customer deserves the next collection action when time is limited.',
+      'Learn the overall method for prioritising a messy overdue ledger.',
     uniqueAngle:
-      'Teach a customer-level four-signal ranking method instead of sorting individual invoices by age or value.',
+      'A reusable four-signal prioritisation framework across multiple overdue customers.',
     metaTitle: 'How to Prioritise Overdue Invoices',
     metaDescription:
       'Rank overdue customers using cash value, payment behaviour and the risks only you know—not invoice age alone.',
@@ -125,7 +228,7 @@ export const seoProblemPages = [
     ],
     workedExample: {
       introduction:
-        'Suppose you have time for one call. The largest balance looks obvious, but the combined signals produce a different order.',
+        'Suppose these customers sit on the same overdue ledger. The largest balance looks like the obvious top priority, but the four-signal method produces a more useful overall order.',
       customers: [
         {
           name: 'Oakfield Retail',
@@ -159,7 +262,7 @@ export const seoProblemPages = [
         },
       ],
       conclusion:
-        "Chase Oakfield first because several meaningful signals point in the same direction. Harbour's high risk lifts it above Northstar, but risk alone does not automatically make it number one. Northstar still matters; its recent payment simply makes the other two more urgent today.",
+        "The method ranks Oakfield first because several meaningful signals point in the same direction, followed by Harbour and then Northstar. Harbour's high risk lifts it above Northstar, but risk alone does not determine the list. Northstar still matters; its recent payment lowers its place until the next review.",
     },
     recommendedActions: [
       'Group every overdue invoice under its customer before deciding the chase order.',
@@ -171,12 +274,110 @@ export const seoProblemPages = [
       'Connect Xero to supply each customer’s outstanding balance, average lateness and recent payment activity. Add the low, medium or high risk that only you can judge. Those inputs create a ranked chase queue, and new payments or risk changes can alter who deserves attention next without rebuilding the list by hand.',
     ctaLabel: 'See plans and pricing',
     ctaHref: '/pricing',
-    relatedSlugs: ['how-to-get-cash-in-faster-from-overdue-customers'],
+    relatedSlugs: [
+      'which-customer-should-i-chase-first-for-payment',
+      'how-to-get-cash-in-faster-from-overdue-customers',
+    ],
+    indexable: true,
+  },
+  {
+    slug: 'which-customer-should-i-chase-first-for-payment',
+    pageType: 'problem-outcome',
+    intentFamily: 'prioritisation',
+    funnelStage: 'problem-aware',
+    primaryKeyword: 'which customer should I chase first for payment',
+    secondaryKeywords: [
+      'who to chase for payment first',
+      'next customer to chase',
+      'next best collection action',
+      'who should I call about an overdue payment',
+    ],
+    searchIntent: 'informational',
+    queryCluster: 'next-customer-payment-chase-decision',
+    readerJob:
+      'Make the immediate decision about which specific customer to contact next.',
+    uniqueAngle:
+      'A customer-level next-best-action decision focused on choosing the very next chase rather than teaching the full prioritisation methodology.',
+    metaTitle: 'Which Customer Should I Chase First for Payment?',
+    metaDescription:
+      'Choose the next customer to contact using a rapid check of cash value, payment behaviour and the risks only you know.',
+    h1: 'Which customer should I chase first for payment?',
+    directAnswer:
+      'Choose from the few customers most likely to need a useful action today. Contact the customer where material cash, worsening payment behaviour and current business risk reinforce each other. Lower the priority when a recent payment or credible update shows progress. This is a next-action decision, not a complete reranking of your ledger.',
+    whyItMatters:
+      'When you have time for one call or email, rebuilding the whole priority list delays the action. The useful question is narrower: which customer has the strongest reason for contact now? A quick comparison of the top candidates helps you act without treating the largest balance, oldest invoice or highest risk label as an automatic winner.',
+    sectionHeadings: {
+      whyItMatters: 'Why the next chase is a separate decision',
+      signals: 'Use the four signals as a rapid tie-break',
+      workedExample: 'Worked example: choose one call now',
+      recommendedActions: 'Choose the next customer in five minutes',
+      productBridge: 'Turn a ranked queue into one next action',
+      relatedGuides: 'Learn the full prioritisation method',
+    },
+    signalIntroduction:
+      'Start with the two or three customers already closest to the top of your list. Use these signals to compare that shortlist, not to rebuild the entire ledger before every call.',
+    signals: customerPrioritisationSignals,
+    decisionRules: [
+      'Look for reinforcing evidence: meaningful cash exposure, established lateness and a current trigger such as a missed promise.',
+      'Lower today’s priority when the latest evidence makes another chase less useful, such as a recent payment or credible payment date.',
+      'If the signals split, choose the customer where one contact can produce the clearest useful outcome now, then reassess after recording it.',
+    ],
+    workedExample: {
+      introduction:
+        'You have ten minutes for one call and these are the top three customers on the current queue. The decision is who deserves that single action now—not how to rank every overdue customer.',
+      customers: [
+        {
+          name: 'Stonebridge Supplies',
+          valueOutstanding: 11800,
+          averageDaysLate: 46,
+          daysSinceLastPayment: 73,
+          founderRisk: 'medium',
+          founderRiskReason: 'A promised payment date was missed yesterday.',
+          rank: 1,
+          rankReason: 'Material cash, chronic lateness and a fresh missed promise support a useful call now.',
+        },
+        {
+          name: 'Westgate Catering',
+          valueOutstanding: 7100,
+          averageDaysLate: 64,
+          daysSinceLastPayment: 92,
+          founderRisk: 'high',
+          founderRiskReason: 'The finance contact has stopped responding.',
+          rank: 2,
+          rankReason: 'The risk is serious, but less cash is exposed and there is no newer trigger today.',
+        },
+        {
+          name: 'Ashdown Projects',
+          valueOutstanding: 22300,
+          averageDaysLate: 13,
+          daysSinceLastPayment: 2,
+          founderRisk: 'low',
+          founderRiskReason: 'A part-payment arrived and the remainder has a credible date.',
+          rank: 3,
+          rankReason: 'The largest balance does not need the next call because recent evidence shows progress.',
+        },
+      ],
+      conclusion:
+        'Call Stonebridge now. Westgate may remain high on the wider priority list, but Stonebridge combines meaningful value with a fresh missed promise. Do not call Ashdown today: the recent payment and credible update make another chase less useful. After the call, record the result and choose again from the refreshed queue.',
+    },
+    recommendedActions: [
+      'Open the current shortlist rather than rescanning the whole aged receivables report.',
+      'Check for a payment, promise, dispute or risk change since the list was last refreshed.',
+      'Choose the customer where the combined evidence makes one action most useful today.',
+      'Make the contact, record the outcome and refresh the shortlist before the next chase.',
+    ],
+    productBridge:
+      'Connect Xero to keep balances, lateness and recent payments current, then add the customer risk only you can judge. The resulting queue puts one customer at the top. After you contact them or Xero records a payment, the next-best action can change without another manual ledger review.',
+    ctaLabel: 'See plans and pricing',
+    ctaHref: '/pricing',
+    relatedSlugs: ['how-to-prioritise-overdue-invoices'],
     indexable: true,
   },
   {
     slug: 'how-to-get-cash-in-faster-from-overdue-customers',
     pageType: 'problem-outcome',
+    intentFamily: 'cash-outcome',
+    funnelStage: 'solution-aware',
     primaryKeyword: 'how to get cash in faster from overdue customers',
     secondaryKeywords: [
       'speed up overdue payments',

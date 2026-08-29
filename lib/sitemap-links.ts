@@ -6,7 +6,7 @@ export interface SitemapPageLink {
 
 export const SITEMAP_PAGE_LINKS: SitemapPageLink[] = [
   { href: '/', label: 'Home', includeInXml: true },
-  { href: '/blog', label: 'Blog', includeInXml: true },
+  { href: '/blog', label: 'Credit control guides', includeInXml: true },
   { href: '/pricing', label: 'Pricing', includeInXml: true },
   { href: '/contact', label: 'Contact', includeInXml: true },
   { href: '/disputes', label: 'Disputes', includeInXml: true },

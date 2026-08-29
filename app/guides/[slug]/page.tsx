@@ -4,8 +4,10 @@ import ProblemOutcomeGuide from '@/app/guides/_components/ProblemOutcomeGuide'
 import {
   getAllSeoProblemPages,
   getRelatedSeoProblemPages,
+  getSeoGuideCategoryByIntentFamily,
   getSeoProblemPageBySlug,
 } from '@/lib/seo-pages'
+import { getSiteUrl } from '@/lib/site-url'
 
 interface GuidePageProps {
   params: Promise<{ slug: string }>
@@ -67,10 +69,63 @@ export default async function GuidePage({ params }: GuidePageProps) {
     notFound()
   }
 
+  const category = getSeoGuideCategoryByIntentFamily(page.intentFamily)
+
+  if (!category) {
+    notFound()
+  }
+
+  const canonicalPath = `/guides/${page.slug}`
+  const siteUrl = getSiteUrl()
+  const structuredData = [
+    {
+      '@context': 'https://schema.org',
+      '@type': 'Article',
+      headline: page.h1,
+      description: page.metaDescription,
+      mainEntityOfPage: `${siteUrl}${canonicalPath}`,
+      author: {
+        '@type': 'Organization',
+        name: 'Template App',
+      },
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        {
+          '@type': 'ListItem',
+          position: 1,
+          name: 'Credit control guides',
+          item: `${siteUrl}/blog`,
+        },
+        {
+          '@type': 'ListItem',
+          position: 2,
+          name: category.title,
+          item: `${siteUrl}/blog#${category.slug}`,
+        },
+        {
+          '@type': 'ListItem',
+          position: 3,
+          name: page.h1,
+          item: `${siteUrl}${canonicalPath}`,
+        },
+      ],
+    },
+  ]
+
   return (
-    <ProblemOutcomeGuide
-      page={page}
-      relatedPages={getRelatedSeoProblemPages(page)}
-    />
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
+      <ProblemOutcomeGuide
+        page={page}
+        category={category}
+        relatedPages={getRelatedSeoProblemPages(page)}
+      />
+    </>
   )
 }

@@ -84,10 +84,6 @@ export default function Nav() {
           )}
 
           <Link href="/blog" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
-            Blog
-          </Link>
-
-          <Link href="/blog#guides" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
             Guides
           </Link>
 

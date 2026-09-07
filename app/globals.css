@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: light;
   --background: #f8fbff;
   --foreground: #171717;
   --radius-button: 0.75rem;
@@ -52,43 +53,72 @@
   --letter-spacing-wide: 0.025em;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #fafafa;
+@layer base {
+  * {
+    box-sizing: border-box;
   }
-}
 
-* {
-  box-sizing: border-box;
-}
+  body {
+    background:
+      linear-gradient(180deg, #f4f9ff 0%, #f8fbff 35%, #ffffff 100%);
+    color: var(--foreground);
+    font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+    font-size: var(--font-size-base);
+    line-height: var(--line-height-normal);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 
-body {
-  background:
-    linear-gradient(180deg, #f4f9ff 0%, #f8fbff 35%, #ffffff 100%);
-  color: var(--foreground);
-  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
-  font-size: var(--font-size-base);
-  line-height: var(--line-height-normal);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+  a {
+    color: var(--accent-sky-700);
+  }
 
-a {
-  color: var(--accent-sky-700);
-}
+  a:hover {
+    color: var(--accent-sky-800);
+  }
 
-a:hover {
-  color: var(--accent-sky-800);
-}
+  ::selection {
+    background: var(--accent-sky-100);
+    color: #0f2740;
+  }
 
-::selection {
-  background: var(--accent-sky-100);
-  color: #0f2740;
-}
+  :focus-visible {
+    outline-color: var(--accent-sky-700);
+  }
 
-:focus-visible {
-  outline-color: var(--accent-sky-700);
+  button {
+    border-radius: var(--radius-button);
+  }
+
+  /* Typographic scale */
+  h1 {
+    font-size: var(--font-size-3xl);
+    font-weight: 600;
+    line-height: var(--line-height-tight);
+    letter-spacing: var(--letter-spacing-tight);
+    color: var(--gray-900);
+  }
+
+  h2 {
+    font-size: var(--font-size-2xl);
+    font-weight: 600;
+    line-height: var(--line-height-tight);
+    letter-spacing: var(--letter-spacing-tight);
+    color: var(--gray-900);
+  }
+
+  h3 {
+    font-size: var(--font-size-xl);
+    font-weight: 600;
+    line-height: var(--line-height-normal);
+    color: var(--gray-900);
+  }
+
+  p {
+    font-size: var(--font-size-base);
+    line-height: var(--line-height-normal);
+    color: var(--gray-700);
+  }
 }
 
 .bg-gray-50 {
@@ -97,48 +127,4 @@ a:hover {
 
 .border-gray-200 {
   border-color: var(--accent-sky-200);
-}
-
-button {
-  border-radius: var(--radius-button);
-}
-
-/* Typographic scale */
-h1 {
-  font-size: var(--font-size-3xl);
-  font-weight: 600;
-  line-height: var(--line-height-tight);
-  letter-spacing: var(--letter-spacing-tight);
-  color: var(--gray-900);
-}
-
-h2 {
-  font-size: var(--font-size-2xl);
-  font-weight: 600;
-  line-height: var(--line-height-tight);
-  letter-spacing: var(--letter-spacing-tight);
-  color: var(--gray-900);
-}
-
-h3 {
-  font-size: var(--font-size-xl);
-  font-weight: 600;
-  line-height: var(--line-height-normal);
-  color: var(--gray-900);
-}
-
-p {
-  font-size: var(--font-size-base);
-  line-height: var(--line-height-normal);
-  color: var(--gray-700);
-}
-
-@media (prefers-color-scheme: dark) {
-  h1, h2, h3 {
-    color: var(--gray-50);
-  }
-  
-  p {
-    color: var(--gray-300);
-  }
 }

@@ -9,7 +9,7 @@ export default function Input({ className, ...props }: InputProps) {
       className={cn(
         'w-full px-3 py-2 text-sm',
         'bg-white border border-gray-300 rounded-md',
-        'placeholder:text-gray-400',
+        'placeholder:text-gray-500',
         'focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent',
         'disabled:opacity-50 disabled:cursor-not-allowed',
         'transition-colors',

@@ -1,6 +1,11 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
+import type { ReactNode } from 'react'
+import CustomerRiskScenarioGuide from '@/app/guides/_components/CustomerRiskScenarioGuide'
+import OutcomeImprovementGuide from '@/app/guides/_components/OutcomeImprovementGuide'
+import ProcessHowToGuide from '@/app/guides/_components/ProcessHowToGuide'
 import ProblemOutcomeGuide from '@/app/guides/_components/ProblemOutcomeGuide'
+import SoftwareSolutionGuide from '@/app/guides/_components/SoftwareSolutionGuide'
 import {
   getAllSeoProblemPages,
   getRelatedSeoProblemPages,
@@ -77,6 +82,56 @@ export default async function GuidePage({ params }: GuidePageProps) {
 
   const canonicalPath = `/guides/${page.slug}`
   const siteUrl = getSiteUrl()
+  const relatedPages = getRelatedSeoProblemPages(page)
+  let guideContent: ReactNode
+
+  switch (page.pageType) {
+    case 'customer-risk-scenario':
+      guideContent = (
+        <CustomerRiskScenarioGuide
+          page={page}
+          category={category}
+          relatedPages={relatedPages}
+        />
+      )
+      break
+    case 'outcome-improvement':
+      guideContent = (
+        <OutcomeImprovementGuide
+          page={page}
+          category={category}
+          relatedPages={relatedPages}
+        />
+      )
+      break
+    case 'process-how-to':
+      guideContent = (
+        <ProcessHowToGuide
+          page={page}
+          category={category}
+          relatedPages={relatedPages}
+        />
+      )
+      break
+    case 'problem-outcome':
+      guideContent = (
+        <ProblemOutcomeGuide
+          page={page}
+          category={category}
+          relatedPages={relatedPages}
+        />
+      )
+      break
+    case 'software-solution':
+      guideContent = (
+        <SoftwareSolutionGuide
+          page={page}
+          category={category}
+          relatedPages={relatedPages}
+        />
+      )
+      break
+  }
   const structuredData = [
     {
       '@context': 'https://schema.org',
@@ -121,11 +176,7 @@ export default async function GuidePage({ params }: GuidePageProps) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
       />
-      <ProblemOutcomeGuide
-        page={page}
-        category={category}
-        relatedPages={getRelatedSeoProblemPages(page)}
-      />
+      {guideContent}
     </>
   )
 }

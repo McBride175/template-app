@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { mapXeroRawToCanonical } from '@/lib/xero/canonical-mapper'
 import { canAccessInternalXeroTools } from '@/lib/xero/internal-access'
+import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
 
 function parseTenantId(value: unknown) {
   if (typeof value !== 'string') return null
@@ -31,6 +32,21 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: 'Missing tenantId', code: 'XERO_TENANT_ID_REQUIRED' },
         { status: 400 }
+      )
+    }
+
+    const entitlement = await claimActionsEntitlementStatus({
+      userId: user.id,
+      preferredTenantId: tenantId,
+      supabase,
+    })
+    if (!entitlement.tenantId) {
+      return NextResponse.json({ error: 'No connected Xero tenant found' }, { status: 400 })
+    }
+    if (!entitlement.hasActionsAccess) {
+      return NextResponse.json(
+        { error: 'Free usage allowance exhausted', code: 'ACTION_USAGE_LIMIT_REACHED', entitlement },
+        { status: 402 }
       )
     }
 

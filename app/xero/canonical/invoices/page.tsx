@@ -1,7 +1,8 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
-import { resolveCollectionsTenantId } from '@/lib/collections/tenant-context'
+import { createSupabaseAdminClient } from '@/lib/supabase-admin'
+import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
 import {
   CANONICAL_ACTION_LINK_CLASS,
   CANONICAL_EMPTY_STATE_MESSAGE,
@@ -52,7 +53,15 @@ export default async function XeroCanonicalInvoicesPage({
 
   const resolvedSearchParams = (await searchParams) ?? {}
   const requestedTenantId = parseTenantId(resolvedSearchParams.tenantId)
-  const tenantId = await resolveCollectionsTenantId(supabase, user.id, requestedTenantId)
+  const entitlement = await claimActionsEntitlementStatus({
+    userId: user.id,
+    preferredTenantId: requestedTenantId,
+    supabase,
+  })
+  const tenantId = entitlement.tenantId
+  if (tenantId && !entitlement.hasActionsAccess) {
+    redirect('/pricing?reason=usage-limit')
+  }
   const tenantQuery = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''
   const navLinks = getCanonicalNavLinks('invoices', tenantQuery)
 
@@ -68,7 +77,8 @@ export default async function XeroCanonicalInvoicesPage({
     )
   }
 
-  const { data: rows, error } = await supabase
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data: rows, error } = await supabaseAdmin
     .from('canonical_invoices')
     .select(
       'id, invoice_number, customer_source_id, status, issue_date, due_date, total, amount_due, amount_paid, amount_credited, sent_to_contact'

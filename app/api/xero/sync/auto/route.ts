@@ -9,6 +9,7 @@ import {
   XERO_AUTO_SYNC_STALE_MINUTES,
 } from '@/lib/xero/auto-sync'
 import { parseTenantId, syncXeroTenantForUser } from '@/lib/xero/sync'
+import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
 
 interface XeroConnectionRow {
   tenant_id: string
@@ -162,6 +163,23 @@ export async function POST(request: Request) {
         lastSyncedAt,
         surface,
       })
+    }
+
+    const entitlement = await claimActionsEntitlementStatus({
+      userId: user.id,
+      preferredTenantId: selectedConnection.tenant_id,
+      supabase,
+      supabaseAdmin,
+    })
+    if (!entitlement.hasActionsAccess) {
+      return NextResponse.json(
+        {
+          error: 'Free usage allowance exhausted',
+          code: 'ACTION_USAGE_LIMIT_REACHED',
+          entitlement,
+        },
+        { status: 402 }
+      )
     }
 
     const lockId = randomUUID()

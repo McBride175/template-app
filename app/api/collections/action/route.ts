@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
-import {
-  isMissingRelationError,
-  resolveCollectionsTenantId,
-} from '@/lib/collections/tenant-context'
+import { createSupabaseAdminClient } from '@/lib/supabase-admin'
+import { isMissingRelationError } from '@/lib/collections/tenant-context'
+import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
 
 type CollectionActionType = 'called' | 'emailed' | 'postponed'
 
@@ -106,12 +105,24 @@ export async function POST(request: Request) {
       )
     }
 
-    const tenantId = await resolveCollectionsTenantId(supabase, user.id, requestedTenantId)
+    const entitlement = await claimActionsEntitlementStatus({
+      userId: user.id,
+      preferredTenantId: requestedTenantId,
+      supabase,
+    })
+    const tenantId = entitlement.tenantId
     if (!tenantId) {
       return NextResponse.json({ error: 'No tenant context found' }, { status: 400 })
     }
+    if (!entitlement.hasActionsAccess) {
+      return NextResponse.json(
+        { error: 'Free usage allowance exhausted', code: 'ACTION_USAGE_LIMIT_REACHED', entitlement },
+        { status: 402 }
+      )
+    }
 
-    const { data, error: insertError } = await supabase
+    const supabaseAdmin = createSupabaseAdminClient()
+    const { data, error: insertError } = await supabaseAdmin
       .from('collection_actions')
       .insert({
         user_id: user.id,
@@ -173,7 +184,35 @@ export async function DELETE(request: Request) {
       )
     }
 
-    const { data, error: deleteError } = await supabase
+    const supabaseAdmin = createSupabaseAdminClient()
+    const { data: existingAction, error: actionLookupError } = await supabaseAdmin
+      .from('collection_actions')
+      .select('tenant_id')
+      .eq('id', actionId)
+      .eq('user_id', user.id)
+      .maybeSingle<{ tenant_id: string }>()
+
+    if (actionLookupError) {
+      return NextResponse.json({ error: 'Failed to load action' }, { status: 500 })
+    }
+    if (!existingAction) {
+      return NextResponse.json({ error: 'Action not found' }, { status: 404 })
+    }
+
+    const entitlement = await claimActionsEntitlementStatus({
+      userId: user.id,
+      preferredTenantId: existingAction.tenant_id,
+      supabase,
+      supabaseAdmin,
+    })
+    if (!entitlement.hasActionsAccess) {
+      return NextResponse.json(
+        { error: 'Free usage allowance exhausted', code: 'ACTION_USAGE_LIMIT_REACHED', entitlement },
+        { status: 402 }
+      )
+    }
+
+    const { data, error: deleteError } = await supabaseAdmin
       .from('collection_actions')
       .delete()
       .eq('id', actionId)

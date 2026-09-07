@@ -74,7 +74,8 @@ export default function Home() {
         <p className="mt-6 max-w-3xl text-lg leading-relaxed text-gray-700">
           Focus your team on the overdue customers that will return the highest
           cash impact first. The dashboard ranks who to call, email, or monitor
-          based on exposure, urgency, and payment behaviour.
+          by combining Xero evidence, payment behaviour, and the customer context
+          only you know.
         </p>
         <div className="mt-10 flex flex-wrap items-center gap-4">
           <Link
@@ -128,10 +129,10 @@ export default function Home() {
             Talk to us
           </Link>
           <Link
-            href="/blog"
+            href="/guides/credit-control-prioritisation-playbook"
             className="inline-flex min-h-11 items-center justify-center rounded-xl px-5 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
           >
-            Read cash collection playbooks
+            Try the prioritisation playbook
           </Link>
         </div>
       </section>

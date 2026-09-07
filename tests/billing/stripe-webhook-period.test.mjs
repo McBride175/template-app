@@ -2,177 +2,142 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { loadTypeScriptModule } from '../xero/test-helpers/ts-module-loader.mjs'
 
-const WEBHOOK_ROUTE_PATH = new URL(
-  '../../app/api/webhooks/stripe/route.ts',
-  import.meta.url
-)
+const STRIPE_CACHE_PATH = new URL('../../lib/billing/stripe-cache.ts', import.meta.url)
 
-function createNextResponseMock() {
+function createSupabaseAdminMock(userId, rpcWrites) {
   return {
-    json(body, init = {}) {
-      return {
-        body,
-        status: init.status ?? 200,
-      }
+    async rpc(name, values) {
+      assert.equal(name, 'apply_stripe_subscription_cache')
+      rpcWrites.push(values)
+      return { data: true, error: null }
     },
-  }
-}
-
-function createSupabaseAdminMock(userId, subscriptionWrites) {
-  return {
     from(table) {
-      if (table === 'stripe_customers') {
-        return {
-          select() {
-            return {
-              eq() {
-                return {
-                  async single() {
-                    return { data: { user_id: userId }, error: null }
-                  },
-                }
-              },
-            }
-          },
-          async upsert() {
-            return { error: null }
-          },
-        }
+      assert.equal(table, 'stripe_customers')
+      return {
+        select() {
+          return this
+        },
+        eq() {
+          return this
+        },
+        async maybeSingle() {
+          return { data: { user_id: userId }, error: null }
+        },
       }
-
-      if (table === 'subscriptions') {
-        return {
-          select() {
-            return {
-              eq() {
-                return {
-                  is() {
-                    return {
-                      async single() {
-                        return { data: null, error: null }
-                      },
-                    }
-                  },
-                }
-              },
-            }
-          },
-          update(values) {
-            subscriptionWrites.push(values)
-            return {
-              eq() {
-                return {
-                  async select() {
-                    return { data: [{ user_id: userId }], error: null }
-                  },
-                }
-              },
-            }
-          },
-        }
-      }
-
-      throw new Error(`Unexpected table: ${table}`)
     },
   }
 }
 
-async function runSubscriptionEvent({ eventType, status, periodEnd }) {
-  const subscriptionWrites = []
-  const subscription = {
-    id: 'sub_test',
-    customer: 'cus_test',
-    status,
-    items: {
-      data: [
-        {
-          current_period_end: periodEnd,
-          price: { id: 'price_test' },
-        },
-      ],
-    },
-  }
-
-  const stripe = {
-    subscriptions: {
-      async retrieve() {
-        return subscription
-      },
-    },
-    webhooks: {
-      constructEvent() {
-        return {
-          type: eventType,
-          data: { object: { id: subscription.id } },
-        }
-      },
-    },
-  }
-
-  const supabaseAdmin = createSupabaseAdminMock('user_test', subscriptionWrites)
-  const route = loadTypeScriptModule(WEBHOOK_ROUTE_PATH, {
+async function runSubscriptionCacheWrite({ status, periodEnd, created = 1_790_000_000 }) {
+  const rpcWrites = []
+  const userId = 'user_test'
+  const supabaseAdmin = createSupabaseAdminMock(userId, rpcWrites)
+  const { applyStripeSubscriptionCache } = loadTypeScriptModule(STRIPE_CACHE_PATH, {
     mocks: {
-      'next/server': { NextResponse: createNextResponseMock() },
-      '@/lib/stripe': { stripe },
-      '@supabase/supabase-js': {
-        createClient() {
-          return supabaseAdmin
+      'server-only': {},
+      '@/lib/supabase-admin': {
+        createSupabaseAdminClient() {
+          throw new Error('injected admin client should be used')
         },
       },
     },
   })
 
-  const previousWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET
-  process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test'
-
-  try {
-    const response = await route.POST({
-      async text() {
-        return '{}'
+  const result = await applyStripeSubscriptionCache({
+    supabaseAdmin,
+    userId,
+    subscription: {
+      id: 'sub_test',
+      customer: 'cus_test',
+      created,
+      status,
+      items: {
+        data: [
+          {
+            current_period_end: periodEnd,
+            price: { id: 'price_test' },
+          },
+        ],
       },
-      headers: {
-        get(name) {
-          return name === 'stripe-signature' ? 'test-signature' : null
-        },
-      },
-    })
+    },
+  })
 
-    assert.equal(response.status, 200)
-    assert.deepEqual(response.body, { received: true })
-  } finally {
-    if (typeof previousWebhookSecret === 'string') {
-      process.env.STRIPE_WEBHOOK_SECRET = previousWebhookSecret
-    } else {
-      delete process.env.STRIPE_WEBHOOK_SECRET
-    }
-  }
-
-  assert.equal(subscriptionWrites.length, 1)
-  return subscriptionWrites[0]
+  assert.equal(rpcWrites.length, 1)
+  return { result, write: rpcWrites[0] }
 }
 
-test('created active subscription persists its subscription item period end', async () => {
+test('active subscription persists its subscription item period end', async () => {
   const periodEnd = 1_800_000_000
-  const write = await runSubscriptionEvent({
-    eventType: 'customer.subscription.created',
+  const { result, write } = await runSubscriptionCacheWrite({
     status: 'active',
     periodEnd,
   })
 
-  assert.equal(write.status, 'active')
-  assert.equal(write.current_period_end, new Date(periodEnd * 1000).toISOString())
-  assert.notEqual(write.current_period_end, null)
+  assert.equal(write.p_status, 'active')
+  assert.equal(write.p_current_period_end, new Date(periodEnd * 1000).toISOString())
+  assert.equal(write.p_stripe_price_id, 'price_test')
+  assert.equal(result.applied, true)
 })
 
-test('updated trialing subscription persists its subscription item period end', async () => {
+test('trialing subscription persists its item period and creation timestamps', async () => {
   const periodEnd = 1_810_000_000
-  const write = await runSubscriptionEvent({
-    eventType: 'customer.subscription.updated',
+  const created = 1_795_000_000
+  const { write } = await runSubscriptionCacheWrite({
     status: 'trialing',
     periodEnd,
+    created,
   })
 
-  assert.equal(write.status, 'trialing')
-  assert.equal(write.current_period_end, new Date(periodEnd * 1000).toISOString())
-  assert.notEqual(write.current_period_end, null)
+  assert.equal(write.p_status, 'trialing')
+  assert.equal(write.p_current_period_end, new Date(periodEnd * 1000).toISOString())
+  assert.equal(
+    write.p_stripe_subscription_created_at,
+    new Date(created * 1000).toISOString()
+  )
+})
+
+test('missing period end remains null and cannot grant access in the entitlement policy', async () => {
+  const { write } = await runSubscriptionCacheWrite({
+    status: 'active',
+    periodEnd: undefined,
+  })
+
+  assert.equal(write.p_current_period_end, null)
+})
+
+test('checkout metadata cannot claim a Stripe customer mapped to another user', async () => {
+  const { resolveStripeSubscriptionUser } = loadTypeScriptModule(STRIPE_CACHE_PATH, {
+    mocks: {
+      'server-only': {},
+      '@/lib/supabase-admin': { createSupabaseAdminClient: () => ({}) },
+    },
+  })
+  const supabaseAdmin = {
+    from(table) {
+      assert.equal(table, 'stripe_customers')
+      return {
+        select() {
+          return this
+        },
+        eq() {
+          return this
+        },
+        async maybeSingle() {
+          return { data: { user_id: 'actual_owner' }, error: null }
+        },
+      }
+    },
+  }
+
+  await assert.rejects(
+    resolveStripeSubscriptionUser({
+      supabaseAdmin,
+      userHint: 'attacker',
+      subscription: {
+        id: 'sub_owned',
+        customer: 'cus_owned',
+      },
+    }),
+    /does not own the session customer/
+  )
 })

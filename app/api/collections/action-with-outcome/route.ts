@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
-import {
-  isMissingRelationError,
-  resolveCollectionsTenantId,
-} from '@/lib/collections/tenant-context'
+import { createSupabaseAdminClient } from '@/lib/supabase-admin'
+import { isMissingRelationError } from '@/lib/collections/tenant-context'
+import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
 
 type CollectionActionType = 'called' | 'emailed' | 'postponed'
 type CollectionActionOutcome =
@@ -127,12 +126,24 @@ export async function POST(request: Request) {
       )
     }
 
-    const tenantId = await resolveCollectionsTenantId(supabase, user.id, requestedTenantId)
+    const entitlement = await claimActionsEntitlementStatus({
+      userId: user.id,
+      preferredTenantId: requestedTenantId,
+      supabase,
+    })
+    const tenantId = entitlement.tenantId
     if (!tenantId) {
       return NextResponse.json({ error: 'No tenant context found' }, { status: 400 })
     }
+    if (!entitlement.hasActionsAccess) {
+      return NextResponse.json(
+        { error: 'Free usage allowance exhausted', code: 'ACTION_USAGE_LIMIT_REACHED', entitlement },
+        { status: 402 }
+      )
+    }
 
-    const { data, error: insertError } = await supabase
+    const supabaseAdmin = createSupabaseAdminClient()
+    const { data, error: insertError } = await supabaseAdmin
       .from('collection_actions')
       .insert({
         user_id: user.id,

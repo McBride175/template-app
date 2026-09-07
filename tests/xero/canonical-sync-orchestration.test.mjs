@@ -344,6 +344,19 @@ test('canonical repair endpoint delegates to the shared scoped mapper', async ()
           return true
         },
       },
+      '@/lib/billing/entitlements': {
+        async claimActionsEntitlementStatus({ preferredTenantId }) {
+          return {
+            hasActionsAccess: true,
+            isPaid: false,
+            tenantId: preferredTenantId,
+            usageDaysConsumed: 1,
+            freeUsageDaysLimit: 5,
+            usageDate: '2026-01-01',
+            usageDateConsumed: true,
+          }
+        },
+      },
       '@/lib/xero/canonical-mapper': {
         async mapXeroRawToCanonical(params) {
           mappingCalls.push(params)

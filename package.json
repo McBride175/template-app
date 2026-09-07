@@ -9,6 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/billing/*.test.mjs tests/privacy/*.test.mjs tests/xero/*.test.mjs tests/database/*.test.mjs tests/seo/*.test.mjs",
+    "test:billing:db": "RUN_SUPABASE_INTEGRATION=1 node --test tests/database/billing-enforcement.integration.test.mjs",
     "test:baseline": "node --test tests/database/baseline-contract.test.mjs",
     "security:sqlcheck": "bash scripts/security-sql-check.sh",
     "test:privacy": "node --test tests/privacy/privacy-utils.test.mjs",

@@ -159,6 +159,11 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
           return
         }
 
+        if (response.status === 402) {
+          router.push('/pricing?reason=usage-limit')
+          return
+        }
+
         const payload = (await response.json().catch(() => null)) as CollectionsApiResponse | null
         if (!response.ok || !payload?.ok) {
           throw new Error(payload?.error || 'Failed to load customer collections summary.')

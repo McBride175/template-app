@@ -107,7 +107,7 @@ function loadActionsRoute({ summaryRows, sourceCounts, actionRows = [] }) {
         },
       },
       '@/lib/billing/entitlements': {
-        async getActionsEntitlementStatus() {
+        async claimActionsEntitlementStatus() {
           return {
             plan: 'paid',
             isPaid: true,
@@ -116,10 +116,21 @@ function loadActionsRoute({ summaryRows, sourceCounts, actionRows = [] }) {
             usageDaysRemaining: null,
             freeUsageDaysLimit: 5,
             hasActionsAccess: true,
+            usageDate: new Date().toISOString().slice(0, 10),
+            usageDateConsumed: false,
           }
         },
-        async recordFreeActionsUsageDay() {
-          throw new Error('paid test entitlement should not record a usage day')
+      },
+      '@/lib/supabase-admin': {
+        createSupabaseAdminClient() {
+          return {
+            from(table) {
+              if (!Object.hasOwn(tables, table)) {
+                throw new Error(`Unexpected queue table: ${table}`)
+              }
+              return createQuery(tables[table])
+            },
+          }
         },
       },
     },

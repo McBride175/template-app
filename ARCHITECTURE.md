@@ -48,9 +48,9 @@ At baseline creation time, neither hosted project has a reconciled migration led
 - `subscriptions` caches Stripe subscription state, keyed by `user_id`. Stripe customer and subscription IDs are unique. `current_period_end` is nullable for valid transient states.
 - `stripe_customers` maps Stripe customer IDs to Supabase users for server-side webhook resolution.
 - `notes` provides authenticated user-owned CRUD.
-- `billing_usage_days` records at most one free-use day per Xero tenant and calendar date. Billing code uses the service role and fails closed on database errors.
+- `billing_usage_days` records at most one free-use day per authenticated user and UTC calendar date. Tenant history is also retained so changing accounts cannot reset an already exhausted Xero organisation. The service-role-only `claim_billing_usage_day` function serializes each user/tenant claim and atomically enforces the five-day limit.
 
-Stripe remains authoritative for subscription state; the Supabase subscription row is a cache used for UI and entitlement checks.
+Stripe remains authoritative for subscription state; the Supabase subscription row is a cache used for UI and entitlement checks. Only `active` and `trialing` rows for a configured Basic or Pro price with a future `current_period_end` grant paid access.
 
 ### Support and privacy
 
@@ -81,13 +81,12 @@ RLS is enabled on every application table. Grants are explicit rather than relyi
 
 | Access | Tables |
 |---|---|
-| Authenticated user SELECT | `subscriptions`, `xero_connections_public`, `xero_raw`, canonical Xero tables |
-| Authenticated user CRUD | `notes`, `customer_overrides` |
-| Authenticated user SELECT/INSERT/DELETE | `collection_actions` |
-| Service role only | `stripe_customers`, `support_tickets`, all privacy tables, `xero_oauth_grants`, `xero_scheduled_sync_runs`, `billing_usage_days` |
+| Authenticated user SELECT | `subscriptions`, `xero_connections_public` |
+| Authenticated user CRUD | `notes` |
+| Service role only | `stripe_customers`, `support_tickets`, all privacy tables, `xero_oauth_grants`, `xero_scheduled_sync_runs`, `billing_usage_days`, `xero_raw`, canonical Xero tables, `customer_overrides`, `collection_actions` |
 | Anonymous browser | No direct application-table access |
 
-User-accessible tables have `auth.uid() = user_id` policies. Server-only tables have RLS enabled, no browser policies, and explicit revocation from `anon` and `authenticated`. Service-role credentials are server-only and bypass RLS.
+User-accessible tables have `auth.uid() = user_id` policies. Server-only tables have RLS enabled, no browser policies, and explicit revocation from `anon` and `authenticated`. Service-role credentials are server-only and bypass RLS. Billable server routes authenticate the user, atomically claim/check the current UTC usage date, and only then query service-role-only product data with explicit `user_id` and `tenant_id` filters.
 
 ## Authentication and Google OAuth
 
@@ -110,8 +109,8 @@ Stripe is authoritative for customers and subscriptions.
 
 - Checkout is created by authenticated server routes.
 - Stripe webhook signatures are verified before processing.
-- Webhook handlers use service-role writes and idempotent update/upsert logic because events can arrive more than once or out of order.
-- `checkout.session.completed` may create a transient row with `current_period_end = null`; later subscription events fill the period date.
+- Webhook handlers use service-role writes and idempotent cache application because events can arrive more than once or out of order. Cache replacement compares Stripe subscription creation times so events for an older subscription cannot replace a newer subscription row.
+- `checkout.session.completed` retrieves the signed session's subscription from Stripe and caches its actual status, price, and item period end. Visiting the checkout return URL does not grant access.
 - Preview uses Stripe test mode and a Preview webhook secret. Production uses live mode and its own Production webhook secret and Price IDs.
 - Checkout success/cancel URLs are derived from the request origin.
 
@@ -152,7 +151,8 @@ Google OAuth has no direct Google secret in application code; provider credentia
 ## Important failure modes
 
 - A missing or stale database schema must fail validation rather than be hidden by legacy-table fallbacks.
-- Billing usage writes/counts fail closed so a database error cannot silently grant unlimited free access.
+- Unpaid billing usage writes/counts fail closed so a database error cannot silently grant unlimited free access. A valid cached paid-through entitlement does not depend on reading the free-usage ledger, avoiding an unnecessary paying-user lockout during a partial ledger failure.
+- Protected collection and Xero data is not directly readable or writable by browser Data API roles; otherwise a valid session token could bypass Next.js route enforcement.
 - Stripe events are unordered and duplicated; webhook handlers must remain idempotent.
 - Xero refresh and sync operations are concurrent; grant, tenant, and scheduler locks must remain service-only.
 - Dynamic Preview URLs require explicit OAuth/dashboard planning.

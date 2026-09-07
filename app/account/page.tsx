@@ -10,6 +10,14 @@ import SubscriptionStatus from '@/app/components/SubscriptionStatus'
 import Button from '@/app/components/Button'
 import Input from '@/app/components/Input'
 import { supabase } from '@/lib/supabase'
+import {
+  fetchXeroConnectionStatus,
+  resolveXeroAccountStatusView,
+  shouldShowXeroConnectCta,
+  XERO_STATUS_UNAVAILABLE_MESSAGE,
+  type XeroConnectionStatus,
+  type XeroSyncState,
+} from '@/lib/xero/account-status'
 import { triggerXeroAutoSyncOnEntry } from '@/lib/xero/auto-sync-client'
 
 interface SubscriptionData {
@@ -34,47 +42,6 @@ interface BillingEntitlementApiResponse {
   ok?: boolean
   entitlement?: ActionsEntitlement
   error?: string
-}
-
-interface XeroConnectionStatus {
-  connected: boolean
-  needsReauth?: boolean
-  hasError?: boolean
-  hasTemporaryIssue?: boolean
-  syncState?: XeroSyncState
-  syncMessage?: string | null
-  canSync?: boolean
-  canAccessInternalTools?: boolean
-  authState?: 'active' | 'reauth_required' | 'disconnected' | 'error' | null
-  reauthRequiredAt?: string | null
-  tenantId: string | null
-  tenantName: string | null
-  lastSyncedAt: string | null
-  connections: XeroConnectionSummary[]
-  diagnostics?: {
-    refreshIssueCode?: string | null
-  } | null
-}
-
-type XeroSyncState =
-  | 'active'
-  | 'reconnect_required'
-  | 'temporary_sync_issue'
-  | 'sync_in_progress'
-  | 'disconnected'
-
-interface XeroConnectionSummary {
-  tenantId: string
-  tenantName: string | null
-  authState: 'active' | 'reauth_required' | 'disconnected' | 'error'
-  syncState: XeroSyncState
-  syncMessage: string
-  canSync: boolean
-  needsReauth: boolean
-  hasError: boolean
-  hasTemporaryIssue?: boolean
-  reauthRequiredAt: string | null
-  updatedAt: string
 }
 
 function parseTenantId(value: string | null) {
@@ -111,6 +78,7 @@ export default function AccountPage() {
   const [billingLoading, setBillingLoading] = useState(false)
   const [billingError, setBillingError] = useState<string | null>(null)
   const [xeroStatus, setXeroStatus] = useState<XeroConnectionStatus | null>(null)
+  const [xeroStatusError, setXeroStatusError] = useState<string | null>(null)
   const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null)
   const [xeroResult, setXeroResult] = useState<string | null>(null)
   const [xeroLoading, setXeroLoading] = useState(false)
@@ -167,26 +135,15 @@ export default function AccountPage() {
 
   const loadXeroStatus = useCallback(async (tenantId: string | null) => {
     setXeroLoading(true)
+    setXeroStatusError(null)
     try {
-      const params = new URLSearchParams()
-      if (tenantId) {
-        params.set('tenantId', tenantId)
-      }
-      const url = params.size > 0 ? `/api/xero/status?${params.toString()}` : '/api/xero/status'
-
-      const xeroResponse = await fetch(url, {
-        cache: 'no-store',
-        credentials: 'include',
-      })
-      if (xeroResponse.ok) {
-        const xero = (await xeroResponse.json()) as XeroConnectionStatus
-        setXeroStatus(xero)
-        setXeroLastSyncedAt(xero.lastSyncedAt)
-        setSelectedTenantId(xero.tenantId ?? null)
-        setXeroError(null)
-      } else {
-        setXeroError('Could not load Xero status right now.')
-      }
+      const xero = await fetchXeroConnectionStatus(tenantId)
+      setXeroStatus(xero)
+      setXeroLastSyncedAt(xero.lastSyncedAt)
+      setSelectedTenantId(xero.tenantId ?? null)
+      setXeroStatusError(null)
+    } catch {
+      setXeroStatusError(XERO_STATUS_UNAVAILABLE_MESSAGE)
     } finally {
       setXeroLoading(false)
     }
@@ -518,12 +475,25 @@ export default function AccountPage() {
     ])
   }
 
+  const handleXeroStatusRetry = () => {
+    const tenantIdFromUrl =
+      typeof window !== 'undefined'
+        ? parseTenantId(new URLSearchParams(window.location.search).get('tenantId'))
+        : null
+    void loadXeroStatus(selectedTenantId ?? tenantIdFromUrl)
+  }
+
   if (loading) return null
 
   const xeroConnectedMessage =
     xeroResult === 'connected' ? 'Xero organisation connected successfully.' : null
   const xeroDisconnectedMessage =
     xeroResult === 'disconnected' ? 'Xero organisation disconnected successfully.' : null
+  const xeroStatusView = resolveXeroAccountStatusView({
+    loading: xeroLoading,
+    status: xeroStatus,
+    statusError: xeroStatusError,
+  })
   const xeroNeedsReauth = Boolean(xeroStatus?.needsReauth)
   const xeroHasError = Boolean(xeroStatus?.hasError)
   const xeroSyncState = xeroStatus?.syncState ?? 'disconnected'
@@ -553,8 +523,10 @@ export default function AccountPage() {
   const xeroCanAccessInternalTools = Boolean(xeroStatus?.canAccessInternalTools)
   const xeroSyncAvailable = Boolean(selectedTenantId) && (xeroStatus?.canSync ?? true)
   const xeroActionsBusy = xeroSyncLoading || xeroCanonicalMapLoading || xeroDisconnectLoading
-  const xeroConnectLabel = xeroNeedsReauth || xeroHasError ? 'Reconnect' : 'Connect Xero'
   const xeroReconnectLabel = xeroNeedsReauth || xeroHasError ? 'Reconnect' : 'Refresh connection'
+  const showXeroConnectCta = shouldShowXeroConnectCta(xeroStatusView)
+  const showXeroConnectedControls =
+    xeroStatusView === 'connected' || xeroStatusView === 'temporary_issue'
   const tenantQuery = selectedTenantId ? `?tenantId=${encodeURIComponent(selectedTenantId)}` : ''
   const dashboardHref = selectedTenantId
     ? `/dashboard?tenantId=${encodeURIComponent(selectedTenantId)}#collection-actions`
@@ -658,9 +630,44 @@ export default function AccountPage() {
             <p className="text-sm text-green-700">{xeroDisconnectedMessage}</p>
           )}
 
-          {xeroLoading && <p className="text-sm text-gray-600">Loading Xero status…</p>}
+          {xeroStatusView === 'loading' && (
+            <p className="text-sm text-gray-600">Loading Xero status…</p>
+          )}
 
-          {!xeroLoading && (
+          {xeroStatusView === 'error' && (
+            <div
+              className="space-y-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3"
+              role="alert"
+            >
+              <p className="text-sm text-amber-800">{XERO_STATUS_UNAVAILABLE_MESSAGE}</p>
+              <Button onClick={handleXeroStatusRetry} variant="secondary" size="sm">
+                Retry
+              </Button>
+            </div>
+          )}
+
+          {xeroStatusError && xeroStatus && (
+            <div
+              className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3"
+              role="status"
+            >
+              <p className="text-sm text-amber-800">{xeroStatusError}</p>
+              <Button
+                onClick={handleXeroStatusRetry}
+                variant="secondary"
+                size="sm"
+                disabled={xeroLoading}
+              >
+                {xeroLoading ? 'Retrying…' : 'Retry'}
+              </Button>
+            </div>
+          )}
+
+          {xeroLoading && xeroStatus && (
+            <p className="text-sm text-gray-600">Refreshing Xero status…</p>
+          )}
+
+          {xeroStatus && (
             <div className="space-y-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-3">
               <p className="text-sm text-gray-700">{xeroConnectionSummary}</p>
               <p className={`text-sm ${xeroStatusClass}`}>
@@ -671,7 +678,7 @@ export default function AccountPage() {
             </div>
           )}
 
-          {!xeroLoading && xeroStatus && xeroStatus.connections.length > 0 && (
+          {xeroStatus && xeroStatus.connections.length > 0 && (
             <div className="space-y-2">
               <label className="text-sm text-gray-700" htmlFor="xero-tenant-select">
                 Organisation
@@ -680,6 +687,7 @@ export default function AccountPage() {
                 id="xero-tenant-select"
                 value={selectedTenantId ?? ''}
                 onChange={(event) => void handleTenantSelection(event.target.value)}
+                disabled={xeroLoading}
                 className="w-full max-w-xl rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
               >
                 {xeroStatus.connections.map((connection) => (
@@ -692,25 +700,35 @@ export default function AccountPage() {
             </div>
           )}
 
-          {!xeroLoading && !xeroStatus?.connected && (
+          {showXeroConnectCta && xeroStatus && (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-700">Connect Xero to start syncing data.</p>
+              <a
+                href="/api/xero/connect"
+                className="inline-flex items-center justify-center rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-800 active:bg-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
+              >
+                Connect Xero
+              </a>
+            </div>
+          )}
+
+          {xeroStatusView === 'reconnect_required' && xeroStatus && (
             <div className="space-y-3">
               <p className="text-sm text-gray-700">
                 {xeroNeedsReauth
                   ? 'Reconnect to continue automatic sync.'
-                  : xeroHasError
-                    ? 'Reconnect to restore automatic sync.'
-                    : 'Connect Xero to start syncing data.'}
+                  : 'Reconnect to restore automatic sync.'}
               </p>
               <a
                 href="/api/xero/connect"
                 className="inline-flex items-center justify-center rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-800 active:bg-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
               >
-                {xeroConnectLabel}
+                Reconnect
               </a>
             </div>
           )}
 
-          {!xeroLoading && xeroStatus?.connected && (
+          {showXeroConnectedControls && xeroStatus && (
             <div className="space-y-3">
               <p className="text-sm text-gray-600">
                 Sync runs automatically in the background. Use manual controls only when you need

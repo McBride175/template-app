@@ -1,11 +1,17 @@
 import Link from 'next/link'
 import Card from '@/app/components/Card'
-import type { SeoGuideCategory, SeoProblemPage } from '@/content/seo-pages'
+import type {
+  SeoGuideCategory,
+  SeoProblemOutcomePage,
+  SeoProblemPage,
+} from '@/content/seo-pages'
 import PrioritisationSignals from './PrioritisationSignals'
+import PlaybookCallout from './PlaybookCallout'
+import WorkedCustomerScenario from './WorkedCustomerScenario'
 import WorkedPrioritisationExample from './WorkedPrioritisationExample'
 
 interface ProblemOutcomeGuideProps {
-  page: SeoProblemPage
+  page: SeoProblemOutcomePage
   category: SeoGuideCategory
   relatedPages: SeoProblemPage[]
 }
@@ -13,7 +19,7 @@ interface ProblemOutcomeGuideProps {
 const guideTextColors = {
   heading: { color: 'var(--gray-900)' },
   body: { color: 'var(--gray-700)' },
-  muted: { color: 'var(--gray-500)' },
+  muted: { color: 'var(--gray-600)' },
   inverseHeading: { color: '#ffffff' },
   inverseBody: { color: 'var(--gray-300)' },
   inverseCta: { color: 'var(--gray-900)' },
@@ -22,6 +28,7 @@ const guideTextColors = {
 const defaultHeadings = {
   whyItMatters: 'Why this matters',
   signals: 'How to prioritise',
+  decisionRules: 'Read the signals together',
   workedExample: 'Worked example',
   recommendedActions: 'Recommended actions',
   productBridge: 'From data to a ranked chase queue',
@@ -99,15 +106,25 @@ export default function ProblemOutcomeGuide({
           >
             {page.signalIntroduction}
           </p>
-          <PrioritisationSignals signals={page.signals} decisionRules={page.decisionRules} />
+          <PrioritisationSignals
+            signals={page.signals}
+            decisionRules={page.decisionRules}
+            decisionRulesHeading={headings.decisionRules}
+          />
         </section>
 
         <section aria-labelledby="worked-example">
           <h2 id="worked-example" style={guideTextColors.heading}>
             {headings.workedExample}
           </h2>
-          <WorkedPrioritisationExample example={page.workedExample} />
+          {'customers' in page.workedExample ? (
+            <WorkedPrioritisationExample example={page.workedExample} />
+          ) : (
+            <WorkedCustomerScenario scenario={page.workedExample} />
+          )}
         </section>
+
+        <PlaybookCallout slug={page.slug} />
 
         <section aria-labelledby="recommended-actions">
           <h2 id="recommended-actions" style={guideTextColors.heading}>
@@ -160,13 +177,13 @@ export default function ProblemOutcomeGuide({
               className="text-white"
               style={guideTextColors.inverseHeading}
             >
-              Turn overdue customers into a clear priority list
+              {page.ctaHeading}
             </h2>
             <p
               className="mt-2 text-sm text-gray-300"
               style={guideTextColors.inverseBody}
             >
-              Compare plans for connecting Xero and building a ranked collections queue.
+              {page.ctaDescription}
             </p>
           </div>
           <div className="mt-5 shrink-0 sm:mt-0">

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import { loadCustomerCollectionsSummaryWithMetadata } from '@/lib/collections/customer-summary'
 import {
   type CustomerOverrideLevel,
@@ -9,8 +10,7 @@ import {
   isMissingRelationError,
 } from '@/lib/collections/tenant-context'
 import {
-  getActionsEntitlementStatus,
-  recordFreeActionsUsageDay,
+  claimActionsEntitlementStatus,
 } from '@/lib/billing/entitlements'
 
 const DEFAULT_LIMIT = 50
@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
     const overdueOnly = parseOverdueOnly(searchParams.get('overdueOnly'))
     const requestedTenantId = parseTenantId(searchParams.get('tenantId'))
 
-    let entitlement = await getActionsEntitlementStatus({
+    const entitlement = await claimActionsEntitlementStatus({
       userId: user.id,
       preferredTenantId: requestedTenantId,
       supabase,
@@ -161,12 +161,14 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    const supabaseAdmin = createSupabaseAdminClient()
+
     const overrideLevelByCustomerSourceId = new Map<string, CustomerOverrideLevel>()
     const latestActionByCustomerSourceId = new Map<string, LoggedCollectionAction>()
     const actionsTakenByCustomerId: Record<string, LoggedCollectionAction> = {}
-    const todayDateIso = new Date().toISOString().slice(0, 10)
+    const todayDateIso = entitlement.usageDate
 
-    const { data: overrideRows, error: overrideError } = await supabase
+    const { data: overrideRows, error: overrideError } = await supabaseAdmin
       .from('customer_overrides')
       .select('customer_source_id, override_level')
       .eq('user_id', user.id)
@@ -185,7 +187,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const { data: actionRows, error: actionError } = await supabase
+    const { data: actionRows, error: actionError } = await supabaseAdmin
       .from('collection_actions')
       .select(
         'id, customer_source_id, action_type, outcome, next_action_date, action_timestamp'
@@ -223,7 +225,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { rows: summaryRows, sourceCounts } =
-      await loadCustomerCollectionsSummaryWithMetadata(supabase, user.id, tenantId)
+      await loadCustomerCollectionsSummaryWithMetadata(supabaseAdmin, user.id, tenantId)
 
     const scopeRows = overdueOnly
       ? summaryRows.filter((row) => row.overdue_outstanding > 0)
@@ -349,14 +351,6 @@ export async function GET(request: NextRequest) {
           last_action_timestamp: latestAction?.takenAtIso ?? null,
         }
       })
-
-    if (!entitlement.isPaid) {
-      entitlement = await recordFreeActionsUsageDay({
-        tenantId,
-        userId: user.id,
-        usageDate: todayDateIso,
-      })
-    }
 
     return NextResponse.json({
       ok: true,

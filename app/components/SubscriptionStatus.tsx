@@ -208,7 +208,7 @@ function SubscriptionStatusContent({ onStatusChange }: SubscriptionStatusProps) 
                   className={
                     banner.style === 'cancelled'
                       ? 'text-sm text-amber-700 hover:text-amber-900'
-                      : 'text-sm text-green-600 hover:text-green-800'
+                      : 'text-sm text-green-700 hover:text-green-800'
                   }
                 >
                   Dismiss

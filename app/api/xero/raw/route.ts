@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { createSupabaseAdminClient } from '@/lib/supabase-admin'
+import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
 
 const ALLOWED_RESOURCE_TYPES = new Set(['accounts', 'contacts', 'invoices'])
 
@@ -31,12 +33,28 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    const entitlement = await claimActionsEntitlementStatus({
+      userId: user.id,
+      preferredTenantId: tenantId,
+      supabase,
+    })
+    if (!entitlement.tenantId) {
+      return NextResponse.json({ error: 'No connected Xero tenant found' }, { status: 400 })
+    }
+    if (!entitlement.hasActionsAccess) {
+      return NextResponse.json(
+        { error: 'Free usage allowance exhausted', code: 'ACTION_USAGE_LIMIT_REACHED', entitlement },
+        { status: 402 }
+      )
+    }
+
     const parsedLimit = Number.parseInt(limitParam ?? '', 10)
     const limit = Number.isFinite(parsedLimit)
       ? Math.max(1, Math.min(100, parsedLimit))
       : 20
 
-    let query = supabase
+    const supabaseAdmin = createSupabaseAdminClient()
+    let query = supabaseAdmin
       .from('xero_raw')
       .select('id, tenant_id, resource_type, source_id, raw_json, fetched_at, updated_at')
       .eq('user_id', user.id)

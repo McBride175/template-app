@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import type { CustomerOverrideLevel } from '@/lib/collections/prioritization'
-import {
-  isMissingRelationError,
-  resolveCollectionsTenantId,
-} from '@/lib/collections/tenant-context'
+import { isMissingRelationError } from '@/lib/collections/tenant-context'
+import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
 
 const VALID_OVERRIDE_LEVELS: CustomerOverrideLevel[] = [
   'safe',
@@ -66,13 +65,26 @@ export async function POST(request: Request) {
       )
     }
 
-    const tenantId = await resolveCollectionsTenantId(supabase, user.id, requestedTenantId)
+    const entitlement = await claimActionsEntitlementStatus({
+      userId: user.id,
+      preferredTenantId: requestedTenantId,
+      supabase,
+    })
+    const tenantId = entitlement.tenantId
     if (!tenantId) {
       return NextResponse.json({ error: 'No tenant context found' }, { status: 400 })
     }
+    if (!entitlement.hasActionsAccess) {
+      return NextResponse.json(
+        { error: 'Free usage allowance exhausted', code: 'ACTION_USAGE_LIMIT_REACHED', entitlement },
+        { status: 402 }
+      )
+    }
+
+    const supabaseAdmin = createSupabaseAdminClient()
 
     if (overrideLevel === 'normal') {
-      const { error: deleteError } = await supabase
+      const { error: deleteError } = await supabaseAdmin
         .from('customer_overrides')
         .delete()
         .eq('user_id', user.id)
@@ -92,7 +104,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true })
     }
 
-    const { error: upsertError } = await supabase.from('customer_overrides').upsert(
+    const { error: upsertError } = await supabaseAdmin.from('customer_overrides').upsert(
       {
         user_id: user.id,
         tenant_id: tenantId,

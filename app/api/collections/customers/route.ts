@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import {
   CustomerCollectionsSummaryRow,
   loadCustomerCollectionsSummary,
 } from '@/lib/collections/customer-summary'
-import { resolveCollectionsTenantId } from '@/lib/collections/tenant-context'
+import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 200
@@ -97,13 +98,25 @@ export async function GET(request: NextRequest) {
     const sortBy = parseSortBy(searchParams.get('sortBy'))
     const sortDir = parseSortDir(searchParams.get('sortDir'))
     const requestedTenantId = parseTenantId(searchParams.get('tenantId'))
-    const tenantId = await resolveCollectionsTenantId(supabase, user.id, requestedTenantId)
+    const entitlement = await claimActionsEntitlementStatus({
+      userId: user.id,
+      preferredTenantId: requestedTenantId,
+      supabase,
+    })
+    const tenantId = entitlement.tenantId
 
     if (!tenantId) {
       return NextResponse.json({ error: 'No tenant context found' }, { status: 400 })
     }
+    if (!entitlement.hasActionsAccess) {
+      return NextResponse.json(
+        { error: 'Free usage allowance exhausted', code: 'ACTION_USAGE_LIMIT_REACHED', entitlement },
+        { status: 402 }
+      )
+    }
 
-    const rows = await loadCustomerCollectionsSummary(supabase, user.id, tenantId)
+    const supabaseAdmin = createSupabaseAdminClient()
+    const rows = await loadCustomerCollectionsSummary(supabaseAdmin, user.id, tenantId)
 
     const filteredRows = overdueOnly
       ? rows.filter((row) => row.overdue_invoices_count > 0)

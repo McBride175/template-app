@@ -339,6 +339,19 @@ export function createRouteHarness(options = {}) {
 
   const mocks = {
     'next/server': createNextServerMock(),
+    '@/lib/billing/entitlements': {
+      async claimActionsEntitlementStatus({ preferredTenantId }) {
+        return {
+          hasActionsAccess: true,
+          isPaid: false,
+          tenantId: preferredTenantId ?? null,
+          usageDaysConsumed: 1,
+          freeUsageDaysLimit: 5,
+          usageDate: '2026-01-01',
+          usageDateConsumed: true,
+        }
+      },
+    },
     '@/lib/supabase-admin': {
       createSupabaseAdminClient() {
         return {}

@@ -12,6 +12,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerUser, createServerSupabaseClient } from '@/lib/supabase-server'
 import { stripe } from '@/lib/stripe'
 import { createClient } from '@supabase/supabase-js'
+import { ensureStripeCustomerMapping } from '@/lib/billing/stripe-cache'
+import { getConfiguredPaidPriceIds, isSubscriptionPaid } from '@/lib/billing/policy'
 
 // Use service role key for stripe_customers table writes (bypasses RLS)
 // TEMPLATE CODE: Checkout needs elevated permissions to write customer mapping
@@ -83,16 +85,18 @@ export async function POST(request: NextRequest) {
     // Check if user already has a subscription
     const { data: existingSubscription } = await supabase
       .from('subscriptions')
-      .select('stripe_customer_id, status')
+      .select('stripe_customer_id, stripe_price_id, status, current_period_end')
       .eq('user_id', user.id)
       .single()
 
     let customerId = existingSubscription?.stripe_customer_id
     let customerResolution = 'subscription_row'
 
-    const isActiveOrTrialing =
-      existingSubscription?.status === 'active' ||
-      existingSubscription?.status === 'trialing'
+    const isActiveOrTrialing = isSubscriptionPaid({
+      subscription: existingSubscription ?? null,
+      now: new Date(),
+      paidPriceIds: getConfiguredPaidPriceIds(),
+    })
 
     if (isActiveOrTrialing) {
       if (!customerId) {
@@ -161,33 +165,11 @@ export async function POST(request: NextRequest) {
       customerResolution = 'stripe_create'
     }
 
-    // TEMPLATE CODE: Upsert customer mapping to enable webhook user_id resolution
-    // This ensures customer.subscription.* events can find user_id even without metadata
-    const { error: mappingError } = await supabaseAdmin
-      .from('stripe_customers')
-      .upsert(
-        {
-          stripe_customer_id: customerId,
-          user_id: user.id,
-        },
-        {
-          onConflict: 'stripe_customer_id',
-        }
-      )
-
-    if (mappingError) {
-      console.error('[checkout] Failed to upsert customer mapping', {
-        error: mappingError.message,
-        customer_id: customerId,
-        user_id: user.id,
-      })
-      // Don't fail checkout if mapping fails - webhook can still use metadata
-    } else {
-      console.log('[checkout] Customer mapping created/updated', {
-        customer_id: customerId,
-        user_id: user.id,
-      })
-    }
+    await ensureStripeCustomerMapping({
+      supabaseAdmin,
+      customerId,
+      userId: user.id,
+    })
 
     const body = await request.json().catch(() => ({}))
     const plan = body?.plan
@@ -236,6 +218,12 @@ if (secret?.startsWith('sk_live_') && priceId.includes('test')) {
           supabase_user_id: user.id,
           plan,
         },
+        subscription_data: {
+          metadata: {
+            supabase_user_id: user.id,
+            plan,
+          },
+        },
       },
       { idempotencyKey }
     )
@@ -260,7 +248,6 @@ if (secret?.startsWith('sk_live_') && priceId.includes('test')) {
       process.env.VERCEL_ENV !== 'production'
         ? {
             VERCEL_ENV: process.env.VERCEL_ENV,
-            STRIPE_SECRET_KEY_prefix: (process.env.STRIPE_SECRET_KEY ?? '').slice(0, 8),
             STRIPE_PRICE_ID_PRO: process.env.STRIPE_PRICE_ID_PRO,
             VERCEL_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA,
           }

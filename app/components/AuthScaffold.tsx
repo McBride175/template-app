@@ -52,7 +52,7 @@ export default function AuthScaffold({
         <div className="space-y-6">{children}</div>
 
         {(error || status) && (
-          <p className={`mt-5 text-sm ${error ? 'text-red-600' : 'text-green-600'}`}>
+          <p className={`mt-5 text-sm ${error ? 'text-red-600' : 'text-green-700'}`}>
             {error ?? status}
           </p>
         )}

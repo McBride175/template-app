@@ -27,6 +27,7 @@ export default function WorkedPrioritisationExample({
   example,
 }: WorkedPrioritisationExampleProps) {
   const rankedCustomers = [...example.customers].sort((a, b) => a.rank - b.rank)
+  const gridColumns = example.customers.length === 4 ? 'sm:grid-cols-2' : 'lg:grid-cols-3'
 
   return (
     <div className="mt-4">
@@ -34,7 +35,7 @@ export default function WorkedPrioritisationExample({
         {example.introduction}
       </p>
 
-      <ol className="mt-5 grid gap-4 lg:grid-cols-3">
+      <ol className={`mt-5 grid gap-4 ${gridColumns}`}>
         {rankedCustomers.map((customer) => (
           <li key={customer.name}>
             <Card className="h-full rounded-xl p-5">
@@ -86,7 +87,7 @@ export default function WorkedPrioritisationExample({
                   className="mt-4 border-t border-gray-200 pt-3 text-xs leading-5 text-gray-600"
                   style={{ color: 'var(--gray-600)' }}
                 >
-                  <span className="font-semibold text-gray-700">Founder context:</span>{' '}
+                  <span className="font-semibold text-gray-700">Current context:</span>{' '}
                   {customer.founderRiskReason}
                 </p>
               )}

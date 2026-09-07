@@ -7,6 +7,7 @@ const legacyMigrationsUrl = new URL('../../supabase/migrations_legacy/', import.
 const contactRouteUrl = new URL('../../app/api/contact/route.ts', import.meta.url)
 const billingEntitlementsUrl = new URL('../../lib/billing/entitlements.ts', import.meta.url)
 const baselineMigrationName = '20260813205201_baseline_current_schema.sql'
+const billingHardeningMigrationName = '20260906060637_harden_billing_enforcement.sql'
 const migrationNamePattern = /^(\d{14})_[a-z0-9_]+\.sql$/
 
 async function readMigrationNames(directoryUrl) {
@@ -17,6 +18,12 @@ async function readMigrationNames(directoryUrl) {
 
 async function readBaseline() {
   return (await readFile(new URL(baselineMigrationName, migrationsUrl), 'utf8')).toLowerCase()
+}
+
+async function readBillingHardeningMigration() {
+  return (
+    await readFile(new URL(billingHardeningMigrationName, migrationsUrl), 'utf8')
+  ).toLowerCase()
 }
 
 test('active migration chain starts with one canonical baseline and ordered forward migrations', async () => {
@@ -111,9 +118,33 @@ test('billing uses the canonical table and fails closed without legacy schema fa
   const billingSource = await readFile(billingEntitlementsUrl, 'utf8')
 
   assert.match(billingSource, /\.from\('billing_usage_days'\)/)
-  assert.match(billingSource, /onConflict: 'tenant_id,usage_date'/)
+  assert.match(billingSource, /\.rpc\('claim_billing_usage_day'/)
   assert.doesNotMatch(billingSource, /\.from\('xero_connections'\)/)
   assert.doesNotMatch(billingSource, /isMissingRelationError/)
+})
+
+test('billing hardening migration makes claims atomic and billable tables server-only', async () => {
+  const sql = await readBillingHardeningMigration()
+
+  assert.match(sql, /create unique index billing_usage_days_user_usage_date_key[\s\S]*\(user_id, usage_date\)/)
+  assert.match(sql, /create function public\.claim_billing_usage_day\s*\(/)
+  assert.match(sql, /pg_advisory_xact_lock/)
+  assert.match(sql, /grant execute on function public\.claim_billing_usage_day[\s\S]*to service_role/)
+  assert.doesNotMatch(sql, /grant execute on function public\.claim_billing_usage_day[\s\S]*to authenticated/)
+  assert.match(sql, /create function public\.apply_stripe_subscription_cache\s*\(/)
+  assert.match(sql, /excluded\.stripe_subscription_created_at\s*>/)
+
+  for (const table of [
+    'xero_raw',
+    'canonical_customers',
+    'canonical_invoices',
+    'canonical_payments',
+    'customer_overrides',
+    'collection_actions',
+  ]) {
+    assert.match(sql, new RegExp(`public\\.${table}`))
+  }
+  assert.match(sql, /revoke all on table[\s\S]*from anon, authenticated/)
 })
 
 test('baseline contains only final-state Xero structures', async () => {

@@ -45,7 +45,10 @@ function resolveTypeScriptPath(basePath) {
 
 export function loadTypeScriptModule(entrySpecifier, options = {}) {
   const projectRoot = options.projectRoot ?? DEFAULT_PROJECT_ROOT
-  const mocks = options.mocks ?? {}
+  // This loader executes server routes in a Node test context. Next.js' runtime-only
+  // guard intentionally throws outside its compiler, so make the no-op marker a
+  // standard mock while still allowing individual tests to override it.
+  const mocks = { 'server-only': {}, ...(options.mocks ?? {}) }
   const moduleCache = new Map()
   const nodeRequire = createRequire(import.meta.url)
 

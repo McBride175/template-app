@@ -8,6 +8,7 @@
  */
 import 'server-only'
 import { createServerSupabaseClient } from './supabase-server'
+import { getConfiguredPaidPriceIds, isSubscriptionPaid } from './billing/policy'
 
 /**
  * Get the current user's subscription status
@@ -47,13 +48,9 @@ export async function hasActiveSubscription(): Promise<boolean> {
     return false
   }
 
-  // Active subscription statuses in Stripe
-  const activeStatuses = ['active', 'trialing', 'past_due']
-  const isActive = activeStatuses.includes(subscription.status)
-
-  // Also check if subscription period hasn't ended
-  const periodEnd = new Date(subscription.current_period_end)
-  const now = new Date()
-
-  return isActive && periodEnd > now
+  return isSubscriptionPaid({
+    subscription,
+    now: new Date(),
+    paidPriceIds: getConfiguredPaidPriceIds(),
+  })
 }

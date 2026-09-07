@@ -49,7 +49,7 @@ export default function ChangePasswordButton({ email }: { email: string }) {
         {loading ? 'Sending…' : 'Change password'}
       </Button>
       {error && <p className="text-xs break-words text-red-600">{error}</p>}
-      {status && <p className="text-xs break-words text-green-600">{status}</p>}
+      {status && <p className="text-xs break-words text-green-700">{status}</p>}
     </div>
   )
 }

@@ -1,13 +1,15 @@
-import type { PrioritisationSignal } from '@/content/seo-pages'
+import type { GuideDecisionSignal } from '@/content/seo-pages'
 
 interface PrioritisationSignalsProps {
-  signals: readonly PrioritisationSignal[]
+  signals: readonly GuideDecisionSignal[]
   decisionRules: string[]
+  decisionRulesHeading: string
 }
 
 export default function PrioritisationSignals({
   signals,
   decisionRules,
+  decisionRulesHeading,
 }: PrioritisationSignalsProps) {
   return (
     <div className="mt-5 space-y-5">
@@ -35,7 +37,7 @@ export default function PrioritisationSignals({
           className="text-sm font-semibold text-gray-900"
           style={{ color: 'var(--gray-900)' }}
         >
-          Read the signals together
+          {decisionRulesHeading}
         </p>
         <ul className="mt-3 space-y-2 text-sm leading-6 text-gray-700">
           {decisionRules.map((rule) => (

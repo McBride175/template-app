@@ -11,6 +11,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { getConfiguredPaidPriceIds, isSubscriptionPaid } from '@/lib/billing/policy'
 
 export async function GET(request: NextRequest) {
   try {
@@ -95,15 +96,11 @@ export async function GET(request: NextRequest) {
       return res
     }
 
-    // Determine if subscription is active
-    // hasActive = status in ['active','trialing'] AND (current_period_end is null OR current_period_end > now)
-    const activeStatuses = ['active', 'trialing']
-    const now = new Date()
-    const isActive = subscription
-      ? activeStatuses.includes(subscription.status) &&
-        (subscription.current_period_end === null ||
-          new Date(subscription.current_period_end) > now)
-      : false
+    const isActive = isSubscriptionPaid({
+      subscription,
+      now: new Date(),
+      paidPriceIds: getConfiguredPaidPriceIds(),
+    })
 
     // DB field: stripe_price_id; env vars: STRIPE_PRICE_ID_BASIC/PRO
     const priceId = subscription?.stripe_price_id ?? null

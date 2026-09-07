@@ -44,7 +44,11 @@ export default function BlogPage() {
       '@type': 'Article',
       headline: guide.h1,
       url: `${siteUrl}/guides/${guide.slug}`,
-    })),
+    })).concat({
+      '@type': 'Article',
+      headline: 'The SME Credit Control Prioritisation Playbook',
+      url: `${siteUrl}/guides/credit-control-prioritisation-playbook`,
+    }),
   }
 
   return (
@@ -79,14 +83,15 @@ export default function BlogPage() {
               Recommended starting point
             </p>
             <p className="mt-1 font-semibold text-gray-900">
-              Turn your overdue list into a clear order of action.
+              See how accounting evidence and your judgement reshape the chase order.
             </p>
+            <p className="mt-1 text-sm text-gray-600">Interactive · Fictional data · No login</p>
           </div>
           <Link
-            href="/guides/how-to-prioritise-overdue-invoices"
+            href="/guides/credit-control-prioritisation-playbook"
             className="mt-4 inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 sm:mt-0"
           >
-            Start with prioritisation →
+            Try the prioritisation playbook →
           </Link>
         </div>
       </header>

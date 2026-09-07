@@ -71,12 +71,16 @@ interface ActionsEntitlement {
 
 interface CollectionOverrideApiResponse {
   ok?: boolean
+  code?: string
+  entitlement?: ActionsEntitlement
   error?: string
 }
 
 interface CollectionActionMutationApiResponse {
   ok?: boolean
   action_id?: string
+  code?: string
+  entitlement?: ActionsEntitlement
   error?: string
 }
 
@@ -613,6 +617,13 @@ export default function CollectionActionsClient({
       const payload =
         (await response.json().catch(() => null)) as CollectionActionMutationApiResponse | null
 
+      if (response.status === 402 && payload?.code === 'ACTION_USAGE_LIMIT_REACHED') {
+        if (payload.entitlement) setEntitlement(payload.entitlement)
+        setRows([])
+        setUsageLimitReached(true)
+        throw new Error('Free usage allowance exhausted')
+      }
+
       if (!response.ok || !payload?.ok) {
         throw new Error(payload?.error || 'Failed to log action.')
       }
@@ -832,6 +843,13 @@ export default function CollectionActionsClient({
 
       const payload = (await response.json().catch(() => null)) as CollectionActionMutationApiResponse | null
 
+      if (response.status === 402 && payload?.code === 'ACTION_USAGE_LIMIT_REACHED') {
+        if (payload.entitlement) setEntitlement(payload.entitlement)
+        setRows([])
+        setUsageLimitReached(true)
+        return
+      }
+
       if (!response.ok || !payload?.ok) {
         throw new Error(payload?.error || 'Failed to undo action.')
       }
@@ -912,6 +930,13 @@ export default function CollectionActionsClient({
         }
 
         const payload = (await response.json().catch(() => null)) as CollectionOverrideApiResponse | null
+
+        if (response.status === 402 && payload?.code === 'ACTION_USAGE_LIMIT_REACHED') {
+          if (payload.entitlement) setEntitlement(payload.entitlement)
+          setRows([])
+          setUsageLimitReached(true)
+          return
+        }
 
         if (!response.ok || !payload?.ok) {
           throw new Error(payload?.error || 'Failed to update customer override.')

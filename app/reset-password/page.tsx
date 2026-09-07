@@ -117,22 +117,22 @@ export default function ResetPasswordPage() {
               <div className="text-xs text-gray-500 space-y-1">
                 <p>Password requirements:</p>
                 <ul className="space-y-1">
-                  <li className={hasMinLength ? 'text-green-600' : ''}>
+                  <li className={hasMinLength ? 'text-green-700' : ''}>
                     {hasMinLength ? '✓' : '•'} At least 10 characters
                   </li>
-                  <li className={categoryCount >= 2 ? 'text-green-600' : ''}>
+                  <li className={categoryCount >= 2 ? 'text-green-700' : ''}>
                     {categoryCount >= 2 ? '✓' : '•'} At least 2 of: lowercase, uppercase, number, symbol
                   </li>
-                  <li className={hasLower ? 'text-green-600' : ''}>
+                  <li className={hasLower ? 'text-green-700' : ''}>
                     {hasLower ? '✓' : '•'} Lowercase letter
                   </li>
-                  <li className={hasUpper ? 'text-green-600' : ''}>
+                  <li className={hasUpper ? 'text-green-700' : ''}>
                     {hasUpper ? '✓' : '•'} Uppercase letter
                   </li>
-                  <li className={hasNumber ? 'text-green-600' : ''}>
+                  <li className={hasNumber ? 'text-green-700' : ''}>
                     {hasNumber ? '✓' : '•'} Number
                   </li>
-                  <li className={hasSymbol ? 'text-green-600' : ''}>
+                  <li className={hasSymbol ? 'text-green-700' : ''}>
                     {hasSymbol ? '✓' : '•'} Symbol
                   </li>
                 </ul>

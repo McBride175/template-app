@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { acquireXeroTenantSyncLock, releaseXeroTenantSyncLock } from '@/lib/xero/tenant-sync-lock'
 import { parseTenantId, syncXeroTenantForUser } from '@/lib/xero/sync'
+import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
 
 export async function POST(request: Request) {
   try {
@@ -26,6 +27,21 @@ export async function POST(request: Request) {
           code: 'XERO_TENANT_ID_REQUIRED',
         },
         { status: 400 }
+      )
+    }
+
+    const entitlement = await claimActionsEntitlementStatus({
+      userId: user.id,
+      preferredTenantId: tenantId,
+      supabase,
+    })
+    if (!entitlement.tenantId) {
+      return NextResponse.json({ error: 'No connected Xero tenant found' }, { status: 400 })
+    }
+    if (!entitlement.hasActionsAccess) {
+      return NextResponse.json(
+        { error: 'Free usage allowance exhausted', code: 'ACTION_USAGE_LIMIT_REACHED', entitlement },
+        { status: 402 }
       )
     }
 

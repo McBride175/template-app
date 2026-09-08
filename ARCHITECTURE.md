@@ -7,10 +7,12 @@ This document is the high-level source of truth for environments, deployment, da
 | Environment | Application | Supabase | External-service intent |
 |---|---|---|---|
 | Local | `http://localhost:3000` | Test project `rbmxegyiwntomhpbepnu` (`Template app test`) | Test/sandbox credentials where the provider supports them |
-| Vercel Preview | Per-deployment Vercel URL | Test project `rbmxegyiwntomhpbepnu` | Stripe test mode; other provider applications may intentionally be shared with Production |
-| Vercel Production | `https://template-app-inky.vercel.app` | Production project `sswyxbugbdoadktyaows` (`McBride175's Project`) | Stripe live mode; reviewed Production credentials/configuration |
+| Vercel Preview | `develop` branch and other unassigned branches; per-deployment URL | Test project `rbmxegyiwntomhpbepnu` | Stripe test/sandbox mode; other provider applications may intentionally be shared with Production |
+| Vercel Production | `main` branch; `https://template-app-inky.vercel.app` | Production project `sswyxbugbdoadktyaows` (`McBride175's Project`) | Stripe live mode; reviewed Production credentials/configuration |
 
-The Vercel Production branch is `test-stripe`. This task does not change that branch strategy.
+`develop` is the active pre-launch development branch. Its pushes create Vercel Preview deployments and do not automatically deploy to Production. Vercel's configured Production Branch is `main`.
+
+The deployment currently serving the public Production alias was manually promoted/rebuilt from historical `test-stripe@ed5ae80`. That historical source does not change the automatic Production Branch, which remains `main`. During pre-launch, Production may intentionally lag significantly behind `develop`; promoting development code is a deliberate future release decision.
 
 Use the same environment-variable names everywhere and scope their values in `.env.local` or Vercel. Never infer an environment from a secret prefix alone, and never commit an environment file.
 
@@ -18,6 +20,8 @@ Use the same environment-variable names everywhere and scope their values in `.e
 
 - Local and Vercel Preview deliberately share the Test Supabase project.
 - Vercel Production uses the separate Production Supabase project.
+- `develop` is the sole authoritative active development branch. Its stable branch alias is `https://template-app-git-develop-james-mcbrides-projects.vercel.app`; individual Preview deployment URLs remain immutable.
+- Pushes to `main` are eligible for automatic Production deployment. Pushes to unassigned branches, including `develop`, create Preview deployments instead.
 - Preview URLs are dynamic. OAuth and email links must use the request origin or `NEXT_PUBLIC_SITE_URL` rather than a hard-coded Preview hostname.
 - A deployment is not ready merely because the application build succeeds: its Supabase schema, Auth redirects, webhooks, OAuth callbacks, and environment-scoped credentials must also be ready.
 - Database changes go to Test first. Production receives the same reviewed forward migration only after Test validation.

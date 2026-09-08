@@ -1,6 +1,11 @@
 import 'server-only'
 
 import { createServerSupabaseClient } from '@/lib/supabase-server'
+import {
+  calculateHistoricalPaymentBaseline,
+  calculateRelativeLatenessDays,
+  type HistoricalPaymentInvoice,
+} from '@/lib/collections/payment-behavior'
 
 const PAGE_SIZE = 1000
 const MS_PER_DAY = 86_400_000
@@ -24,6 +29,10 @@ export interface CustomerCollectionsSummaryRow {
   oldest_overdue_invoice_date: string | null
   oldest_overdue_days: number | null
   weighted_avg_overdue_days: number
+  historical_paid_invoice_count: number
+  historical_mean_days_late: number | null
+  historical_normal_days_late: number | null
+  relative_lateness_days: number | null
   latest_invoice_date: string | null
   latest_due_date: string | null
   last_payment_date: string | null
@@ -57,8 +66,12 @@ interface CanonicalInvoiceRow {
   status: string | null
   issue_date: string | null
   due_date: string | null
+  fully_paid_date: string | null
   currency_code: string | null
+  total: string | number | null
+  amount_paid: string | number | null
   amount_due: string | number | null
+  amount_credited: string | number | null
 }
 
 interface CanonicalPaymentRow {
@@ -183,6 +196,10 @@ function createMutableSummary(sourceId: string): MutableCustomerSummaryRow {
     oldest_overdue_invoice_date: null,
     oldest_overdue_days: null,
     weighted_avg_overdue_days: 0,
+    historical_paid_invoice_count: 0,
+    historical_mean_days_late: null,
+    historical_normal_days_late: null,
+    relative_lateness_days: null,
     latest_invoice_date: null,
     latest_due_date: null,
     last_payment_date: null,
@@ -236,7 +253,9 @@ async function fetchCanonicalInvoices(
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await supabase
       .from('canonical_invoices')
-      .select('source_id, customer_source_id, type, status, issue_date, due_date, currency_code, amount_due')
+      .select(
+        'source_id, customer_source_id, type, status, issue_date, due_date, fully_paid_date, currency_code, total, amount_paid, amount_due, amount_credited'
+      )
       .eq('user_id', userId)
       .eq('tenant_id', tenantId)
       .order('source_id', { ascending: true })
@@ -300,6 +319,7 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
   const rowsByCustomerSourceId = new Map<string, MutableCustomerSummaryRow>()
   const customerBySourceId = new Map<string, CanonicalCustomerRow>()
   const customerSourceIdByCollectibleInvoiceSourceId = new Map<string, string>()
+  const historicalInvoicesByCustomerSourceId = new Map<string, HistoricalPaymentInvoice[]>()
 
   const ensureSummary = (sourceId: string) => {
     const existing = rowsByCustomerSourceId.get(sourceId)
@@ -342,6 +362,12 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
 
     const invoiceSourceId = normalizeSourceId(invoice.source_id)
     const customerSourceId = normalizeSourceId(invoice.customer_source_id)
+
+    if (customerSourceId) {
+      const historicalInvoices = historicalInvoicesByCustomerSourceId.get(customerSourceId) ?? []
+      historicalInvoices.push(invoice)
+      historicalInvoicesByCustomerSourceId.set(customerSourceId, historicalInvoices)
+    }
 
     if (invoiceSourceId && customerSourceId) {
       customerSourceIdByCollectibleInvoiceSourceId.set(invoiceSourceId, customerSourceId)
@@ -463,6 +489,18 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
         row.overdue_weighted_days_numerator / row.overdue_weighted_days_denominator
     }
 
+    const historicalBaseline = calculateHistoricalPaymentBaseline(
+      historicalInvoicesByCustomerSourceId.get(row.customer_source_id) ?? [],
+      { evaluationDate: todayIso }
+    )
+    row.historical_paid_invoice_count = historicalBaseline.usableInvoiceCount
+    row.historical_mean_days_late = historicalBaseline.meanDaysLate
+    row.historical_normal_days_late = historicalBaseline.normalDaysLate
+    row.relative_lateness_days = calculateRelativeLatenessDays(
+      row.weighted_avg_overdue_days,
+      historicalBaseline.normalDaysLate
+    )
+
     rows.push({
       customer_source_id: row.customer_source_id,
       customer_name: row.customer_name,
@@ -478,6 +516,10 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
       oldest_overdue_invoice_date: row.oldest_overdue_invoice_date,
       oldest_overdue_days: row.oldest_overdue_days,
       weighted_avg_overdue_days: row.weighted_avg_overdue_days,
+      historical_paid_invoice_count: row.historical_paid_invoice_count,
+      historical_mean_days_late: row.historical_mean_days_late,
+      historical_normal_days_late: row.historical_normal_days_late,
+      relative_lateness_days: row.relative_lateness_days,
       latest_invoice_date: row.latest_invoice_date,
       latest_due_date: row.latest_due_date,
       last_payment_date: row.last_payment_date,

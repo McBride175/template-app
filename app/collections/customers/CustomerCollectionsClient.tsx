@@ -4,6 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Card from '@/app/components/Card'
 import Button from '@/app/components/Button'
+import {
+  formatCurrentOverdueAge,
+  formatHistoricalPaymentTiming,
+  formatRelativeLateness,
+} from '@/lib/collections/payment-behavior-copy'
 
 type SortBy =
   | 'overdue_outstanding'
@@ -27,6 +32,11 @@ interface CustomerCollectionsSummaryRow {
   overdue_outstanding: number
   oldest_overdue_invoice_date: string | null
   oldest_overdue_days: number | null
+  weighted_avg_overdue_days: number
+  historical_paid_invoice_count: number
+  historical_mean_days_late: number | null
+  historical_normal_days_late: number | null
+  relative_lateness_days: number | null
   latest_invoice_date: string | null
   latest_due_date: string | null
   last_payment_date: string | null
@@ -314,6 +324,7 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
                 <th className="px-4 py-3 font-medium">Overdue invoices</th>
                 <th className="px-4 py-3 font-medium">Oldest overdue (days)</th>
                 <th className="px-4 py-3 font-medium">Last payment date</th>
+                <th className="px-4 py-3 font-medium">Payment behaviour</th>
                 <th className="px-4 py-3 font-medium">Status</th>
               </tr>
             </thead>
@@ -333,6 +344,32 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
                   <td className="px-4 py-3">{row.overdue_invoices_count}</td>
                   <td className="px-4 py-3">{row.oldest_overdue_days ?? '—'}</td>
                   <td className="px-4 py-3">{formatDate(row.last_payment_date)}</td>
+                  <td className="min-w-64 px-4 py-3">
+                    <dl className="space-y-1 text-xs text-gray-600">
+                      <div>
+                        <dt className="inline font-medium text-gray-700">Typical payment timing: </dt>
+                        <dd className="inline">
+                          {formatHistoricalPaymentTiming(row.historical_normal_days_late)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="inline font-medium text-gray-700">Historical invoices: </dt>
+                        <dd className="inline">{row.historical_paid_invoice_count}</dd>
+                      </div>
+                      <div>
+                        <dt className="inline font-medium text-gray-700">Current overdue age: </dt>
+                        <dd className="inline">
+                          {formatCurrentOverdueAge(row.weighted_avg_overdue_days)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="inline font-medium text-gray-700">Versus normal: </dt>
+                        <dd className="inline">
+                          {formatRelativeLateness(row.relative_lateness_days)}
+                        </dd>
+                      </div>
+                    </dl>
+                  </td>
                   <td className="px-4 py-3">
                     <span
                       className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${getStatusBadgeClasses(row)}`}

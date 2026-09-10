@@ -1,5 +1,29 @@
+import type { Metadata } from 'next'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import ContactForm from './ContactForm'
+
+const title = 'Contact'
+const description = 'Contact the team about the collections decision engine or an existing account.'
+
+export const metadata: Metadata = {
+  title: {
+    absolute: title,
+  },
+  description,
+  alternates: {
+    canonical: '/contact',
+  },
+  openGraph: {
+    title,
+    description,
+    url: '/contact',
+    type: 'website',
+  },
+  twitter: {
+    title,
+    description,
+  },
+}
 
 export default async function ContactPage() {
   const supabase = await createServerSupabaseClient()

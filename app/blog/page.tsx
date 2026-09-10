@@ -10,10 +10,12 @@ import { getSiteUrl } from '@/lib/site-url'
 
 const hubTitle = 'Getting Paid: Credit Control & Overdue Invoice Guides'
 const hubDescription =
-  'Practical guides to prioritising overdue invoices, getting paid faster, managing late-payer risk, building a credit-control process and using Xero for credit control.'
+  'Practical guides to prioritising overdue invoices, getting paid faster, managing late-payer risk, building credit-control processes and using Xero.'
 
 export const metadata: Metadata = {
-  title: hubTitle,
+  title: {
+    absolute: hubTitle,
+  },
   description: hubDescription,
   alternates: {
     canonical: '/blog',

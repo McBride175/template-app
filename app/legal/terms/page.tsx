@@ -1,4 +1,28 @@
+import type { Metadata } from 'next'
 import { LEGAL_LAST_UPDATED_LABEL } from '@/app/legal/constants'
+
+const title = 'Terms of Service'
+const description = 'Read the terms governing accounts, subscriptions, data and use of this service.'
+
+export const metadata: Metadata = {
+  title: {
+    absolute: title,
+  },
+  description,
+  alternates: {
+    canonical: '/legal/terms',
+  },
+  openGraph: {
+    title,
+    description,
+    url: '/legal/terms',
+    type: 'website',
+  },
+  twitter: {
+    title,
+    description,
+  },
+}
 
 export default function TermsPage() {
   return (

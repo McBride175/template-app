@@ -7,7 +7,9 @@ import HomePageClient from './HomePageClient'
 const siteUrl = getSiteUrl()
 
 export const metadata: Metadata = {
-  title: 'Collections Decision Engine for Cash per Effort',
+  title: {
+    absolute: 'Collections Decision Engine for Cash per Effort',
+  },
   description:
     'Prioritise overdue accounts by cash impact and urgency so teams spend effort where it drives the most collections.',
   alternates: {
@@ -37,29 +39,8 @@ export const metadata: Metadata = {
 }
 
 export default function Home() {
-  const softwareJsonLd = {
-    '@context': 'https://schema.org',
-    '@type': 'SoftwareApplication',
-    name: 'Template App',
-    applicationCategory: 'BusinessApplication',
-    operatingSystem: 'Web',
-    url: siteUrl,
-    description:
-      'A collections decision engine that optimises team effort per cash collected.',
-    offers: {
-      '@type': 'Offer',
-      price: '0',
-      priceCurrency: 'USD',
-    },
-  }
-
   return (
     <div className="space-y-14 pb-10 sm:pb-14">
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareJsonLd) }}
-      />
-
       <Suspense fallback={null}>
         <HomePageClient />
       </Suspense>
@@ -74,8 +55,8 @@ export default function Home() {
         <p className="mt-6 max-w-3xl text-lg leading-relaxed text-gray-700">
           Focus your team on the overdue customers that will return the highest
           cash impact first. The dashboard ranks who to call, email, or monitor
-          by combining Xero evidence, payment behaviour, and the customer context
-          only you know.
+          by combining Xero evidence, payment behaviour, and the priority adjustment
+          your team chooses.
         </p>
         <div className="mt-10 flex flex-wrap items-center gap-4">
           <Link

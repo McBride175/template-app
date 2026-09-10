@@ -7,7 +7,7 @@ export async function GET() {
 
   const body = isProduction
     ? `User-agent: *\nAllow: /\n\nSitemap: ${siteUrl}/sitemap.xml\n`
-    : `User-agent: *\nDisallow: /\n\nSitemap: ${siteUrl}/sitemap.xml\n`
+    : 'User-agent: *\nAllow: /\n'
 
   return new NextResponse(body, {
     headers: {

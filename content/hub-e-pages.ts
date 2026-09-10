@@ -123,7 +123,7 @@ export const hubESeoPages = [
       'You can build this queue manually from Xero data. The repetitive part is regrouping invoices and refreshing exposure, behaviour and payment recency as the ledger changes. The product performs that comparison and lets founder-assigned risk change the order; it does not send every reminder, resolve disputes or make escalation decisions.',
     ctaHeading: 'Keep the Xero customer order current',
     ctaDescription:
-      'See plans for turning changing Xero invoice and payment data into a ranked queue you can adjust with customer knowledge.',
+      'See plans for turning changing Xero invoice and payment data into a ranked queue using the priority adjustment you choose.',
     ctaLabel: 'See plans and pricing',
     ctaHref: '/pricing',
     relatedSlugs: ['xero-credit-control', 'how-to-prioritise-overdue-invoices'],

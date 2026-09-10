@@ -2,19 +2,21 @@ import type { Metadata } from 'next'
 import PricingClient from './PricingClient'
 
 export const metadata: Metadata = {
-  title: 'Pricing',
+  title: {
+    absolute: 'Pricing',
+  },
   description: 'Explore suggested Basic and Pro pricing ideas for a collections decision engine.',
   alternates: {
     canonical: '/pricing',
   },
   openGraph: {
-    title: 'Pricing | Template App',
+    title: 'Pricing',
     description: 'Explore suggested Basic and Pro pricing ideas for a collections decision engine.',
     url: '/pricing',
     type: 'website',
   },
   twitter: {
-    title: 'Pricing | Template App',
+    title: 'Pricing',
     description: 'Explore suggested Basic and Pro pricing ideas for a collections decision engine.',
   },
 }

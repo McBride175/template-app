@@ -8,10 +8,22 @@ import {
 import { SITEMAP_PAGE_LINKS } from '@/lib/sitemap-links'
 
 export const metadata: Metadata = {
-  title: 'Sitemap',
-  description: 'Human-friendly sitemap for Template App pages.',
+  title: {
+    absolute: 'Sitemap',
+  },
+  description: 'Browse the public pages and credit-control guides available on this site.',
   alternates: {
     canonical: '/sitemap',
+  },
+  openGraph: {
+    title: 'Sitemap',
+    description: 'Browse the public pages and credit-control guides available on this site.',
+    url: '/sitemap',
+    type: 'website',
+  },
+  twitter: {
+    title: 'Sitemap',
+    description: 'Browse the public pages and credit-control guides available on this site.',
   },
 }
 

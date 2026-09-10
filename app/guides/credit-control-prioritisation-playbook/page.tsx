@@ -6,11 +6,13 @@ import PrioritisationPlaybook from './PrioritisationPlaybook'
 
 const title = 'The SME Credit Control Prioritisation Playbook'
 const description =
-  'Learn who to chase first when several customers are overdue. Try a worked example that combines exposure, lateness, payment behaviour and your own customer knowledge.'
+  'Learn who to chase first when several customers are overdue. Compare exposure, lateness and payment behaviour, then apply your priority judgement.'
 const canonicalPath = '/guides/credit-control-prioritisation-playbook'
 
 export const metadata: Metadata = {
-  title,
+  title: {
+    absolute: title,
+  },
   description,
   alternates: {
     canonical: canonicalPath,
@@ -89,10 +91,6 @@ export default function CreditControlPrioritisationPlaybookPage() {
       headline: title,
       description,
       mainEntityOfPage: `${siteUrl}${canonicalPath}`,
-      author: {
-        '@type': 'Organization',
-        name: 'Template App',
-      },
     },
     {
       '@context': 'https://schema.org',
@@ -156,7 +154,7 @@ export default function CreditControlPrioritisationPlaybookPage() {
           </div>
         </div>
         <div className="grid border-t border-gray-200 bg-sky-50 sm:grid-cols-3">
-          {['Accounting evidence', 'Payment behaviour', 'Your customer knowledge'].map(
+          {['Accounting evidence', 'Payment behaviour', 'Your priority judgement'].map(
             (item, index) => (
               <div
                 key={item}
@@ -319,8 +317,8 @@ export default function CreditControlPrioritisationPlaybookPage() {
                 See what deserves attention across your real debtor book
               </h3>
               <p className="mt-2 text-sm leading-6 text-gray-300">
-                Connect Xero, add the customer context only you know, and work from a queue that
-                changes as the evidence changes.
+                Connect Xero, choose the priority adjustment that reflects what you know, and
+                work from a queue that changes as the evidence changes.
               </p>
             </div>
             <Link

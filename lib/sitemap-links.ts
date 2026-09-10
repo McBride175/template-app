@@ -14,7 +14,6 @@ export const SITEMAP_PAGE_LINKS: SitemapPageLink[] = [
   },
   { href: '/pricing', label: 'Pricing', includeInXml: true },
   { href: '/contact', label: 'Contact', includeInXml: true },
-  { href: '/disputes', label: 'Disputes', includeInXml: true },
   { href: '/legal/terms', label: 'Terms of Service', includeInXml: true },
   { href: '/legal/privacy', label: 'Privacy Policy', includeInXml: true },
   { href: '/legal/cookies', label: 'Cookie Policy', includeInXml: true },

@@ -24,7 +24,7 @@ export const metadata: Metadata = {
     type: 'website',
   },
   twitter: {
-    card: 'summary_large_image',
+    card: 'summary',
     title: 'Template App',
     description: 'Template App with auth, subscriptions, and dashboard workflows.',
   },
@@ -35,20 +35,9 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const organizationJsonLd = {
-    '@context': 'https://schema.org',
-    '@type': 'Organization',
-    name: 'Template App',
-    url: siteUrl,
-  }
-
   return (
     <html lang="en">
       <body className="antialiased bg-gray-50">
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
-        />
         <div className="min-h-screen flex flex-col">
           <Nav />
           <main className="max-w-4xl mx-auto px-6 py-8 flex-1 w-full">

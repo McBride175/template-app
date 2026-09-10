@@ -28,7 +28,9 @@ export async function generateMetadata({ params }: GuidePageProps): Promise<Meta
 
   if (!page) {
     return {
-      title: 'Guide not found',
+      title: {
+        absolute: 'Guide not found',
+      },
       robots: {
         index: false,
         follow: false,
@@ -39,7 +41,9 @@ export async function generateMetadata({ params }: GuidePageProps): Promise<Meta
   const canonicalPath = `/guides/${page.slug}`
 
   return {
-    title: page.metaTitle,
+    title: {
+      absolute: page.metaTitle,
+    },
     description: page.metaDescription,
     alternates: {
       canonical: canonicalPath,
@@ -139,10 +143,6 @@ export default async function GuidePage({ params }: GuidePageProps) {
       headline: page.h1,
       description: page.metaDescription,
       mainEntityOfPage: `${siteUrl}${canonicalPath}`,
-      author: {
-        '@type': 'Organization',
-        name: 'Template App',
-      },
     },
     {
       '@context': 'https://schema.org',

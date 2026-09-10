@@ -1,4 +1,28 @@
+import type { Metadata } from 'next'
 import { LEGAL_LAST_UPDATED_LABEL } from '@/app/legal/constants'
+
+const title = 'Privacy Policy'
+const description = 'Read how this service handles account, billing, support and product data.'
+
+export const metadata: Metadata = {
+  title: {
+    absolute: title,
+  },
+  description,
+  alternates: {
+    canonical: '/legal/privacy',
+  },
+  openGraph: {
+    title,
+    description,
+    url: '/legal/privacy',
+    type: 'website',
+  },
+  twitter: {
+    title,
+    description,
+  },
+}
 
 const DEFAULT_CONTROLLER_NAME = 'Template App Operator'
 const DEFAULT_CONTROLLER_EMAIL = 'privacy@yourdomain.com'

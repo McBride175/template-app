@@ -599,7 +599,7 @@ export const seoProblemPages = [
       'You can keep these columns in a spreadsheet. The repetitive part is regrouping invoices and refreshing ageing, exposure and payment recency whenever Xero changes. The app does that comparison at customer level and lets your own priority judgement alter the queue when the ledger lacks important context.',
     ctaHeading: 'Keep the customer ranking current',
     ctaDescription:
-      'See plans for turning Xero invoice and payment data into a ranked queue you can adjust with your own customer knowledge.',
+      'See plans for turning Xero invoice and payment data into a ranked queue using the priority adjustment you choose.',
     ctaLabel: 'See plans and pricing',
     ctaHref: '/pricing',
     relatedSlugs: [
@@ -1761,7 +1761,7 @@ export const seoProblemPages = [
       },
     ],
     productBridge:
-      'The diagnosis may point outside the product. When scarce chasing attention is the constraint, the product combines Xero evidence with founder risk knowledge to keep the highest-impact overdue customers visible.',
+      'The diagnosis may point outside the product. When scarce chasing attention is the constraint, the product combines Xero evidence with founder-assigned priority to keep the highest-impact overdue customers visible.',
     ctaHeading: 'Test whether prioritisation is your collection constraint',
     ctaDescription:
       'See how the product focuses limited human time without pretending to replace the rest of the collection system.',
@@ -1914,7 +1914,7 @@ export const seoProblemPages = [
       },
     ],
     productBridge:
-      'You still own the calculation and changes to terms, invoicing or disputes. For customer delay, the product uses Xero payment behaviour and founder risk knowledge to surface overdue accounts needing human attention.',
+      'You still own the calculation and changes to terms, invoicing or disputes. For customer delay, the product uses Xero payment behaviour and founder-assigned priority to surface overdue accounts needing human attention.',
     ctaHeading: 'Focus on the customers adding avoidable days',
     ctaDescription:
       'Compare plans for using Xero payment behaviour to direct the human part of your debtor-days plan.',
@@ -2040,7 +2040,7 @@ export const seoProblemPages = [
       'Review net backlog movement weekly and keep cash recovery distinct from ledger adjustments.',
     ],
     productBridge:
-      'The prevention track still depends on invoicing, terms and customer management. For the backlog-clearing track, the product uses Xero payment evidence and founder risk knowledge to keep the customers with the most important actionable debt at the top of the human queue.',
+      'The prevention track still depends on invoicing, terms and customer management. For the backlog-clearing track, the product uses Xero payment evidence and founder-assigned priority to keep the customers with the most important actionable debt at the top of the human queue.',
     ctaHeading: 'Work the backlog in the order that can change it',
     ctaDescription:
       'Compare plans for turning Xero balances and payment evidence into a focused customer-level queue.',
@@ -2172,7 +2172,7 @@ export const seoProblemPages = [
       'Compare new invoice cohorts and keep only changes that bring accepted invoices to cash sooner.',
     ],
     productBridge:
-      'You make the decisions about invoice design, terms and future exposure. The product supports the monitoring step by using Xero payment history and founder risk knowledge to surface material customers whose normal pattern is worsening and needs attention.',
+      'You make the decisions about invoice design, terms and future exposure. The product supports the monitoring step by using Xero payment history and founder-assigned priority to surface material customers whose normal pattern is worsening and needs attention.',
     ctaHeading: 'Spot the payment patterns that need intervention',
     ctaDescription:
       'Compare plans for using Xero history and business context to focus attention on changing customer behaviour.',
@@ -2332,7 +2332,7 @@ export const seoProblemPages = [
       },
     ],
     productBridge:
-      'You still need clear invoicing, exception ownership and escalation. The product supplies a prioritised customer view from Xero payment data and founder risk knowledge, so the weekly review starts with accounts needing human attention.',
+      'You still need clear invoicing, exception ownership and escalation. The product supplies a prioritised customer view from Xero payment data and founder-assigned priority, so the weekly review starts with accounts needing human attention.',
     ctaHeading: 'Add a prioritised queue to your minimum AR routine',
     ctaDescription:
       'Compare plans for giving a small team one current, customer-level view from its Xero data.',
@@ -2486,7 +2486,7 @@ export const seoProblemPages = [
       },
     ],
     productBridge:
-      'The cash forecast, disputes and funding response remain yours. The product combines Xero payment evidence with founder risk knowledge to identify material overdue customers where human contact could change the near-term outcome.',
+      'The cash forecast, disputes and funding response remain yours. The product combines Xero payment evidence with founder-assigned priority to identify material overdue customers where human contact could change the near-term outcome.',
     ctaHeading: 'Find the receivables worth acting on inside the cash window',
     ctaDescription:
       'Compare plans for prioritising material overdue customers from Xero evidence and business context.',

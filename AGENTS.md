@@ -11,6 +11,36 @@
 - Report every migration and environment-variable name added or changed.
 - Before declaring work complete, run lint, TypeScript checks, relevant tests, the production build, and `pnpm security:sqlcheck`, or report the blocker.
 
+## Development branch
+
+- `develop` is the sole authoritative active development branch for the pre-launch application.
+- Unless a task genuinely requires isolation, work from and return changes to `develop`.
+- Do not recreate or use the retired `test-stripe` branch.
+- Do not create release, candidate, or other task-specific branches for ordinary work unless isolation provides a concrete benefit.
+- Treat temporary audit, experiment, and release-packaging branches as disposable; reconcile any unique work and delete them when finished.
+
+## Preview/Test environment
+
+- Pushes to `develop` create Vercel Preview deployments using Test Supabase project `rbmxegyiwntomhpbepnu` and Stripe Test/Sandbox mode.
+- Preview/Test is the normal environment for validating current application work before launch; the stable `develop` Preview alias may be used for hosted testing.
+- Do not infer Production state from what is deployed on `develop`.
+
+## Production
+
+- `main` is Vercel's configured Production Branch and uses Supabase Production project `sswyxbugbdoadktyaows` with Stripe Live mode.
+- Public Production may intentionally lag behind `develop`. Its current deployment historically came from a manually promoted older `test-stripe` commit; `main` nevertheless remains the configured automatic Production Branch.
+- Do not push, merge, fast-forward, or otherwise update `main` unless the task explicitly authorizes a Production release.
+- Do not manually promote a Preview to Production unless explicitly instructed.
+- Do not modify Production Supabase or Stripe Live unless the task explicitly requires it.
+
+## Default Codex behaviour
+
+- For ordinary development, assume `develop` is the correct branch and preserve newer work already present there.
+- Before creating another branch, determine whether isolation is actually necessary; prefer one development line over accumulating permanent task-specific branches.
+- If isolation is useful, state the branch's purpose clearly, then reconcile and delete it when the work is complete.
+- Never treat a branch name alone as proof of its deployment environment; `ARCHITECTURE.md` is authoritative.
+- If branch or environment state conflicts with `ARCHITECTURE.md`, inspect and report the discrepancy before changing deployment-sensitive configuration.
+
 ## Interrupted or resumed work
 
 - After any Codex interruption, usage-limit reset, context reset, partially completed run, or resumed session, do not assume the task must be restarted. Treat the repository and working tree as the source of truth.

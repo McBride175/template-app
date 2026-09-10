@@ -1,4 +1,28 @@
+import type { Metadata } from 'next'
 import { LEGAL_LAST_UPDATED_LABEL } from '@/app/legal/constants'
+
+const title = 'Cookie Policy'
+const description = 'Read how essential authentication and session cookies are used by this service.'
+
+export const metadata: Metadata = {
+  title: {
+    absolute: title,
+  },
+  description,
+  alternates: {
+    canonical: '/legal/cookies',
+  },
+  openGraph: {
+    title,
+    description,
+    url: '/legal/cookies',
+    type: 'website',
+  },
+  twitter: {
+    title,
+    description,
+  },
+}
 
 export default function CookiesPage() {
   return (

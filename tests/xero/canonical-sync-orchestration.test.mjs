@@ -7,6 +7,7 @@ import {
 import { loadTypeScriptModule } from './test-helpers/ts-module-loader.mjs'
 
 const SYNC_LIB_PATH = new URL('../../lib/xero/sync.ts', import.meta.url)
+const ACCOUNTING_LIB_PATH = new URL('../../lib/xero/accounting.ts', import.meta.url)
 const CANONICAL_MAPPER_PATH = new URL('../../lib/xero/canonical-mapper.ts', import.meta.url)
 const MAP_CANONICAL_ROUTE_PATH = new URL(
   '../../app/api/xero/map-canonical/route.ts',
@@ -42,6 +43,33 @@ function buildReadySyncState() {
   return { state, userId, tenantId }
 }
 
+test('Xero organisation metadata uses the Organisation and Organisation/Actions resources', () => {
+  const { XERO_RESOURCE_CONFIG } = loadTypeScriptModule(ACCOUNTING_LIB_PATH, {
+    mocks: {
+      'server-only': {},
+      '@/lib/xero/server': {
+        getXeroConfig() {
+          throw new Error('not used by this contract test')
+        },
+        getXeroTokenUrl() {
+          throw new Error('not used by this contract test')
+        },
+      },
+    },
+  })
+
+  assert.deepEqual(XERO_RESOURCE_CONFIG.organisations, {
+    endpoint: '/Organisation',
+    responseKey: 'Organisations',
+    sourceIdKey: 'OrganisationID',
+  })
+  assert.deepEqual(XERO_RESOURCE_CONFIG.organisation_actions, {
+    endpoint: '/Organisation/Actions',
+    responseKey: 'Actions',
+    sourceIdKey: 'Name',
+  })
+})
+
 test('successful Xero sync persists raw resources and maps the same user and tenant', async () => {
   const { state, userId, tenantId } = buildReadySyncState()
   const harness = createSyncHarness({
@@ -51,7 +79,7 @@ test('successful Xero sync persists raw resources and maps the same user and ten
       throw new Error('refresh should not run for a current access token')
     },
     async mappingBehavior() {
-      return { customers: 54, invoices: 97, payments: 3 }
+      return { organisations: 1, customers: 54, invoices: 97, payments: 3 }
     },
   })
 
@@ -60,13 +88,29 @@ test('successful Xero sync persists raw resources and maps the same user and ten
 
   assert.equal(response.status, 200)
   assert.equal(payload.ok, true)
-  assert.deepEqual(payload.raw.fetched, { accounts: 1, contacts: 1, invoices: 1 })
-  assert.deepEqual(payload.raw.persisted, { accounts: 1, contacts: 1, invoices: 1 })
+  assert.deepEqual(payload.raw.fetched, {
+    accounts: 1,
+    contacts: 1,
+    invoices: 1,
+    organisations: 1,
+    organisation_actions: 1,
+  })
+  assert.deepEqual(payload.raw.persisted, {
+    accounts: 1,
+    contacts: 1,
+    invoices: 1,
+    organisations: 1,
+    organisation_actions: 1,
+  })
   assert.deepEqual(payload.canonical, {
     ready: true,
-    mapped: { customers: 54, invoices: 97, payments: 3 },
+    mapped: { organisations: 1, customers: 54, invoices: 97, payments: 3 },
   })
-  assert.equal(state.rawRows.length, 3)
+  assert.equal(state.rawRows.length, 5)
+  assert.deepEqual(
+    harness.fetchCalls.map((call) => call.resourceType).sort(),
+    ['accounts', 'contacts', 'invoices', 'organisation_actions', 'organisations']
+  )
   assert.equal(harness.mappingCalls.length, 1)
   assert.equal(harness.mappingCalls[0].userId, userId)
   assert.equal(harness.mappingCalls[0].tenantId, tenantId)
@@ -97,6 +141,22 @@ test('normal sync repairs the raw-populated canonical-empty regression state', a
           },
         ]
       }
+      if (resourceType === 'organisations') {
+        return [
+          {
+            id: 'organisation-1',
+            OrganisationID: 'organisation-1',
+            Name: 'Regression Organisation',
+            BaseCurrency: 'GBP',
+            CountryCode: 'GB',
+            Timezone: 'GMTSTANDARDTIME',
+            Version: 'UK',
+          },
+        ]
+      }
+      if (resourceType === 'organisation_actions') {
+        return [{ id: 'UseMulticurrency', Name: 'UseMulticurrency', Status: 'ALLOWED' }]
+      }
       return [
         {
           id: 'invoice-1',
@@ -124,11 +184,13 @@ test('normal sync repairs the raw-populated canonical-empty regression state', a
 
   assert.equal(firstResponse.status, 200)
   assert.deepEqual(firstPayload.canonical.mapped, {
+    organisations: 1,
     customers: 1,
     invoices: 1,
     payments: 0,
   })
-  assert.equal(state.rawRows.length, 3)
+  assert.equal(state.rawRows.length, 5)
+  assert.equal(state.canonicalOrganisations.length, 1)
   assert.equal(state.canonicalCustomers.length, 1)
   assert.equal(state.canonicalInvoices.length, 1)
   assert.equal(state.canonicalPayments.length, 0)
@@ -159,20 +221,29 @@ test('canonical mapping failure makes sync incomplete while retaining persisted 
   assert.equal(payload.ok, undefined)
   assert.equal(payload.code, 'XERO_CANONICAL_MAPPING_FAILED')
   assert.deepEqual(payload.canonical, { ready: false })
-  assert.deepEqual(payload.raw.persisted, { accounts: 1, contacts: 1, invoices: 1 })
-  assert.equal(state.rawRows.length, 3, 'raw snapshot should remain available for repair')
+  assert.deepEqual(payload.raw.persisted, {
+    accounts: 1,
+    contacts: 1,
+    invoices: 1,
+    organisations: 1,
+    organisation_actions: 1,
+  })
+  assert.equal(state.rawRows.length, 5, 'raw snapshot should remain available for repair')
   assert.equal(harness.mappingCalls.length, 1)
 })
 
 function createCanonicalMapperDatabase(rawRows) {
   const canonical = {
+    canonical_organisations: [],
     canonical_customers: [],
     canonical_invoices: [],
     canonical_payments: [],
   }
 
   function canonicalKey(row) {
-    return `${row.user_id}|${row.tenant_id}|${row.source_system}|${row.source_id}`
+    return `${row.user_id}|${row.tenant_id}|${row.source_system}|${
+      row.source_id ?? row.source_organisation_id
+    }`
   }
 
   return {
@@ -200,10 +271,11 @@ function createCanonicalMapperDatabase(rawRows) {
               .filter((row) => filters.every((filter) => filter(row)))
               .sort((a, b) => a.source_id.localeCompare(b.source_id))
               .slice(rangeFrom, rangeTo + 1)
-              .map(({ tenant_id, source_id, raw_json }) => ({
+              .map(({ tenant_id, source_id, raw_json, fetched_at }) => ({
                 tenant_id,
                 source_id,
                 raw_json,
+                fetched_at,
               }))
             return Promise.resolve({ data: rows, error: null })
           },
@@ -242,8 +314,32 @@ test('shared canonical mapping is idempotent on the same raw Xero snapshot', asy
     {
       user_id: userId,
       tenant_id: tenantId,
+      resource_type: 'organisations',
+      source_id: 'organisation-1',
+      fetched_at: '2026-09-11T08:00:00.000Z',
+      raw_json: {
+        OrganisationID: 'organisation-1',
+        Name: 'International Receivables Ltd',
+        BaseCurrency: ' gbp ',
+        CountryCode: ' gb ',
+        Timezone: 'GMTSTANDARDTIME',
+        Version: 'UK',
+      },
+    },
+    {
+      user_id: userId,
+      tenant_id: tenantId,
+      resource_type: 'organisation_actions',
+      source_id: 'UseMulticurrency',
+      fetched_at: '2026-09-11T08:00:00.000Z',
+      raw_json: { Name: 'UseMulticurrency', Status: 'ALLOWED' },
+    },
+    {
+      user_id: userId,
+      tenant_id: tenantId,
       resource_type: 'contacts',
       source_id: 'contact-1',
+      fetched_at: '2026-09-11T08:00:00.000Z',
       raw_json: {
         ContactID: 'contact-1',
         Name: 'Overdue Customer',
@@ -257,26 +353,69 @@ test('shared canonical mapping is idempotent on the same raw Xero snapshot', asy
       user_id: userId,
       tenant_id: tenantId,
       resource_type: 'invoices',
-      source_id: 'invoice-1',
+      source_id: 'invoice-partial',
+      fetched_at: '2026-09-11T08:00:00.000Z',
       raw_json: {
-        InvoiceID: 'invoice-1',
+        InvoiceID: 'invoice-partial',
         Contact: { ContactID: 'contact-1' },
         Type: 'ACCREC',
         Status: 'AUTHORISED',
         InvoiceNumber: 'INV-001',
         DateString: '2026-06-01',
         DueDateString: '2026-06-30',
-        CurrencyCode: 'GBP',
-        Total: 500,
-        AmountDue: 300,
-        AmountPaid: 200,
+        CurrencyCode: ' usd ',
+        CurrencyRate: '1.25',
+        Total: '250.00',
+        AmountDue: '125.00',
+        AmountPaid: '125.00',
+        AmountCredited: '0.00',
         Payments: [
           {
             PaymentID: 'payment-1',
-            Amount: 200,
+            Amount: 125,
             Date: '2026-06-15',
+            CurrencyRate: 1.2,
           },
         ],
+      },
+    },
+    {
+      user_id: userId,
+      tenant_id: tenantId,
+      resource_type: 'invoices',
+      source_id: 'invoice-credit',
+      fetched_at: '2026-09-11T08:00:00.000Z',
+      raw_json: {
+        InvoiceID: 'invoice-credit',
+        Contact: { ContactID: 'contact-1' },
+        Type: 'ACCREC',
+        Status: 'AUTHORISED',
+        CurrencyCode: 'EUR',
+        CurrencyRate: '1.10',
+        Total: '132.00',
+        AmountDue: '110.00',
+        AmountPaid: '0.00',
+        AmountCredited: '22.00',
+      },
+    },
+    {
+      user_id: userId,
+      tenant_id: tenantId,
+      resource_type: 'invoices',
+      source_id: 'invoice-paid',
+      fetched_at: '2026-09-11T08:00:00.000Z',
+      raw_json: {
+        InvoiceID: 'invoice-paid',
+        Contact: { ContactID: 'contact-1' },
+        Type: 'ACCREC',
+        Status: 'PAID',
+        FullyPaidOnDate: '2026-08-01',
+        CurrencyCode: 'EUR',
+        CurrencyRate: '1.10',
+        Total: '110.00',
+        AmountDue: '0.00',
+        AmountPaid: '110.00',
+        AmountCredited: '0.00',
       },
     },
     {
@@ -302,11 +441,57 @@ test('shared canonical mapping is idempotent on the same raw Xero snapshot', asy
   const first = await mapXeroRawToCanonical({ userId, tenantId, supabaseAdmin: database })
   const second = await mapXeroRawToCanonical({ userId, tenantId, supabaseAdmin: database })
 
-  assert.deepEqual(first, { customers: 1, invoices: 1, payments: 1 })
+  assert.deepEqual(first, { organisations: 1, customers: 1, invoices: 3, payments: 1 })
   assert.deepEqual(second, first)
+  assert.equal(database.canonical.canonical_organisations.length, 1)
   assert.equal(database.canonical.canonical_customers.length, 1)
-  assert.equal(database.canonical.canonical_invoices.length, 1)
+  assert.equal(database.canonical.canonical_invoices.length, 3)
   assert.equal(database.canonical.canonical_payments.length, 1)
+  assert.deepEqual(database.canonical.canonical_organisations[0], {
+    user_id: userId,
+    tenant_id: tenantId,
+    source_system: 'xero',
+    source_organisation_id: 'organisation-1',
+    organisation_name: 'International Receivables Ltd',
+    base_currency_code: 'GBP',
+    country_code: 'GB',
+    source_timezone: 'GMTSTANDARDTIME',
+    xero_version: 'UK',
+    use_multicurrency: true,
+    source_retrieved_at: '2026-09-11T08:00:00.000Z',
+  })
+
+  const partialInvoice = database.canonical.canonical_invoices.find(
+    (invoice) => invoice.source_id === 'invoice-partial'
+  )
+  assert.equal(partialInvoice.currency_code, 'usd')
+  assert.equal(partialInvoice.transaction_currency_code, 'USD')
+  assert.equal(partialInvoice.organisation_base_currency_code, 'GBP')
+  assert.equal(partialInvoice.xero_currency_rate, '1.25')
+  assert.equal(partialInvoice.total_native, '250')
+  assert.equal(partialInvoice.total_base, '200.00000000')
+  assert.equal(partialInvoice.amount_due_native, '125')
+  assert.equal(partialInvoice.amount_due_base, '100.00000000')
+  assert.equal(partialInvoice.amount_paid_base, '100.00000000')
+  assert.equal(partialInvoice.currency_conversion_status, 'converted')
+  assert.equal(partialInvoice.currency_conversion_failure_reason, null)
+
+  const creditedInvoice = database.canonical.canonical_invoices.find(
+    (invoice) => invoice.source_id === 'invoice-credit'
+  )
+  assert.equal(creditedInvoice.amount_due_base, '100.00000000')
+  assert.equal(creditedInvoice.amount_credited_native, '22')
+  assert.equal(creditedInvoice.amount_credited_base, '20.00000000')
+
+  const paidInvoice = database.canonical.canonical_invoices.find(
+    (invoice) => invoice.source_id === 'invoice-paid'
+  )
+  assert.equal(paidInvoice.currency_conversion_status, 'converted')
+  assert.equal(paidInvoice.amount_due_native, '0')
+  assert.equal(paidInvoice.amount_due_base, '0.00000000')
+  assert.equal(paidInvoice.amount_paid_base, '100.00000000')
+
+  assert.equal(database.canonical.canonical_payments[0].currency_rate, 1.2)
   assert.equal(database.canonical.canonical_customers[0].user_id, userId)
   assert.equal(database.canonical.canonical_customers[0].tenant_id, tenantId)
 })
@@ -360,7 +545,7 @@ test('canonical repair endpoint delegates to the shared scoped mapper', async ()
       '@/lib/xero/canonical-mapper': {
         async mapXeroRawToCanonical(params) {
           mappingCalls.push(params)
-          return { customers: 4, invoices: 7, payments: 0 }
+          return { organisations: 1, customers: 4, invoices: 7, payments: 0 }
         },
       },
     },
@@ -376,6 +561,6 @@ test('canonical repair endpoint delegates to the shared scoped mapper', async ()
   const payload = await response.json()
 
   assert.equal(response.status, 200)
-  assert.deepEqual(payload.mapped, { customers: 4, invoices: 7, payments: 0 })
+  assert.deepEqual(payload.mapped, { organisations: 1, customers: 4, invoices: 7, payments: 0 })
   assert.deepEqual(mappingCalls, [{ userId: 'repair-user', tenantId: 'repair-tenant' }])
 })

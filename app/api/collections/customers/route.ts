@@ -3,9 +3,10 @@ import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import {
   CustomerCollectionsSummaryRow,
-  loadCustomerCollectionsSummary,
+  loadCustomerCollectionsSummaryWithMetadata,
 } from '@/lib/collections/customer-summary'
 import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
+import { compareDecimalValues } from '@/lib/money/currency'
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 200
@@ -61,6 +62,11 @@ function compareNullableString(a: string | null, b: string | null, sortDir: Sort
   return sortDir === 'asc' ? compared : -compared
 }
 
+function compareBaseDecimal(a: string, b: string, sortDir: SortDir) {
+  const compared = compareDecimalValues(a, b) ?? 0
+  return sortDir === 'asc' ? compared : -compared
+}
+
 function sortRows(rows: CustomerCollectionsSummaryRow[], sortBy: SortBy, sortDir: SortDir) {
   rows.sort((a, b) => {
     let compared = 0
@@ -68,9 +74,17 @@ function sortRows(rows: CustomerCollectionsSummaryRow[], sortBy: SortBy, sortDir
     if (sortBy === 'customer_name') {
       compared = compareNullableString(a.customer_name, b.customer_name, sortDir)
     } else if (sortBy === 'overdue_outstanding') {
-      compared = compareNullableNumber(a.overdue_outstanding, b.overdue_outstanding, sortDir)
+      compared = compareBaseDecimal(
+        a.overdue_outstanding_base_decimal,
+        b.overdue_outstanding_base_decimal,
+        sortDir
+      )
     } else if (sortBy === 'total_outstanding') {
-      compared = compareNullableNumber(a.total_outstanding, b.total_outstanding, sortDir)
+      compared = compareBaseDecimal(
+        a.total_outstanding_base_decimal,
+        b.total_outstanding_base_decimal,
+        sortDir
+      )
     } else if (sortBy === 'oldest_overdue_days') {
       compared = compareNullableNumber(a.oldest_overdue_days, b.oldest_overdue_days, sortDir)
     }
@@ -116,7 +130,21 @@ export async function GET(request: NextRequest) {
     }
 
     const supabaseAdmin = createSupabaseAdminClient()
-    const rows = await loadCustomerCollectionsSummary(supabaseAdmin, user.id, tenantId)
+    const {
+      rows,
+      organisationBaseCurrency,
+      currencyHealth,
+    } = await loadCustomerCollectionsSummaryWithMetadata(supabaseAdmin, user.id, tenantId)
+
+    if (currencyHealth.status === 'incomplete' || !organisationBaseCurrency) {
+      return NextResponse.json({
+        ok: true,
+        tenantId,
+        organisationBaseCurrency,
+        currencyHealth,
+        rows: [],
+      })
+    }
 
     const filteredRows = overdueOnly
       ? rows.filter((row) => row.overdue_invoices_count > 0)
@@ -127,6 +155,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       tenantId,
+      organisationBaseCurrency,
+      currencyHealth,
       rows: filteredRows.slice(0, limit),
     })
   } catch (error) {

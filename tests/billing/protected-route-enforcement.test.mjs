@@ -121,7 +121,7 @@ test('direct customer-data API request is rejected before aggregation', async ()
     mocks: {
       ...commonMocks(),
       '@/lib/collections/customer-summary': {
-        async loadCustomerCollectionsSummary() {
+        async loadCustomerCollectionsSummaryWithMetadata() {
           throw new Error('customer aggregation must not run')
         },
       },

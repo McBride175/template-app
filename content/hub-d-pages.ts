@@ -635,7 +635,7 @@ export const hubDSeoPages = [
       },
     ],
     productBridge:
-      'Make prioritisation an explicit stage in the design. The product can supply a customer order from Xero-derived exposure, urgency and payment recency, with your chosen priority adjustment reflecting what the ledger misses. The process itself must define dispute routes, records and escalation ownership.',
+      'The product supplies a customer order using Xero exposure, urgency, changed payment behaviour and recency; your priority adjustment reflects what the ledger misses. The process must define dispute routes, records and escalation ownership.',
     ctaHeading: 'Add a prioritisation stage your team can run',
     ctaDescription:
       'See plans for the customer-ordering step, without mistaking it for the whole credit-control workflow.',

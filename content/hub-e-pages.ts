@@ -751,7 +751,7 @@ export const hubESeoPages = [
         {
           source: 'Relevant Xero accounting signals',
           contribution:
-            'Overdue exposure, urgency and payment recency provide the current scored evidence.',
+            'Xero exposure, urgency, deterioration and recency provide the scored evidence.',
         },
         {
           source: 'User-selected priority adjustment',

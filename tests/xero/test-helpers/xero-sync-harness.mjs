@@ -24,6 +24,7 @@ function createFakeSupabaseAdminClient(state) {
     if (table === 'xero_connections_public') return state.connections
     if (table === 'xero_oauth_grants') return state.grants
     if (table === 'xero_raw') return state.rawRows
+    if (table === 'canonical_organisations') return state.canonicalOrganisations
     if (table === 'canonical_customers') return state.canonicalCustomers
     if (table === 'canonical_invoices') return state.canonicalInvoices
     if (table === 'canonical_payments') return state.canonicalPayments
@@ -164,10 +165,14 @@ function createFakeSupabaseAdminClient(state) {
         upsert(rows) {
           for (const row of rows) {
             const existing = tableRows(table).find((candidate) => {
+              const sourceIdentityMatches =
+                table === 'canonical_organisations'
+                  ? candidate.source_organisation_id === row.source_organisation_id
+                  : candidate.source_id === row.source_id
               const sameScope =
                 candidate.user_id === row.user_id &&
                 candidate.tenant_id === row.tenant_id &&
-                candidate.source_id === row.source_id
+                sourceIdentityMatches
               if (table === 'xero_raw') {
                 return sameScope && candidate.resource_type === row.resource_type
               }
@@ -228,6 +233,7 @@ export function buildBaseSyncState() {
     connections: [],
     grants: [],
     rawRows: [],
+    canonicalOrganisations: [],
     canonicalCustomers: [],
     canonicalInvoices: [],
     canonicalPayments: [],
@@ -310,7 +316,7 @@ export function createSyncHarness(options) {
                 if (options.mappingBehavior) {
                   return options.mappingBehavior({ params, callCount: mappingCalls.length })
                 }
-                return { customers: 1, invoices: 1, payments: 0 }
+                return { organisations: 1, customers: 1, invoices: 1, payments: 0 }
               },
             },
           }),
@@ -408,7 +414,13 @@ export function createRouteHarness(options = {}) {
         JSON.stringify({
           ok: true,
           tenantId: params.tenantId,
-          counts: { accounts: 1, contacts: 1, invoices: 1 },
+          counts: {
+            accounts: 1,
+            contacts: 1,
+            invoices: 1,
+            organisations: 1,
+            organisation_actions: 1,
+          },
         }),
         { status: 200, headers: { 'content-type': 'application/json' } }
       )

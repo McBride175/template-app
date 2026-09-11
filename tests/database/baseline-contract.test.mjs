@@ -5,9 +5,12 @@ import test from 'node:test'
 const migrationsUrl = new URL('../../supabase/migrations/', import.meta.url)
 const legacyMigrationsUrl = new URL('../../supabase/migrations_legacy/', import.meta.url)
 const contactRouteUrl = new URL('../../app/api/contact/route.ts', import.meta.url)
+const xeroDisconnectRouteUrl = new URL('../../app/api/xero/disconnect/route.ts', import.meta.url)
 const billingEntitlementsUrl = new URL('../../lib/billing/entitlements.ts', import.meta.url)
 const baselineMigrationName = '20260813205201_baseline_current_schema.sql'
 const billingHardeningMigrationName = '20260906060637_harden_billing_enforcement.sql'
+const multicurrencyFoundationMigrationName =
+  '20260911082131_add_multicurrency_foundation.sql'
 const migrationNamePattern = /^(\d{14})_[a-z0-9_]+\.sql$/
 
 async function readMigrationNames(directoryUrl) {
@@ -23,6 +26,12 @@ async function readBaseline() {
 async function readBillingHardeningMigration() {
   return (
     await readFile(new URL(billingHardeningMigrationName, migrationsUrl), 'utf8')
+  ).toLowerCase()
+}
+
+async function readMulticurrencyFoundationMigration() {
+  return (
+    await readFile(new URL(multicurrencyFoundationMigrationName, migrationsUrl), 'utf8')
   ).toLowerCase()
 }
 
@@ -102,6 +111,48 @@ test('known schema corrections are represented', async () => {
   assert.doesNotMatch(sql, /\bsent_at\b/)
   assert.doesNotMatch(sql, /\bresend_message_id\b/)
   assert.doesNotMatch(sql, /\bemail_error\b/)
+})
+
+test('multi-currency foundation is forward-only, explicit and service-role protected', async () => {
+  const sql = await readMulticurrencyFoundationMigration()
+
+  assert.match(sql, /create table public\.canonical_organisations\s*\(/)
+  for (const field of [
+    'source_organisation_id',
+    'base_currency_code',
+    'country_code',
+    'source_timezone',
+    'source_retrieved_at',
+    'transaction_currency_code',
+    'organisation_base_currency_code',
+    'xero_currency_rate',
+    'total_native',
+    'amount_due_native',
+    'amount_paid_native',
+    'amount_credited_native',
+    'total_base',
+    'amount_due_base',
+    'amount_paid_base',
+    'amount_credited_base',
+    'currency_conversion_status',
+    'currency_conversion_failure_reason',
+  ]) {
+    assert.match(sql, new RegExp(`\\b${field}\\b`))
+  }
+
+  assert.match(sql, /alter table public\.canonical_organisations enable row level security/)
+  assert.match(sql, /revoke all on table public\.canonical_organisations[\s\S]*from anon, authenticated, service_role/)
+  assert.match(sql, /grant select, insert, update, delete on table public\.canonical_organisations[\s\S]*to service_role/)
+  assert.doesNotMatch(sql, /grant[\s\S]*canonical_organisations[\s\S]*to authenticated/)
+  assert.match(sql, /check \(xero_currency_rate is null or xero_currency_rate > 0\)/)
+  assert.match(sql, /alter column currency_conversion_status set not null/)
+  assert.match(sql, /'identity', 'converted', 'incomplete'/)
+})
+
+test('Xero data purge includes canonical organisation metadata', async () => {
+  const disconnectRoute = await readFile(xeroDisconnectRouteUrl, 'utf8')
+
+  assert.match(disconnectRoute, /'canonical_organisations'/)
 })
 
 test('support email metadata scaffolding is absent from schema and code', async () => {

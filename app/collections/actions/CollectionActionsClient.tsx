@@ -10,12 +10,19 @@ interface CollectionActionRow {
   customer_source_id: string
   customer_name: string
   customer_email: string | null
-  overdue_outstanding: number
-  total_outstanding: number
+  overdue_outstanding_base_decimal: string
+  total_outstanding_base_decimal: string
+  overdue_outstanding_base: number
+  total_outstanding_base: number
   overdue_invoices_count: number
   open_invoices_count: number
   weighted_avg_overdue_days: number
+  relative_lateness_days: number | null
+  relative_lateness_score: number
   last_payment_date: string | null
+  exposure_score: number
+  exposure_share_percent: number
+  exposure_relative_to_largest_percent: number
   override_level: OverrideLevel
   override_multiplier: number
   base_score: number
@@ -24,7 +31,7 @@ interface CollectionActionRow {
   recommended_action: 'Review now' | 'Follow up' | 'Monitor' | 'No action'
   reason: string
   score_breakdown_lines: string[]
-  currency_code: string | null
+  organisation_base_currency_code: string
   last_action_type: 'called' | 'emailed' | 'postponed' | null
   last_action_outcome: 'no_response' | 'spoke_to_customer' | 'promised_to_pay' | 'disputed' | null
   last_action_timestamp: string | null
@@ -37,11 +44,14 @@ interface CollectionActionsApiResponse {
   rows?: CollectionActionRow[]
   actionsTakenByCustomerId?: Record<string, ActionTakenLog>
   queue?: CollectionQueueInfo
+  organisationBaseCurrency?: string | null
+  currencyHealth?: CollectionsCurrencyHealth
   error?: string
 }
 
 type CollectionQueueStatus =
   | 'ready'
+  | 'currency_data_incomplete'
   | 'no_mapped_data'
   | 'no_overdue_customers'
   | 'no_eligible_customers'
@@ -57,6 +67,21 @@ interface CollectionQueueInfo {
   actionedTodayCount: number
   remainingCustomerCount: number
   returnedCustomerCount: number
+  relativeLateness: {
+    mode: 'absolute-fallback' | 'portfolio-relative'
+    materialObservationCount: number
+    midpointAnchorDays: number
+    highAnchorDays: number
+    materialP50Days: number | null
+    materialP90Days: number | null
+  }
+}
+
+interface CollectionsCurrencyHealth {
+  status: 'complete' | 'incomplete'
+  affectedInvoiceCount: number
+  affectedCustomerCount: number
+  failureReasons: Record<string, number>
 }
 
 interface ActionsEntitlement {
@@ -119,6 +144,40 @@ interface QuickDatePickerProps {
   onSelectDate: (dateIso: string) => void
   disabled?: boolean
   customButtonLabel?: string
+}
+
+function formatCurrencyFailureReason(reason: string) {
+  return reason.replaceAll('_', ' ')
+}
+
+function CurrencyHealthDiagnostic({
+  currencyHealth,
+}: {
+  currencyHealth: CollectionsCurrencyHealth
+}) {
+  const failureReasons = Object.entries(currencyHealth.failureReasons)
+
+  return (
+    <div>
+      <h3 className="text-lg font-semibold text-gray-900">Currency data needs refreshing</h3>
+      <p className="mt-1 text-sm text-gray-600">
+        A safe collections ranking cannot be calculated until the incomplete Xero currency data is
+        refreshed or inspected.
+      </p>
+      <p className="mt-2 text-sm text-gray-700">
+        Affected invoices: {currencyHealth.affectedInvoiceCount} · Affected customers:{' '}
+        {currencyHealth.affectedCustomerCount}
+      </p>
+      {failureReasons.length > 0 && (
+        <p className="mt-1 text-xs text-gray-500">
+          Reasons:{' '}
+          {failureReasons
+            .map(([reason, count]) => `${formatCurrencyFailureReason(reason)} (${count})`)
+            .join(', ')}
+        </p>
+      )}
+    </div>
+  )
 }
 
 const OUTCOME_OPTIONS: Array<{
@@ -345,6 +404,8 @@ export default function CollectionActionsClient({
   const [entitlement, setEntitlement] = useState<ActionsEntitlement | null>(null)
   const [usageLimitReached, setUsageLimitReached] = useState(false)
   const [queueInfo, setQueueInfo] = useState<CollectionQueueInfo | null>(null)
+  const [organisationBaseCurrency, setOrganisationBaseCurrency] = useState<string | null>(null)
+  const [currencyHealth, setCurrencyHealth] = useState<CollectionsCurrencyHealth | null>(null)
   const defaultLoginNextPath = embedded ? '/dashboard' : '/collections/actions'
   const effectiveLoginNextPath =
     loginNextPath ??
@@ -401,6 +462,8 @@ export default function CollectionActionsClient({
           setRows([])
           setActionsTakenByCustomerId({})
           setQueueInfo(null)
+          setOrganisationBaseCurrency(null)
+          setCurrencyHealth(null)
           setUsageLimitReached(true)
           return
         }
@@ -410,10 +473,15 @@ export default function CollectionActionsClient({
         }
 
         setUsageLimitReached(false)
+        setOrganisationBaseCurrency(payload.organisationBaseCurrency ?? null)
+        setCurrencyHealth(payload.currencyHealth ?? null)
         const nextRows = payload.rows ?? []
         setRows(
           effectiveOverdueOnly
-            ? nextRows.filter((row) => row.overdue_invoices_count > 0 || row.overdue_outstanding > 0)
+            ? nextRows.filter(
+                (row) =>
+                  row.overdue_invoices_count > 0 || row.overdue_outstanding_base > 0
+              )
             : nextRows
         )
         setActionsTakenByCustomerId(payload.actionsTakenByCustomerId ?? {})
@@ -981,7 +1049,7 @@ export default function CollectionActionsClient({
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Today&apos;s Collection Actions</h1>
             <p className="mt-1 text-sm text-gray-600">
-              Customers ranked by overdue exposure, urgency, payment recency, and the priority adjustment you choose. Score-based prompts indicate review urgency; you decide the appropriate contact or treatment.
+              Customers ranked by overdue exposure, urgency, changes from their normal payment pattern, payment recency, and the priority adjustment you choose. Score-based prompts indicate review urgency; you decide the appropriate contact or treatment.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1050,6 +1118,15 @@ export default function CollectionActionsClient({
         </Card>
       )}
 
+      {!showQueueSection &&
+        !usageLimitReached &&
+        !loading &&
+        currencyHealth?.status === 'incomplete' && (
+          <Card>
+            <CurrencyHealthDiagnostic currencyHealth={currencyHealth} />
+          </Card>
+        )}
+
       {showQueueSection && !usageLimitReached && (
         <Card>
           <div className="space-y-4">
@@ -1108,6 +1185,10 @@ export default function CollectionActionsClient({
                   )}
                 </div>
               </div>
+            ) : !loading && queueInfo?.status === 'currency_data_incomplete' ? (
+              currencyHealth ? (
+                <CurrencyHealthDiagnostic currencyHealth={currencyHealth} />
+              ) : null
             ) : !loading && queueInfo?.status === 'complete_today' ? (
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">Queue complete</h3>
@@ -1232,7 +1313,10 @@ export default function CollectionActionsClient({
                 <div className="flex w-full items-center text-sm text-gray-600">
                   <p className="flex-1">
                     <span className="font-medium text-gray-900">
-                      {formatMoney(currentQueueRow.overdue_outstanding, currentQueueRow.currency_code)}
+                      {formatMoney(
+                        currentQueueRow.overdue_outstanding_base,
+                        organisationBaseCurrency
+                      )}
                     </span>{' '}
                     overdue
                   </p>
@@ -1504,7 +1588,7 @@ export default function CollectionActionsClient({
                       <p className="text-xs text-gray-600">{row.customer_email || '—'}</p>
                     </td>
                     <td className="px-4 py-3">
-                      {formatMoney(row.overdue_outstanding, row.currency_code)}
+                      {formatMoney(row.overdue_outstanding_base, organisationBaseCurrency)}
                     </td>
                     <td className="px-4 py-3">{row.overdue_invoices_count}</td>
                     <td className="px-4 py-3">{formatWeightedDays(row.weighted_avg_overdue_days)}</td>

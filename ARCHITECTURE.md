@@ -70,6 +70,7 @@ The final Xero design contains only:
 - `xero_oauth_grants`: encrypted grant-scoped tokens and refresh locks
 - `xero_connections_public`: per-user/per-tenant public connection metadata, grant linkage, auth state, and tenant auto-sync locks
 - `xero_raw`: user/tenant-scoped raw API snapshots
+- `canonical_organisations`: explicit Xero organisation identity, base currency, country, timezone, and source retrieval metadata
 - `canonical_customers`, `canonical_invoices`, and `canonical_payments`: normalized accounting data
 - `customer_overrides`: user-controlled collection priority overrides
 - `xero_scheduled_sync_runs`: internal scheduler lock and cadence state
@@ -78,6 +79,20 @@ The final Xero design contains only:
 The legacy `xero_connections`, transient `xero_connection_secrets`, tenant-scoped refresh-lock RPCs, and orphaned `set_updated_at_xero_connections()` function are not part of the final architecture.
 
 Xero token, auto-sync, and scheduler RPCs are `SECURITY DEFINER`, have a fixed `pg_catalog, public` search path, and are executable only by `service_role`. The scheduled candidate RPC is the final stale-aware three-argument version.
+
+### Currency data contract
+
+Transaction/native currency, organisation base currency, and SaaS subscription billing currency are separate concepts. Xero invoice amounts remain available in their transaction currency, while derived base-currency amounts use the connected organisation's explicit ISO currency code.
+
+Sync retrieves both Xero `Organisation` metadata and `Organisation/Actions`; the latter records `UseMulticurrency` for diagnostics but never gates currency-safe processing. Xero `CurrencyRate` is transaction-currency units per one organisation base-currency unit, so a foreign invoice is converted with `base = native / CurrencyRate`. If transaction and base currency match, conversion is identity and no rate is required or invented. A foreign invoice with a missing, zero, negative, or otherwise unusable rate retains its native data but has null base amounts and an explicit incomplete conversion reason. A foreign rate of exactly one is valid and is not rejected merely for being unusual.
+
+Canonical conversion preserves native decimal precision and rounds foreign-derived base amounts to eight decimal places using half-away-from-zero rounding. Conversion is deterministic from the raw invoice plus canonical organisation metadata and does not use an external or current-market FX provider. It does not attempt to recreate Xero's realised or unrealised gain/loss accounting.
+
+Base-currency conversion is an accounting/scoring correctness layer and is not a premium entitlement. Premium multi-currency product functionality, if introduced, must remain separate from the correctness of canonical data, aggregation, and scoring.
+
+All cross-invoice and cross-customer monetary collections prioritisation operates in the authoritative Xero organisation base currency. Native invoice currency remains source/accounting context and must never be directly aggregated with another currency. Customer outstanding and overdue totals sum canonical base amounts, and balance-weighted overdue age uses `amount_due_base` as its weight. Exact PostgreSQL numeric strings are summed before one controlled conversion to JavaScript numbers at the dimensionless scoring boundary.
+
+The collections currency-health gate evaluates open, positive `ACCREC` obligations before aggregation. If an otherwise eligible receivable has incomplete or inconsistent conversion data, or the organisation base currency is unavailable, the APIs return an explicit incomplete health state and no normal ranking or portfolio totals. The invoice is never omitted, treated as zero, interpreted in native units, or assigned a guessed rate. Paid historical invoices do not block the queue when only their dates are used for historical lateness.
 
 ## Database access model
 

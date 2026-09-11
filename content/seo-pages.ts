@@ -1914,7 +1914,7 @@ export const seoProblemPages = [
       },
     ],
     productBridge:
-      'You still own the calculation and changes to terms, invoicing or disputes. For customer delay, the product ranks current Xero exposure, overdue age and payment recency, then applies the priority adjustment you choose.',
+      'You still own the calculation and changes to terms, invoicing or disputes. For customer delay, the product ranks current Xero exposure, overdue age, deterioration from normal payment behaviour and payment recency, then applies the priority adjustment you choose.',
     ctaHeading: 'Focus on the customers adding avoidable days',
     ctaDescription:
       'Compare plans for using Xero payment behaviour to direct the human part of your debtor-days plan.',
@@ -3415,7 +3415,7 @@ export const seoProblemPages = [
       'Record who authorised the decision and the evidence they used.',
     ],
     productBridge:
-      'The product makes current exposure and payment recency visible in the priority order and shows historical payment timing as context. You supply the commercial importance and risk tolerance; deposits, terms and further supply remain business decisions.',
+      'The product uses current exposure, overdue age, deterioration from recent normal payment timing and payment recency in the priority order. You supply the commercial importance and risk tolerance; deposits, terms and further supply remain business decisions.',
     ctaHeading: 'See the existing exposure before accepting more',
     ctaDescription:
       'Compare plans for prioritising overdue customers using Xero balances, payment behaviour and your commercial risk judgement.',
@@ -3649,7 +3649,7 @@ export const seoProblemPages = [
       'Seek appropriate advice before taking formal recovery steps.',
     ],
     productBridge:
-      'The queue can combine Xero age, exposure and payment recency with the priority adjustment you make for commitments or risk. It surfaces accounts for attention; it does not choose or execute escalation.',
+      'The queue can combine Xero age, exposure, deterioration from normal payment behaviour and payment recency with the priority adjustment you make for commitments or risk. It surfaces accounts for attention; it does not choose or execute escalation.',
     ctaHeading: 'Surface accounts where normal chasing is no longer enough',
     ctaDescription:
       'Compare plans for prioritising customers using invoice age, payment movement and the risk context you add.',

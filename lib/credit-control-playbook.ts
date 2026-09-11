@@ -4,6 +4,7 @@ import {
   type PrioritizationContext,
   type PrioritizationCustomerRow,
 } from '@/lib/collections/prioritization'
+import { buildRelativeLatenessContext } from '@/lib/collections/relative-lateness'
 
 export const PLAYBOOK_CONCERNS = ['low', 'medium', 'high'] as const
 
@@ -130,15 +131,16 @@ function toProductRow(customer: PlaybookCustomer): PrioritizationCustomerRow {
     customer_source_id: customer.id,
     customer_name: customer.name,
     customer_email: null,
-    overdue_outstanding: customer.outstanding,
-    total_outstanding: customer.outstanding,
+    overdue_outstanding_base: customer.outstanding,
+    total_outstanding_base: customer.outstanding,
     overdue_invoices_count: customer.overdueInvoiceCount,
     open_invoices_count: customer.overdueInvoiceCount,
     weighted_avg_overdue_days: customer.daysOverdue,
     last_payment_date: null,
     last_payment_days_ago: customer.daysSinceLastPayment,
     has_recent_partial_payment: false,
-    currency_code: 'GBP',
+    relative_lateness_days: customer.daysOverdue - customer.normalDaysLate,
+    organisation_base_currency_code: 'GBP',
   }
 }
 
@@ -157,13 +159,19 @@ function buildContext(customers: readonly PlaybookCustomer[]): PrioritizationCon
   )
 
   return {
-    totalOverdueOutstanding,
-    maxOverdueOutstanding,
+    totalOverdueOutstandingBase: totalOverdueOutstanding,
+    maxOverdueOutstandingBase: maxOverdueOutstanding,
     overallWeightedAvgOverdueDays:
       totalOverdueOutstanding > 0 ? weightedDaysTotal / totalOverdueOutstanding : 0,
     maxWeightedAvgOverdueDays: Math.max(
       0,
       ...customers.map((customer) => customer.daysOverdue)
+    ),
+    relativeLateness: buildRelativeLatenessContext(
+      customers.map((customer) => ({
+        overdueOutstandingBase: customer.outstanding,
+        relativeLatenessDays: customer.daysOverdue - customer.normalDaysLate,
+      }))
     ),
   }
 }
@@ -255,6 +263,6 @@ export function explainTopPlaybookCustomer(customer: RankedPlaybookCustomer) {
 
   return {
     heading: `Why ${customer.name} is currently first`,
-    body: `${comparison} The engine sees ${currencyFormatter.format(customer.outstanding)} at stake, ${customer.daysOverdue} weighted overdue days across ${customer.overdueInvoiceCount} overdue invoices, and the last-payment evidence. ${paymentEvidence} ${founderKnowledge} For human interpretation, ${pattern.toLowerCase()} That normal-pattern comparison is shown as context, not scored separately by the current engine.`,
+    body: `${comparison} The engine sees ${currencyFormatter.format(customer.outstanding)} at stake, ${customer.daysOverdue} weighted overdue days across ${customer.overdueInvoiceCount} overdue invoices, the change from this customer's normal payment pattern, and the last-payment evidence. ${paymentEvidence} ${founderKnowledge} ${pattern}`,
   }
 }

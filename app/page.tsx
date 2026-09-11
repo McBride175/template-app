@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     absolute: 'Overdue Customer Prioritisation for SMEs',
   },
   description:
-    'Rank overdue customers by exposure, urgency, payment recency and the priority adjustment your team chooses.',
+    'Rank overdue customers by exposure, urgency, deterioration from their normal payment pattern, payment recency and the priority adjustment your team chooses.',
   alternates: {
     canonical: '/',
   },
@@ -54,8 +54,8 @@ export default function Home() {
         </h1>
         <p className="mt-6 max-w-3xl text-lg leading-relaxed text-gray-700">
           Turn a changing Xero debtor book into a clear customer order. The dashboard
-          compares overdue exposure, urgency and payment recency, then applies the
-          priority adjustment your team chooses.
+          compares overdue exposure, urgency, changes from each customer&apos;s normal payment
+          pattern and payment recency, then applies the priority adjustment your team chooses.
         </p>
         <div className="mt-10 flex flex-wrap items-center gap-4">
           <Link

@@ -7,11 +7,19 @@ import {
   prioritiseCustomer,
 } from '@/lib/collections/prioritization'
 import {
+  buildRelativeLatenessContext,
+} from '@/lib/collections/relative-lateness'
+import {
   isMissingRelationError,
 } from '@/lib/collections/tenant-context'
 import {
   claimActionsEntitlementStatus,
 } from '@/lib/billing/entitlements'
+import {
+  compareDecimalValues,
+  decimalValueToFiniteNumber,
+  sumDecimalValues,
+} from '@/lib/money/currency'
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 200
@@ -28,6 +36,7 @@ type CollectionActionType = (typeof COLLECTION_ACTION_TYPES)[number]
 type CollectionActionOutcome = (typeof COLLECTION_ACTION_OUTCOMES)[number]
 type CollectionQueueStatus =
   | 'ready'
+  | 'currency_data_incomplete'
   | 'no_mapped_data'
   | 'no_overdue_customers'
   | 'no_eligible_customers'
@@ -224,11 +233,41 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const { rows: summaryRows, sourceCounts } =
+    const {
+      rows: summaryRows,
+      sourceCounts,
+      organisationBaseCurrency,
+      currencyHealth,
+    } =
       await loadCustomerCollectionsSummaryWithMetadata(supabaseAdmin, user.id, tenantId)
 
+    if (currencyHealth.status === 'incomplete' || !organisationBaseCurrency) {
+      return NextResponse.json({
+        ok: true,
+        tenantId,
+        entitlement,
+        organisationBaseCurrency,
+        currencyHealth,
+        rows: [],
+        actionsTakenByCustomerId: {},
+        portfolio: null,
+        queue: {
+          status: 'currency_data_incomplete' satisfies CollectionQueueStatus,
+          mappedCustomerCount: sourceCounts.customers,
+          mappedInvoiceCount: sourceCounts.invoices,
+          mappedPaymentCount: sourceCounts.payments,
+          eligibleCustomerCount: 0,
+          suppressedCustomerCount: 0,
+          actionedTodayCount: 0,
+          remainingCustomerCount: 0,
+          returnedCustomerCount: 0,
+          relativeLateness: buildRelativeLatenessContext([]),
+        },
+      })
+    }
+
     const scopeRows = overdueOnly
-      ? summaryRows.filter((row) => row.overdue_outstanding > 0)
+      ? summaryRows.filter((row) => row.overdue_outstanding_base > 0)
       : summaryRows
 
     const queueEligibleRows = summaryRows.filter((row) => {
@@ -237,7 +276,7 @@ export async function GET(request: NextRequest) {
     })
 
     const filteredRows = overdueOnly
-      ? queueEligibleRows.filter((row) => row.overdue_outstanding > 0)
+      ? queueEligibleRows.filter((row) => row.overdue_outstanding_base > 0)
       : queueEligibleRows
     const suppressedCustomerCount = scopeRows.length - filteredRows.length
     const actionedTodayCount = filteredRows.filter(
@@ -256,22 +295,39 @@ export async function GET(request: NextRequest) {
       queueStatus = 'complete_today'
     }
 
-    const overdueRows = filteredRows.filter((row) => row.overdue_outstanding > 0)
-    const totalOverdueOutstanding = filteredRows.reduce(
-      (sum, row) => sum + Math.max(0, row.overdue_outstanding),
-      0
+    const overdueRows = filteredRows.filter((row) => row.overdue_outstanding_base > 0)
+    const relativeLatenessContext = buildRelativeLatenessContext(
+      overdueRows.map((row) => ({
+        overdueOutstandingBase: row.overdue_outstanding_base,
+        relativeLatenessDays: row.relative_lateness_days,
+      }))
     )
-    const maxOverdueOutstanding = filteredRows.reduce(
-      (max, row) => Math.max(max, Math.max(0, row.overdue_outstanding)),
-      0
+    const totalOverdueOutstandingBaseDecimal = sumDecimalValues(
+      filteredRows.map((row) => row.overdue_outstanding_base_decimal)
     )
+    const maxOverdueOutstandingBaseDecimal = filteredRows.reduce((max, row) => {
+      return compareDecimalValues(row.overdue_outstanding_base_decimal, max) === 1
+        ? row.overdue_outstanding_base_decimal
+        : max
+    }, '0')
+    const totalOverdueOutstandingBase = decimalValueToFiniteNumber(
+      totalOverdueOutstandingBaseDecimal
+    )
+    const maxOverdueOutstandingBase = decimalValueToFiniteNumber(
+      maxOverdueOutstandingBaseDecimal
+    )
+    if (totalOverdueOutstandingBase === null || maxOverdueOutstandingBase === null) {
+      throw new Error('Base-currency portfolio totals exceeded the supported calculation range')
+    }
     const overallWeightedAvgOverdueDays =
-      totalOverdueOutstanding > 0
+      totalOverdueOutstandingBase > 0
         ? overdueRows.reduce(
             (sum, row) =>
-              sum + Math.max(0, row.weighted_avg_overdue_days) * Math.max(0, row.overdue_outstanding),
+              sum +
+              Math.max(0, row.weighted_avg_overdue_days) *
+                Math.max(0, row.overdue_outstanding_base),
             0
-          ) / totalOverdueOutstanding
+          ) / totalOverdueOutstandingBase
         : 0
     const maxWeightedAvgOverdueDays = overdueRows.reduce(
       (max, row) => Math.max(max, Math.max(0, row.weighted_avg_overdue_days)),
@@ -279,31 +335,36 @@ export async function GET(request: NextRequest) {
     )
 
     const prioritizedRows = filteredRows
-      .map((row) =>
-        prioritiseCustomer(
+      .map((row) => ({
+        ...prioritiseCustomer(
           {
             customer_source_id: row.customer_source_id,
             customer_name: row.customer_name,
             customer_email: row.customer_email,
-            overdue_outstanding: row.overdue_outstanding,
-            total_outstanding: row.total_outstanding,
+            overdue_outstanding_base: row.overdue_outstanding_base,
+            total_outstanding_base: row.total_outstanding_base,
             overdue_invoices_count: row.overdue_invoices_count,
             open_invoices_count: row.open_invoices_count,
             weighted_avg_overdue_days: row.weighted_avg_overdue_days,
             last_payment_date: row.last_payment_date,
             last_payment_days_ago: row.last_payment_days_ago,
             has_recent_partial_payment: row.has_recent_partial_payment,
-            currency_code: row.currency_code,
+            relative_lateness_days: row.relative_lateness_days,
+            organisation_base_currency_code: organisationBaseCurrency,
           },
           {
-            totalOverdueOutstanding,
-            maxOverdueOutstanding,
+            totalOverdueOutstandingBase,
+            maxOverdueOutstandingBase,
             overallWeightedAvgOverdueDays,
             maxWeightedAvgOverdueDays,
+            relativeLateness: relativeLatenessContext,
           },
           overrideLevelByCustomerSourceId.get(row.customer_source_id) ?? DEFAULT_OVERRIDE_LEVEL
-        )
-      )
+        ),
+        overdue_outstanding_base_decimal: row.overdue_outstanding_base_decimal,
+        total_outstanding_base_decimal: row.total_outstanding_base_decimal,
+        native_currency_breakdown: row.native_currency_breakdown,
+      }))
       .sort((a, b) => {
         const aDoNotChase = a.override_level === 'do_not_chase'
         const bDoNotChase = b.override_level === 'do_not_chase'
@@ -315,8 +376,12 @@ export async function GET(request: NextRequest) {
           return b.priority_score - a.priority_score
         }
 
-        if (b.overdue_outstanding !== a.overdue_outstanding) {
-          return b.overdue_outstanding - a.overdue_outstanding
+        const baseAmountComparison = compareDecimalValues(
+          b.overdue_outstanding_base_decimal,
+          a.overdue_outstanding_base_decimal
+        )
+        if (baseAmountComparison !== null && baseAmountComparison !== 0) {
+          return baseAmountComparison
         }
 
         return a.customer_name.localeCompare(b.customer_name, undefined, {
@@ -331,12 +396,23 @@ export async function GET(request: NextRequest) {
           customer_source_id: row.customer_source_id,
           customer_name: row.customer_name,
           customer_email: row.customer_email,
-          overdue_outstanding: row.overdue_outstanding,
-          total_outstanding: row.total_outstanding,
+          overdue_outstanding_base_decimal: row.overdue_outstanding_base_decimal,
+          total_outstanding_base_decimal: row.total_outstanding_base_decimal,
+          overdue_outstanding_base: row.overdue_outstanding_base,
+          total_outstanding_base: row.total_outstanding_base,
+          // Compatibility aliases are base-denominated during the API migration.
+          overdue_outstanding: row.overdue_outstanding_base,
+          total_outstanding: row.total_outstanding_base,
           overdue_invoices_count: row.overdue_invoices_count,
           open_invoices_count: row.open_invoices_count,
           weighted_avg_overdue_days: row.weighted_avg_overdue_days,
+          relative_lateness_days: row.relative_lateness_days,
+          relative_lateness_score: row.relative_lateness_score,
           last_payment_date: row.last_payment_date,
+          exposure_score: row.exposure_score,
+          exposure_share_percent: row.exposure_share_percent,
+          exposure_relative_to_largest_percent:
+            row.exposure_relative_to_largest_percent,
           override_level: row.override_level,
           override_multiplier: row.override_multiplier,
           base_score: row.base_score,
@@ -345,7 +421,9 @@ export async function GET(request: NextRequest) {
           recommended_action: row.recommended_action,
           reason: row.reason,
           score_breakdown_lines: row.score_breakdown_lines,
-          currency_code: row.currency_code ?? null,
+          organisation_base_currency_code: organisationBaseCurrency,
+          currency_code: organisationBaseCurrency,
+          native_currency_breakdown: row.native_currency_breakdown,
           last_action_type: latestAction?.type ?? null,
           last_action_outcome: latestAction?.outcome ?? null,
           last_action_timestamp: latestAction?.takenAtIso ?? null,
@@ -356,8 +434,17 @@ export async function GET(request: NextRequest) {
       ok: true,
       tenantId,
       entitlement,
+      organisationBaseCurrency,
+      currencyHealth,
       rows: prioritizedRows,
       actionsTakenByCustomerId,
+      portfolio: {
+        totalOverdueBase: totalOverdueOutstandingBase,
+        totalOverdueBaseDecimal: totalOverdueOutstandingBaseDecimal,
+        largestCustomerOverdueBase: maxOverdueOutstandingBase,
+        largestCustomerOverdueBaseDecimal: maxOverdueOutstandingBaseDecimal,
+        weightedAverageOverdueDays: overallWeightedAvgOverdueDays,
+      },
       queue: {
         status: queueStatus,
         mappedCustomerCount: sourceCounts.customers,
@@ -368,6 +455,7 @@ export async function GET(request: NextRequest) {
         actionedTodayCount,
         remainingCustomerCount,
         returnedCustomerCount: prioritizedRows.length,
+        relativeLateness: relativeLatenessContext,
       },
     })
   } catch (error) {

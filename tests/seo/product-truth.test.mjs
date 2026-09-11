@@ -14,7 +14,7 @@ test('homepage positioning promises prioritisation rather than expected cash ret
   const source = await readFile(HOME_PAGE_PATH, 'utf8')
 
   assert.match(source, /Know which overdue customer to chase first/)
-  assert.match(source, /overdue exposure, urgency and payment recency/)
+  assert.match(source, /overdue exposure, urgency, changes from each customer(?:&apos;|')s normal payment\s+pattern and payment recency/)
   assert.doesNotMatch(source, /cash per effort/i)
   assert.doesNotMatch(source, /highest-return/i)
   assert.doesNotMatch(source, /expected to return the most cash/i)
@@ -48,5 +48,5 @@ test('targeted SEO product bridges do not claim prediction or free-text interpre
   assert.doesNotMatch(source, /human contact could change the near-term outcome/)
   assert.doesNotMatch(source, /The product brings those inputs into customer priority/)
   assert.match(source, /lets your chosen priority adjustment reflect that context/)
-  assert.match(source, /shows historical payment timing as context/)
+  assert.match(source, /uses current exposure, overdue age, deterioration from recent normal payment timing and payment recency/)
 })

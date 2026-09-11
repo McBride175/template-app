@@ -30,6 +30,7 @@ async function purgeTenantData(params: {
 }) {
   const tenantScopedTables = [
     'xero_raw',
+    'canonical_organisations',
     'canonical_customers',
     'canonical_invoices',
     'canonical_payments',

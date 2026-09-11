@@ -10,6 +10,9 @@ const {
   rankPlaybookCustomers,
 } = loadTypeScriptModule('lib/credit-control-playbook.ts')
 const { prioritiseCustomer } = loadTypeScriptModule('lib/collections/prioritization.ts')
+const { buildRelativeLatenessContext } = loadTypeScriptModule(
+  'lib/collections/relative-lateness.ts'
+)
 
 const PLAYBOOK_PAGE_PATH = new URL(
   '../../app/guides/credit-control-prioritisation-playbook/page.tsx',
@@ -53,7 +56,7 @@ test('founder concern uses the engine adjustment without making High an automati
   })
 
   assert.equal(initial.find((customer) => customer.id === 'calder-kitchens').rank, 6)
-  assert.equal(changed.find((customer) => customer.id === 'calder-kitchens').rank, 4)
+  assert.equal(changed.find((customer) => customer.id === 'calder-kitchens').rank, 2)
   assert.equal(changed[0].name, 'Marlowe Fit-Out')
 })
 
@@ -73,7 +76,7 @@ test('the top explanation changes consistently when founder knowledge changes th
   assert.equal(changedExplanation.heading, 'Why Elmstead Engineering is currently first')
   assert.match(changedExplanation.body, /same Priority adjustment used by the main engine/i)
   assert.match(changedExplanation.body, /approval run may be delayed/i)
-  assert.match(changedExplanation.body, /not scored separately by the current engine/i)
+  assert.match(changedExplanation.body, /change from this customer's normal payment pattern/i)
 })
 
 test('matches the main engine scores and ordering for every concern configuration', () => {
@@ -93,8 +96,8 @@ test('matches the main engine scores and ordering for every concern configuratio
     0
   )
   const context = {
-    totalOverdueOutstanding,
-    maxOverdueOutstanding: Math.max(
+    totalOverdueOutstandingBase: totalOverdueOutstanding,
+    maxOverdueOutstandingBase: Math.max(
       ...PLAYBOOK_CUSTOMERS.map((customer) => customer.outstanding)
     ),
     overallWeightedAvgOverdueDays:
@@ -105,6 +108,12 @@ test('matches the main engine scores and ordering for every concern configuratio
     maxWeightedAvgOverdueDays: Math.max(
       ...PLAYBOOK_CUSTOMERS.map((customer) => customer.daysOverdue)
     ),
+    relativeLateness: buildRelativeLatenessContext(
+      PLAYBOOK_CUSTOMERS.map((customer) => ({
+        overdueOutstandingBase: customer.outstanding,
+        relativeLatenessDays: customer.daysOverdue - customer.normalDaysLate,
+      }))
+    ),
   }
 
   for (const concerns of configurations) {
@@ -114,15 +123,16 @@ test('matches the main engine scores and ordering for every concern configuratio
           customer_source_id: customer.id,
           customer_name: customer.name,
           customer_email: null,
-          overdue_outstanding: customer.outstanding,
-          total_outstanding: customer.outstanding,
+          overdue_outstanding_base: customer.outstanding,
+          total_outstanding_base: customer.outstanding,
           overdue_invoices_count: customer.overdueInvoiceCount,
           open_invoices_count: customer.overdueInvoiceCount,
           weighted_avg_overdue_days: customer.daysOverdue,
           last_payment_date: null,
           last_payment_days_ago: customer.daysSinceLastPayment,
           has_recent_partial_payment: false,
-          currency_code: 'GBP',
+          relative_lateness_days: customer.daysOverdue - customer.normalDaysLate,
+          organisation_base_currency_code: 'GBP',
         },
         context,
         concernToOverride[concerns[customer.id]]
@@ -189,9 +199,9 @@ test('the page is local-only, responsive by composition and exposes accessible c
 
   assert.match(pageSource, /canonicalPath = '\/guides\/credit-control-prioritisation-playbook'/)
   assert.match(pageSource, /No login or Xero connection/)
-  assert.match(pageSource, /educational comparison,\s+not a default prediction/i)
+  assert.match(pageSource, /educational comparison, not a default\s+prediction/i)
   assert.match(pageSource, /same ranking function as the product/i)
-  assert.match(pageSource, /not\s+a separate scored input in the current engine/i)
+  assert.match(pageSource, /distinguish predictable delay from a\s+meaningful deterioration/i)
   assert.match(pageSource, /sm:grid-cols-3/)
   assert.match(clientSource, /lg:grid-cols-/)
   assert.match(clientSource, /<fieldset/)

@@ -3,7 +3,12 @@ import { getXeroConfig, getXeroTokenUrl } from '@/lib/xero/server'
 
 const XERO_ACCOUNTING_API_BASE = 'https://api.xero.com/api.xro/2.0'
 
-export type XeroResourceType = 'accounts' | 'contacts' | 'invoices'
+export type XeroResourceType =
+  | 'accounts'
+  | 'contacts'
+  | 'invoices'
+  | 'organisations'
+  | 'organisation_actions'
 
 export interface XeroConnectionCredentials {
   accessToken: string | null
@@ -108,6 +113,16 @@ export const XERO_RESOURCE_CONFIG: Record<
     endpoint: '/Invoices',
     responseKey: 'Invoices',
     sourceIdKey: 'InvoiceID',
+  },
+  organisations: {
+    endpoint: '/Organisation',
+    responseKey: 'Organisations',
+    sourceIdKey: 'OrganisationID',
+  },
+  organisation_actions: {
+    endpoint: '/Organisation/Actions',
+    responseKey: 'Actions',
+    sourceIdKey: 'Name',
   },
 }
 

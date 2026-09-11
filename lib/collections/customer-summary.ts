@@ -6,6 +6,19 @@ import {
   calculateRelativeLatenessDays,
   type HistoricalPaymentInvoice,
 } from '@/lib/collections/payment-behavior'
+import {
+  evaluateCollectionsCurrencyHealth,
+  type CollectionsCurrencyHealth,
+  type CollectionsInvoiceCurrencyRow,
+} from '@/lib/collections/currency-health'
+import {
+  compareDecimalValues,
+  decimalValueToFiniteNumber,
+  multiplyDecimalByInteger,
+  normalizeCurrencyCode,
+  normalizeDecimalValue,
+  sumDecimalValues,
+} from '@/lib/money/currency'
 
 const PAGE_SIZE = 1000
 const MS_PER_DAY = 86_400_000
@@ -24,7 +37,13 @@ export interface CustomerCollectionsSummaryRow {
   total_invoices_count: number
   open_invoices_count: number
   overdue_invoices_count: number
+  total_outstanding_base_decimal: string
+  overdue_outstanding_base_decimal: string
+  total_outstanding_base: number
+  overdue_outstanding_base: number
+  /** @deprecated Base-currency compatibility alias. */
   total_outstanding: number
+  /** @deprecated Base-currency compatibility alias. */
   overdue_outstanding: number
   oldest_overdue_invoice_date: string | null
   oldest_overdue_days: number | null
@@ -38,16 +57,31 @@ export interface CustomerCollectionsSummaryRow {
   last_payment_date: string | null
   last_payment_days_ago: number | null
   has_recent_partial_payment: boolean
-  currency_code: string | null
+  organisation_base_currency_code: string
+  /** @deprecated Organisation-base-currency compatibility alias. */
+  currency_code: string
+  native_currency_breakdown: NativeCurrencyBreakdown[]
+}
+
+export interface NativeCurrencyBreakdown {
+  currency_code: string
+  total_outstanding_native: string
+  overdue_outstanding_native: string
 }
 
 export interface CustomerCollectionsSummaryResult {
   rows: CustomerCollectionsSummaryRow[]
+  organisationBaseCurrency: string | null
+  currencyHealth: CollectionsCurrencyHealth
   sourceCounts: {
     customers: number
     invoices: number
     payments: number
   }
+}
+
+interface CanonicalOrganisationRow {
+  base_currency_code: string | null
 }
 
 interface CanonicalCustomerRow {
@@ -59,7 +93,7 @@ interface CanonicalCustomerRow {
   status: string | null
 }
 
-interface CanonicalInvoiceRow {
+interface CanonicalInvoiceRow extends CollectionsInvoiceCurrencyRow {
   source_id: string
   customer_source_id: string | null
   type: string | null
@@ -67,11 +101,9 @@ interface CanonicalInvoiceRow {
   issue_date: string | null
   due_date: string | null
   fully_paid_date: string | null
-  currency_code: string | null
-  total: string | number | null
-  amount_paid: string | number | null
-  amount_due: string | number | null
-  amount_credited: string | number | null
+  total_native: string | number | null
+  amount_paid_native: string | number | null
+  amount_credited_native: string | number | null
 }
 
 interface CanonicalPaymentRow {
@@ -82,10 +114,12 @@ interface CanonicalPaymentRow {
 
 interface MutableCustomerSummaryRow extends CustomerCollectionsSummaryRow {
   has_receivable_invoice_activity: boolean
-  currency_codes: Set<string>
   open_receivable_invoice_source_ids: Set<string>
-  overdue_weighted_days_numerator: number
-  overdue_weighted_days_denominator: number
+  total_outstanding_base_amounts: string[]
+  overdue_outstanding_base_amounts: string[]
+  overdue_weighted_days_numerator_amounts: string[]
+  native_total_amounts_by_currency: Map<string, string[]>
+  native_overdue_amounts_by_currency: Map<string, string[]>
 }
 
 type ServerSupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>
@@ -110,21 +144,6 @@ function normalizeInvoiceStatus(value: string | null) {
 
 function isIsoDate(value: string | null | undefined): value is string {
   return typeof value === 'string' && ISO_DATE_REGEX.test(value)
-}
-
-function parseNumeric(value: unknown): number | null {
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? value : null
-  }
-
-  if (typeof value === 'string') {
-    const trimmed = value.trim()
-    if (!trimmed) return null
-    const parsed = Number.parseFloat(trimmed)
-    return Number.isFinite(parsed) ? parsed : null
-  }
-
-  return null
 }
 
 function maxIsoDate(a: string | null, b: string | null) {
@@ -170,8 +189,8 @@ function isRecentDateWithinDays(todayUtcMs: number, isoDate: string, windowDays:
   return daysAgo >= 0 && daysAgo <= windowDays
 }
 
-function isOpenInvoice(status: string | null, amountDue: number) {
-  return normalizeInvoiceStatus(status) === COLLECTIBLE_INVOICE_STATUS && amountDue > 0
+function isPositiveDecimal(value: string | null) {
+  return value !== null && compareDecimalValues(value, '0') === 1
 }
 
 function mergeBoolean(current: boolean | null, incoming: boolean | null) {
@@ -180,7 +199,20 @@ function mergeBoolean(current: boolean | null, incoming: boolean | null) {
   return null
 }
 
-function createMutableSummary(sourceId: string): MutableCustomerSummaryRow {
+function appendDecimalAmount(
+  amountsByCurrency: Map<string, string[]>,
+  currencyCode: string,
+  amount: string
+) {
+  const amounts = amountsByCurrency.get(currencyCode) ?? []
+  amounts.push(amount)
+  amountsByCurrency.set(currencyCode, amounts)
+}
+
+function createMutableSummary(
+  sourceId: string,
+  organisationBaseCurrency: string
+): MutableCustomerSummaryRow {
   return {
     customer_source_id: sourceId,
     customer_name: sourceId,
@@ -191,6 +223,10 @@ function createMutableSummary(sourceId: string): MutableCustomerSummaryRow {
     total_invoices_count: 0,
     open_invoices_count: 0,
     overdue_invoices_count: 0,
+    total_outstanding_base_decimal: '0',
+    overdue_outstanding_base_decimal: '0',
+    total_outstanding_base: 0,
+    overdue_outstanding_base: 0,
     total_outstanding: 0,
     overdue_outstanding: 0,
     oldest_overdue_invoice_date: null,
@@ -205,12 +241,16 @@ function createMutableSummary(sourceId: string): MutableCustomerSummaryRow {
     last_payment_date: null,
     last_payment_days_ago: null,
     has_recent_partial_payment: false,
-    currency_code: null,
+    organisation_base_currency_code: organisationBaseCurrency,
+    currency_code: organisationBaseCurrency,
+    native_currency_breakdown: [],
     has_receivable_invoice_activity: false,
-    currency_codes: new Set<string>(),
     open_receivable_invoice_source_ids: new Set<string>(),
-    overdue_weighted_days_numerator: 0,
-    overdue_weighted_days_denominator: 0,
+    total_outstanding_base_amounts: [],
+    overdue_outstanding_base_amounts: [],
+    overdue_weighted_days_numerator_amounts: [],
+    native_total_amounts_by_currency: new Map<string, string[]>(),
+    native_overdue_amounts_by_currency: new Map<string, string[]>(),
   }
 }
 
@@ -243,6 +283,24 @@ async function fetchCanonicalCustomers(
   return rows
 }
 
+async function fetchCanonicalOrganisations(
+  supabase: ServerSupabaseClient,
+  userId: string,
+  tenantId: string
+) {
+  const { data, error } = await supabase
+    .from('canonical_organisations')
+    .select('base_currency_code')
+    .eq('user_id', userId)
+    .eq('tenant_id', tenantId)
+
+  if (error) {
+    throw new Error(`Failed to load canonical organisation currency: ${error.message}`)
+  }
+
+  return (data ?? []) as CanonicalOrganisationRow[]
+}
+
 async function fetchCanonicalInvoices(
   supabase: ServerSupabaseClient,
   userId: string,
@@ -254,7 +312,7 @@ async function fetchCanonicalInvoices(
     const { data, error } = await supabase
       .from('canonical_invoices')
       .select(
-        'source_id, customer_source_id, type, status, issue_date, due_date, fully_paid_date, currency_code, total, amount_paid, amount_due, amount_credited'
+        'source_id, customer_source_id, type, status, issue_date, due_date, fully_paid_date, transaction_currency_code, organisation_base_currency_code, total_native, amount_paid_native, amount_due_native, amount_credited_native, amount_due_base, currency_conversion_status, currency_conversion_failure_reason'
       )
       .eq('user_id', userId)
       .eq('tenant_id', tenantId)
@@ -310,11 +368,29 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
 ): Promise<CustomerCollectionsSummaryResult> {
   const { todayIso, todayUtcMs } = getTodayContext()
 
-  const [customers, invoices, payments] = await Promise.all([
+  const [organisations, customers, invoices, payments] = await Promise.all([
+    fetchCanonicalOrganisations(supabase, userId, tenantId),
     fetchCanonicalCustomers(supabase, userId, tenantId),
     fetchCanonicalInvoices(supabase, userId, tenantId),
     fetchCanonicalPayments(supabase, userId, tenantId),
   ])
+
+  const { organisationBaseCurrency, currencyHealth } =
+    evaluateCollectionsCurrencyHealth({ organisations, invoices })
+  const sourceCounts = {
+    customers: customers.length,
+    invoices: invoices.length,
+    payments: payments.length,
+  }
+
+  if (currencyHealth.status === 'incomplete' || !organisationBaseCurrency) {
+    return {
+      rows: [],
+      organisationBaseCurrency,
+      currencyHealth,
+      sourceCounts,
+    }
+  }
 
   const rowsByCustomerSourceId = new Map<string, MutableCustomerSummaryRow>()
   const customerBySourceId = new Map<string, CanonicalCustomerRow>()
@@ -325,7 +401,7 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
     const existing = rowsByCustomerSourceId.get(sourceId)
     if (existing) return existing
 
-    const created = createMutableSummary(sourceId)
+    const created = createMutableSummary(sourceId, organisationBaseCurrency)
     rowsByCustomerSourceId.set(sourceId, created)
     return created
   }
@@ -365,7 +441,16 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
 
     if (customerSourceId) {
       const historicalInvoices = historicalInvoicesByCustomerSourceId.get(customerSourceId) ?? []
-      historicalInvoices.push(invoice)
+      historicalInvoices.push({
+        type: invoice.type,
+        status: invoice.status,
+        due_date: invoice.due_date,
+        fully_paid_date: invoice.fully_paid_date,
+        total: invoice.total_native,
+        amount_paid: invoice.amount_paid_native,
+        amount_due: invoice.amount_due_native,
+        amount_credited: invoice.amount_credited_native,
+      })
       historicalInvoicesByCustomerSourceId.set(customerSourceId, historicalInvoices)
     }
 
@@ -385,22 +470,30 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
 
     const issueDate = isIsoDate(invoice.issue_date) ? invoice.issue_date : null
     const dueDate = isIsoDate(invoice.due_date) ? invoice.due_date : null
-    const amountDue = parseNumeric(invoice.amount_due) ?? 0
-    const currencyCode = invoice.currency_code?.trim() || null
+    const amountDueNative = normalizeDecimalValue(invoice.amount_due_native)
+    const amountDueBase = normalizeDecimalValue(invoice.amount_due_base)
+    const transactionCurrencyCode = normalizeCurrencyCode(invoice.transaction_currency_code)
 
     summary.latest_invoice_date = maxIsoDate(summary.latest_invoice_date, issueDate)
     summary.latest_due_date = maxIsoDate(summary.latest_due_date, dueDate)
 
-    if (currencyCode) {
-      summary.currency_codes.add(currencyCode)
-    }
-
-    if (!isOpenInvoice(invoice.status, amountDue)) {
+    if (amountDueNative === null || !isPositiveDecimal(amountDueNative)) {
       continue
     }
 
+    if (!amountDueBase || !transactionCurrencyCode || !isPositiveDecimal(amountDueBase)) {
+      throw new Error(
+        `Currency health invariant failed for collectible invoice ${invoice.source_id}`
+      )
+    }
+
     summary.open_invoices_count += 1
-    summary.total_outstanding += amountDue
+    summary.total_outstanding_base_amounts.push(amountDueBase)
+    appendDecimalAmount(
+      summary.native_total_amounts_by_currency,
+      transactionCurrencyCode,
+      amountDueNative
+    )
 
     if (invoiceSourceId) {
       summary.open_receivable_invoice_source_ids.add(invoiceSourceId)
@@ -410,10 +503,20 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
       const overdueDays = calculateOverdueDays(todayUtcMs, dueDate)
 
       summary.overdue_invoices_count += 1
-      summary.overdue_outstanding += amountDue
+      summary.overdue_outstanding_base_amounts.push(amountDueBase)
+      appendDecimalAmount(
+        summary.native_overdue_amounts_by_currency,
+        transactionCurrencyCode,
+        amountDueNative
+      )
       summary.oldest_overdue_invoice_date = minIsoDate(summary.oldest_overdue_invoice_date, dueDate)
-      summary.overdue_weighted_days_numerator += amountDue * overdueDays
-      summary.overdue_weighted_days_denominator += amountDue
+      const weightedAmount = multiplyDecimalByInteger(amountDueBase, overdueDays)
+      if (weightedAmount === null) {
+        throw new Error(
+          `Failed to weight base amount for collectible invoice ${invoice.source_id}`
+        )
+      }
+      summary.overdue_weighted_days_numerator_amounts.push(weightedAmount)
     }
   }
 
@@ -478,16 +581,53 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
       continue
     }
 
-    row.currency_code = row.currency_codes.size === 1 ? Array.from(row.currency_codes)[0] : null
     row.oldest_overdue_days = calculateDaysAgo(todayUtcMs, row.oldest_overdue_invoice_date)
     row.last_payment_days_ago = calculateDaysAgo(todayUtcMs, row.last_payment_date)
 
-    if (row.overdue_outstanding <= 0 || row.overdue_weighted_days_denominator <= 0) {
+    const totalOutstandingBaseDecimal =
+      sumDecimalValues(row.total_outstanding_base_amounts) ?? '0'
+    const overdueOutstandingBaseDecimal =
+      sumDecimalValues(row.overdue_outstanding_base_amounts) ?? '0'
+    const weightedDaysNumeratorDecimal =
+      sumDecimalValues(row.overdue_weighted_days_numerator_amounts) ?? '0'
+    const totalOutstandingBase = decimalValueToFiniteNumber(totalOutstandingBaseDecimal)
+    const overdueOutstandingBase = decimalValueToFiniteNumber(overdueOutstandingBaseDecimal)
+    const weightedDaysNumerator = decimalValueToFiniteNumber(weightedDaysNumeratorDecimal)
+
+    if (
+      totalOutstandingBase === null ||
+      overdueOutstandingBase === null ||
+      weightedDaysNumerator === null
+    ) {
+      throw new Error(`Base-currency aggregation exceeded the supported calculation range`)
+    }
+
+    row.total_outstanding_base = totalOutstandingBase
+    row.overdue_outstanding_base = overdueOutstandingBase
+    row.total_outstanding_base_decimal = totalOutstandingBaseDecimal
+    row.overdue_outstanding_base_decimal = overdueOutstandingBaseDecimal
+    row.total_outstanding = totalOutstandingBase
+    row.overdue_outstanding = overdueOutstandingBase
+
+    if (overdueOutstandingBase <= 0) {
       row.weighted_avg_overdue_days = 0
     } else {
-      row.weighted_avg_overdue_days =
-        row.overdue_weighted_days_numerator / row.overdue_weighted_days_denominator
+      row.weighted_avg_overdue_days = weightedDaysNumerator / overdueOutstandingBase
     }
+
+    const nativeCurrencyCodes = new Set([
+      ...row.native_total_amounts_by_currency.keys(),
+      ...row.native_overdue_amounts_by_currency.keys(),
+    ])
+    row.native_currency_breakdown = Array.from(nativeCurrencyCodes)
+      .sort()
+      .map((currencyCode) => ({
+        currency_code: currencyCode,
+        total_outstanding_native:
+          sumDecimalValues(row.native_total_amounts_by_currency.get(currencyCode) ?? []) ?? '0',
+        overdue_outstanding_native:
+          sumDecimalValues(row.native_overdue_amounts_by_currency.get(currencyCode) ?? []) ?? '0',
+      }))
 
     const historicalBaseline = calculateHistoricalPaymentBaseline(
       historicalInvoicesByCustomerSourceId.get(row.customer_source_id) ?? [],
@@ -511,6 +651,10 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
       total_invoices_count: row.total_invoices_count,
       open_invoices_count: row.open_invoices_count,
       overdue_invoices_count: row.overdue_invoices_count,
+      total_outstanding_base_decimal: row.total_outstanding_base_decimal,
+      overdue_outstanding_base_decimal: row.overdue_outstanding_base_decimal,
+      total_outstanding_base: row.total_outstanding_base,
+      overdue_outstanding_base: row.overdue_outstanding_base,
       total_outstanding: row.total_outstanding,
       overdue_outstanding: row.overdue_outstanding,
       oldest_overdue_invoice_date: row.oldest_overdue_invoice_date,
@@ -525,17 +669,17 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
       last_payment_date: row.last_payment_date,
       last_payment_days_ago: row.last_payment_days_ago,
       has_recent_partial_payment: row.has_recent_partial_payment,
+      organisation_base_currency_code: row.organisation_base_currency_code,
       currency_code: row.currency_code,
+      native_currency_breakdown: row.native_currency_breakdown,
     })
   }
 
   return {
     rows,
-    sourceCounts: {
-      customers: customers.length,
-      invoices: invoices.length,
-      payments: payments.length,
-    },
+    organisationBaseCurrency,
+    currencyHealth,
+    sourceCounts,
   }
 }
 

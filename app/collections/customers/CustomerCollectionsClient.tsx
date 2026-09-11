@@ -28,8 +28,10 @@ interface CustomerCollectionsSummaryRow {
   total_invoices_count: number
   open_invoices_count: number
   overdue_invoices_count: number
-  total_outstanding: number
-  overdue_outstanding: number
+  total_outstanding_base_decimal: string
+  overdue_outstanding_base_decimal: string
+  total_outstanding_base: number
+  overdue_outstanding_base: number
   oldest_overdue_invoice_date: string | null
   oldest_overdue_days: number | null
   weighted_avg_overdue_days: number
@@ -40,13 +42,22 @@ interface CustomerCollectionsSummaryRow {
   latest_invoice_date: string | null
   latest_due_date: string | null
   last_payment_date: string | null
-  currency_code: string | null
+  organisation_base_currency_code: string
+}
+
+interface CollectionsCurrencyHealth {
+  status: 'complete' | 'incomplete'
+  affectedInvoiceCount: number
+  affectedCustomerCount: number
+  failureReasons: Record<string, number>
 }
 
 interface CollectionsApiResponse {
   ok?: boolean
   rows?: CustomerCollectionsSummaryRow[]
   tenantId?: string | null
+  organisationBaseCurrency?: string | null
+  currencyHealth?: CollectionsCurrencyHealth
   error?: string
 }
 
@@ -97,20 +108,6 @@ function formatMoney(amount: number, currencyCode: string | null) {
   }).format(amount)
 }
 
-function formatCurrencyTotalsByCode(totalsByCurrency: Map<string, number>) {
-  const visibleBuckets = Array.from(totalsByCurrency.entries())
-    .filter(([, amount]) => Math.abs(amount) > Number.EPSILON)
-
-  if (visibleBuckets.length === 0) {
-    return formatMoney(0, null)
-  }
-
-  return visibleBuckets
-    .sort(([leftCode], [rightCode]) => leftCode.localeCompare(rightCode))
-    .map(([currencyCode, amount]) => formatMoney(amount, currencyCode))
-    .join(' · ')
-}
-
 function getStatusLabel(row: CustomerCollectionsSummaryRow) {
   if (row.status?.trim()) return row.status
   if (row.is_customer === true) return 'customer'
@@ -119,7 +116,7 @@ function getStatusLabel(row: CustomerCollectionsSummaryRow) {
 }
 
 function getStatusBadgeClasses(row: CustomerCollectionsSummaryRow) {
-  if (row.overdue_outstanding > 0) {
+  if (row.overdue_outstanding_base > 0) {
     return 'bg-amber-100 text-amber-800'
   }
   return 'bg-gray-100 text-gray-700'
@@ -137,6 +134,8 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [organisationBaseCurrency, setOrganisationBaseCurrency] = useState<string | null>(null)
+  const [currencyHealth, setCurrencyHealth] = useState<CollectionsCurrencyHealth | null>(null)
 
   const loadRows = useCallback(
     async (manualRefresh: boolean) => {
@@ -180,6 +179,8 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
         }
 
         setRows(payload.rows ?? [])
+        setOrganisationBaseCurrency(payload.organisationBaseCurrency ?? null)
+        setCurrencyHealth(payload.currencyHealth ?? null)
       } catch (fetchError) {
         setError(
           fetchError instanceof Error
@@ -200,43 +201,27 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
 
   const description = useMemo(() => {
     if (loading) return 'Loading customer aggregation…'
+    if (currencyHealth?.status === 'incomplete') return 'Collections ranking is unavailable.'
     if (rows.length === 0) return 'No customer rows matched the current filters.'
     return `${rows.length} customer${rows.length === 1 ? '' : 's'} shown`
-  }, [loading, rows.length])
+  }, [currencyHealth?.status, loading, rows.length])
 
   const totals = useMemo(() => {
-    const outstandingByCurrency = new Map<string, number>()
-    const overdueOutstandingByCurrency = new Map<string, number>()
-
+    let outstandingBase = 0
+    let overdueOutstandingBase = 0
     let overdueInvoicesCount = 0
     let oldestOverdueDaysSum = 0
 
     for (const row of rows) {
-      const currencyCode = row.currency_code?.trim() || null
-
-      if (currencyCode || Math.abs(row.total_outstanding) > Number.EPSILON) {
-        const outstandingCurrencyCode = currencyCode ?? 'UNK'
-        outstandingByCurrency.set(
-          outstandingCurrencyCode,
-          (outstandingByCurrency.get(outstandingCurrencyCode) ?? 0) + row.total_outstanding
-        )
-      }
-
-      if (currencyCode || Math.abs(row.overdue_outstanding) > Number.EPSILON) {
-        const overdueCurrencyCode = currencyCode ?? 'UNK'
-        overdueOutstandingByCurrency.set(
-          overdueCurrencyCode,
-          (overdueOutstandingByCurrency.get(overdueCurrencyCode) ?? 0) + row.overdue_outstanding
-        )
-      }
-
+      outstandingBase += row.total_outstanding_base
+      overdueOutstandingBase += row.overdue_outstanding_base
       overdueInvoicesCount += row.overdue_invoices_count
       oldestOverdueDaysSum += row.oldest_overdue_days ?? 0
     }
 
     return {
-      outstandingByCurrency,
-      overdueOutstandingByCurrency,
+      outstandingBase,
+      overdueOutstandingBase,
       overdueInvoicesCount,
       oldestOverdueDaysSum,
     }
@@ -289,19 +274,44 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
       {error && <p className="text-sm text-red-600">{error}</p>}
       {!error && <p className="text-sm text-gray-600">{description}</p>}
 
-      {!error && !loading && rows.length > 0 && (
+      {!error && !loading && currencyHealth?.status === 'incomplete' && (
+        <Card>
+          <h2 className="text-lg font-semibold text-gray-900">Currency data needs refreshing</h2>
+          <p className="mt-1 text-sm text-gray-600">
+            A safe collections summary cannot be calculated until the incomplete Xero currency
+            data is refreshed or inspected.
+          </p>
+          <p className="mt-2 text-sm text-gray-700">
+            Affected invoices: {currencyHealth.affectedInvoiceCount} · Affected customers:{' '}
+            {currencyHealth.affectedCustomerCount}
+          </p>
+          {Object.keys(currencyHealth.failureReasons).length > 0 && (
+            <p className="mt-1 text-xs text-gray-500">
+              Reasons:{' '}
+              {Object.entries(currencyHealth.failureReasons)
+                .map(([reason, count]) => `${reason.replaceAll('_', ' ')} (${count})`)
+                .join(', ')}
+            </p>
+          )}
+        </Card>
+      )}
+
+      {!error &&
+        !loading &&
+        currencyHealth?.status !== 'incomplete' &&
+        rows.length > 0 && (
         <div className="space-y-3">
           <div className="grid gap-3 rounded-md border border-gray-200 bg-gray-50 p-3 text-sm text-gray-800 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <p className="text-xs uppercase tracking-wide text-gray-600">Outstanding total</p>
               <p className="mt-1 font-semibold text-gray-900">
-                {formatCurrencyTotalsByCode(totals.outstandingByCurrency)}
+                {formatMoney(totals.outstandingBase, organisationBaseCurrency)}
               </p>
             </div>
             <div>
               <p className="text-xs uppercase tracking-wide text-gray-600">Overdue outstanding total</p>
               <p className="mt-1 font-semibold text-gray-900">
-                {formatCurrencyTotalsByCode(totals.overdueOutstandingByCurrency)}
+                {formatMoney(totals.overdueOutstandingBase, organisationBaseCurrency)}
               </p>
             </div>
             <div>
@@ -336,10 +346,10 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
                     <p className="text-xs text-gray-600">{row.customer_email || '—'}</p>
                   </td>
                   <td className="px-4 py-3">
-                    {formatMoney(row.total_outstanding, row.currency_code)}
+                    {formatMoney(row.total_outstanding_base, organisationBaseCurrency)}
                   </td>
                   <td className="px-4 py-3">
-                    {formatMoney(row.overdue_outstanding, row.currency_code)}
+                    {formatMoney(row.overdue_outstanding_base, organisationBaseCurrency)}
                   </td>
                   <td className="px-4 py-3">{row.overdue_invoices_count}</td>
                   <td className="px-4 py-3">{row.oldest_overdue_days ?? '—'}</td>

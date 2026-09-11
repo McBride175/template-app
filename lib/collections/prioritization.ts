@@ -1,8 +1,15 @@
+import {
+  computeRelativeLatenessScore,
+  RELATIVE_LATENESS_NOISE_FLOOR_DAYS,
+  type RelativeLatenessContext,
+} from '@/lib/collections/relative-lateness'
+
 export const PRIORITIZATION_CONFIG = {
   weights: {
     exposure: 0.5,
-    urgency: 0.35,
-    behaviour: 0.15,
+    urgency: 0.25,
+    relativeDeterioration: 0.15,
+    behaviour: 0.1,
   },
   scoreDecimalPlaces: 1,
   overdueInvoiceCountBonuses: [
@@ -45,18 +52,23 @@ export interface PrioritizationCustomerRow {
   customer_source_id: string
   customer_name: string
   customer_email: string | null
-  overdue_outstanding: number
-  total_outstanding: number
+  overdue_outstanding_base: number
+  total_outstanding_base: number
   overdue_invoices_count: number
   open_invoices_count: number
   weighted_avg_overdue_days: number
   last_payment_date: string | null
   last_payment_days_ago: number | null
   has_recent_partial_payment: boolean
-  currency_code?: string | null
+  relative_lateness_days: number | null
+  organisation_base_currency_code: string
 }
 
 export interface PrioritizedCustomerRow extends PrioritizationCustomerRow {
+  exposure_score: number
+  exposure_share_percent: number
+  exposure_relative_to_largest_percent: number
+  relative_lateness_score: number
   override_level: CustomerOverrideLevel
   override_multiplier: number
   base_score: number
@@ -67,11 +79,22 @@ export interface PrioritizedCustomerRow extends PrioritizationCustomerRow {
   score_breakdown_lines: string[]
 }
 
-export interface PrioritizationContext {
-  totalOverdueOutstanding: number
-  maxOverdueOutstanding: number
+interface UrgencyNormalizationContext {
+  totalOverdueOutstandingBase: number
+  maxOverdueOutstandingBase: number
   overallWeightedAvgOverdueDays: number
   maxWeightedAvgOverdueDays: number
+}
+
+export interface PrioritizationContext extends UrgencyNormalizationContext {
+  relativeLateness: RelativeLatenessContext
+}
+
+export interface PrioritizationComponentScores {
+  exposureScore: number
+  urgencyScore: number
+  relativeDeteriorationScore: number
+  paymentRecencyScore: number
 }
 
 function normalizeOverrideLevel(overrideLevel: string | null | undefined): CustomerOverrideLevel {
@@ -90,9 +113,10 @@ function getOverrideLabel(overrideLevel: CustomerOverrideLevel) {
 }
 
 function formatAmount(value: number, currencyCode: string | null | undefined) {
-  const normalized = currencyCode?.trim() || 'GBP'
+  const normalized = currencyCode?.trim()
 
   try {
+    if (!normalized) throw new Error('Missing organisation base currency')
     return new Intl.NumberFormat('en-GB', {
       style: 'currency',
       currency: normalized,
@@ -111,7 +135,10 @@ function describeExposureDriver(
   exposureSharePercent: number,
   exposureRelativeToLargestPercent: number
 ) {
-  const amount = formatAmount(row.overdue_outstanding, row.currency_code)
+  const amount = formatAmount(
+    row.overdue_outstanding_base,
+    row.organisation_base_currency_code
+  )
   const relativeToLargest = `${exposureRelativeToLargestPercent.toFixed(1)}%`
   const shareOfTotal = `${exposureSharePercent.toFixed(1)}%`
 
@@ -174,6 +201,23 @@ function describeBehaviourDriver(row: PrioritizationCustomerRow, behaviourScore:
   return `no payment has been recorded for ${daysSinceLastPayment} ${dayWord}, so payment recency adds maximum priority`
 }
 
+function describeRelativeDeteriorationDriver(row: PrioritizationCustomerRow) {
+  const relativeLatenessDays = row.relative_lateness_days
+  if (
+    typeof relativeLatenessDays !== 'number' ||
+    !Number.isFinite(relativeLatenessDays) ||
+    relativeLatenessDays <= RELATIVE_LATENESS_NOISE_FLOOR_DAYS
+  ) {
+    return null
+  }
+
+  const formattedDays = Number.isInteger(relativeLatenessDays)
+    ? relativeLatenessDays.toFixed(0)
+    : relativeLatenessDays.toFixed(1)
+
+  return `the current overdue position is ${formattedDays} days later than this customer's recent normal payment timing`
+}
+
 function describePaymentGap(row: PrioritizationCustomerRow) {
   if (
     typeof row.last_payment_days_ago === 'number' &&
@@ -187,12 +231,12 @@ function describePaymentGap(row: PrioritizationCustomerRow) {
 
 function computeExposureComponents(
   row: PrioritizationCustomerRow,
-  totalOverdueOutstanding: number,
-  maxOverdueOutstanding: number
+  totalOverdueOutstandingBase: number,
+  maxOverdueOutstandingBase: number
 ) {
-  const customerOverdueOutstanding = Math.max(0, row.overdue_outstanding)
-  const normalizedTotalOverdue = Math.max(0, totalOverdueOutstanding)
-  const normalizedMaxOverdue = Math.max(0, maxOverdueOutstanding)
+  const customerOverdueOutstanding = Math.max(0, row.overdue_outstanding_base)
+  const normalizedTotalOverdue = Math.max(0, totalOverdueOutstandingBase)
+  const normalizedMaxOverdue = Math.max(0, maxOverdueOutstandingBase)
 
   if (
     customerOverdueOutstanding <= 0 ||
@@ -226,22 +270,28 @@ function computeExposureComponents(
 
 export function computeExposureScore(
   row: PrioritizationCustomerRow,
-  totalOverdueOutstanding: number,
-  maxOverdueOutstanding: number
+  totalOverdueOutstandingBase: number,
+  maxOverdueOutstandingBase: number
 ) {
   return computeExposureComponents(
     row,
-    totalOverdueOutstanding,
-    maxOverdueOutstanding
+    totalOverdueOutstandingBase,
+    maxOverdueOutstandingBase
   ).exposureScore
 }
 
-export function computeUrgencyScore(row: PrioritizationCustomerRow, context: PrioritizationContext) {
+export function computeUrgencyScore(
+  row: PrioritizationCustomerRow,
+  context: UrgencyNormalizationContext
+) {
   return computeUrgencyComponents(row, context).urgencyScore
 }
 
-function computeUrgencyComponents(row: PrioritizationCustomerRow, context: PrioritizationContext) {
-  if (row.overdue_outstanding <= 0) {
+function computeUrgencyComponents(
+  row: PrioritizationCustomerRow,
+  context: UrgencyNormalizationContext
+) {
+  if (row.overdue_outstanding_base <= 0) {
     return {
       weightedAvgDays: 0,
       portfolioAvgWeightedDays: 0,
@@ -318,8 +368,35 @@ function computeBehaviourComponents(row: PrioritizationCustomerRow) {
   }
 }
 
+function calculateWeightedEvidence(scores: PrioritizationComponentScores) {
+  const weightedExposure = PRIORITIZATION_CONFIG.weights.exposure * scores.exposureScore
+  const weightedUrgency = PRIORITIZATION_CONFIG.weights.urgency * scores.urgencyScore
+  const weightedRelativeDeterioration =
+    PRIORITIZATION_CONFIG.weights.relativeDeterioration * scores.relativeDeteriorationScore
+  const weightedPaymentRecency =
+    PRIORITIZATION_CONFIG.weights.behaviour * scores.paymentRecencyScore
+  const rawScore =
+    weightedExposure +
+    weightedUrgency +
+    weightedRelativeDeterioration +
+    weightedPaymentRecency
+
+  return {
+    weightedExposure,
+    weightedUrgency,
+    weightedRelativeDeterioration,
+    weightedPaymentRecency,
+    rawScore,
+    baseScore: Number(rawScore.toFixed(PRIORITIZATION_CONFIG.scoreDecimalPlaces)),
+  }
+}
+
+export function computePrioritizationBaseScore(scores: PrioritizationComponentScores) {
+  return calculateWeightedEvidence(scores).baseScore
+}
+
 export function recommendAction(row: PrioritizationCustomerRow, finalScore: number) {
-  if (row.overdue_outstanding <= 0) return 'No action' as const
+  if (row.overdue_outstanding_base <= 0) return 'No action' as const
   if (finalScore >= PRIORITIZATION_CONFIG.actions.reviewNowMin) return 'Review now' as const
   if (finalScore >= PRIORITIZATION_CONFIG.actions.followUpMin) return 'Follow up' as const
   if (finalScore > PRIORITIZATION_CONFIG.actions.monitorMinExclusive) return 'Monitor' as const
@@ -329,24 +406,25 @@ export function recommendAction(row: PrioritizationCustomerRow, finalScore: numb
 export function buildReason(
   row: PrioritizationCustomerRow,
   finalScore: number,
-  totalOverdueOutstanding: number,
-  maxOverdueOutstanding: number,
+  totalOverdueOutstandingBase: number,
+  maxOverdueOutstandingBase: number,
   overallWeightedAvgOverdueDays: number,
   maxWeightedAvgOverdueDays: number,
+  relativeLatenessScore: number,
   overrideLevel: CustomerOverrideLevel = DEFAULT_OVERRIDE_LEVEL
 ) {
-  if (row.overdue_outstanding <= 0) {
+  if (row.overdue_outstanding_base <= 0) {
     return 'No chase needed: there are no overdue receivables.'
   }
 
   const { exposureSharePercent, exposureRelativeToLargestPercent, exposureScore } = computeExposureComponents(
     row,
-    totalOverdueOutstanding,
-    maxOverdueOutstanding
+    totalOverdueOutstandingBase,
+    maxOverdueOutstandingBase
   )
   const urgencyScore = computeUrgencyScore(row, {
-    totalOverdueOutstanding,
-    maxOverdueOutstanding,
+    totalOverdueOutstandingBase,
+    maxOverdueOutstandingBase,
     overallWeightedAvgOverdueDays,
     maxWeightedAvgOverdueDays,
   })
@@ -374,6 +452,15 @@ export function buildReason(
     rankedDrivers.push({
       contribution: PRIORITIZATION_CONFIG.weights.urgency * urgencyScore,
       text: describeUrgencyDriver(row, urgencyScore),
+    })
+  }
+
+  const relativeDeteriorationDriver = describeRelativeDeteriorationDriver(row)
+  if (relativeDeteriorationDriver && relativeLatenessScore > 0) {
+    rankedDrivers.push({
+      contribution:
+        PRIORITIZATION_CONFIG.weights.relativeDeterioration * relativeLatenessScore,
+      text: relativeDeteriorationDriver,
     })
   }
 
@@ -434,8 +521,8 @@ export function prioritiseCustomer(
     normalizedMaxOverdue,
   } = computeExposureComponents(
     row,
-    context.totalOverdueOutstanding,
-    context.maxOverdueOutstanding
+    context.totalOverdueOutstandingBase,
+    context.maxOverdueOutstandingBase
   )
   const {
     weightedAvgDays: urgencyWeightedAvgDays,
@@ -446,16 +533,31 @@ export function prioritiseCustomer(
     urgencyScore,
   } = computeUrgencyComponents(row, context)
   const { baseScore: behaviourBaseScore, behaviourScore } = computeBehaviourComponents(row)
+  const relativeLatenessScore = computeRelativeLatenessScore(
+    {
+      overdueOutstandingBase: row.overdue_outstanding_base,
+      relativeLatenessDays: row.relative_lateness_days,
+    },
+    context.relativeLateness
+  )
   const behaviourDaysInput =
     row.last_payment_days_ago === null
       ? 'no payment history'
       : `${Math.max(0, row.last_payment_days_ago)} days ago`
 
-  const weightedExposure = PRIORITIZATION_CONFIG.weights.exposure * exposureScore
-  const weightedUrgency = PRIORITIZATION_CONFIG.weights.urgency * urgencyScore
-  const weightedBehaviour = PRIORITIZATION_CONFIG.weights.behaviour * behaviourScore
-  const rawScore = weightedExposure + weightedUrgency + weightedBehaviour
-  const baseScore = Number(rawScore.toFixed(PRIORITIZATION_CONFIG.scoreDecimalPlaces))
+  const {
+    weightedExposure,
+    weightedUrgency,
+    weightedRelativeDeterioration,
+    weightedPaymentRecency,
+    rawScore,
+    baseScore,
+  } = calculateWeightedEvidence({
+    exposureScore,
+    urgencyScore,
+    relativeDeteriorationScore: relativeLatenessScore,
+    paymentRecencyScore: behaviourScore,
+  })
   const normalizedOverrideLevel = normalizeOverrideLevel(overrideLevel)
   const overrideMultiplier = OVERRIDE_MULTIPLIERS[normalizedOverrideLevel]
   const finalScore = Number(
@@ -468,20 +570,27 @@ export function prioritiseCustomer(
   const reason = buildReason(
     row,
     finalScore,
-    context.totalOverdueOutstanding,
-    context.maxOverdueOutstanding,
+    context.totalOverdueOutstandingBase,
+    context.maxOverdueOutstandingBase,
     context.overallWeightedAvgOverdueDays,
     context.maxWeightedAvgOverdueDays,
+    relativeLatenessScore,
     normalizedOverrideLevel
   )
+  const relativeLatenessInput =
+    row.relative_lateness_days === null || !Number.isFinite(row.relative_lateness_days)
+      ? 'not enough recent payment history to assess deterioration'
+      : `${row.relative_lateness_days.toFixed(1)} days versus recent normal`
   const scoreBreakdownLines = [
     `Exposure inputs: customer overdue AR = ${customerOverdueOutstanding.toFixed(2)}; total overdue AR = ${normalizedTotalOverdue.toFixed(2)}; share of total = ${exposureSharePercent.toFixed(1)}%; largest customer overdue AR = ${normalizedMaxOverdue.toFixed(2)}`,
     `Exposure: (${customerOverdueOutstanding.toFixed(2)} / ${normalizedMaxOverdue.toFixed(2)} = ${exposureRelativeToLargestPercent.toFixed(1)}%) -> ${exposureScore.toFixed(1)}/100 × ${PRIORITIZATION_CONFIG.weights.exposure.toFixed(2)} = ${weightedExposure.toFixed(1)}`,
     `Urgency inputs: customer weighted avg overdue days = ${urgencyWeightedAvgDays.toFixed(1)}; portfolio weighted avg overdue days = ${portfolioAvgWeightedDays.toFixed(1)}; portfolio max weighted avg overdue days = ${portfolioMaxWeightedDays.toFixed(1)}`,
     `Urgency: (${roundedUrgencyBaseScore} + invoice bonus ${invoiceCountBonus} = ${roundedUrgencyScore})/100 × ${PRIORITIZATION_CONFIG.weights.urgency.toFixed(2)} = ${weightedUrgency.toFixed(1)}`,
+    `Customer-relative deterioration input: ${relativeLatenessInput}`,
+    `Customer-relative deterioration: ${relativeLatenessScore.toFixed(1)}/100 × ${PRIORITIZATION_CONFIG.weights.relativeDeterioration.toFixed(2)} = ${weightedRelativeDeterioration.toFixed(1)}`,
     `Payment recency input: last payment = ${behaviourDaysInput}`,
-    `Payment recency: ${behaviourBaseScore}/100 × ${PRIORITIZATION_CONFIG.weights.behaviour.toFixed(2)} = ${weightedBehaviour.toFixed(1)}`,
-    `Total: ${weightedExposure.toFixed(1)} + ${weightedUrgency.toFixed(1)} + ${weightedBehaviour.toFixed(1)} = ${rawScore.toFixed(1)} (rounded to ${PRIORITIZATION_CONFIG.scoreDecimalPlaces} dp: ${baseScore.toFixed(1)})`,
+    `Payment recency: ${behaviourBaseScore}/100 × ${PRIORITIZATION_CONFIG.weights.behaviour.toFixed(2)} = ${weightedPaymentRecency.toFixed(1)}`,
+    `Total: ${weightedExposure.toFixed(1)} + ${weightedUrgency.toFixed(1)} + ${weightedRelativeDeterioration.toFixed(1)} + ${weightedPaymentRecency.toFixed(1)} = ${rawScore.toFixed(1)} (rounded to ${PRIORITIZATION_CONFIG.scoreDecimalPlaces} dp: ${baseScore.toFixed(1)})`,
     `Override: ${getOverrideLabel(normalizedOverrideLevel)}`,
     `Multiplier: x${overrideMultiplier.toFixed(2)}`,
     `Base score: ${baseScore.toFixed(1)}`,
@@ -490,6 +599,10 @@ export function prioritiseCustomer(
 
   return {
     ...row,
+    exposure_score: exposureScore,
+    exposure_share_percent: exposureSharePercent,
+    exposure_relative_to_largest_percent: exposureRelativeToLargestPercent,
+    relative_lateness_score: relativeLatenessScore,
     override_level: normalizedOverrideLevel,
     override_multiplier: overrideMultiplier,
     base_score: baseScore,

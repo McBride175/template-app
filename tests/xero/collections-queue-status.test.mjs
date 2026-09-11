@@ -13,7 +13,7 @@ const COLLECTION_ACTIONS_CLIENT_PATH = new URL(
 )
 
 function buildSummaryRow(overrides = {}) {
-  return {
+  const row = {
     customer_source_id: 'contact-overdue',
     customer_name: 'Overdue Customer',
     customer_email: 'billing@example.test',
@@ -23,19 +23,44 @@ function buildSummaryRow(overrides = {}) {
     total_invoices_count: 1,
     open_invoices_count: 1,
     overdue_invoices_count: 1,
+    total_outstanding_base_decimal: '500',
+    overdue_outstanding_base_decimal: '500',
+    total_outstanding_base: 500,
+    overdue_outstanding_base: 500,
     total_outstanding: 500,
     overdue_outstanding: 500,
     oldest_overdue_invoice_date: '2026-06-30',
     oldest_overdue_days: 59,
     weighted_avg_overdue_days: 59,
+    historical_paid_invoice_count: 0,
+    historical_mean_days_late: null,
+    historical_normal_days_late: null,
+    relative_lateness_days: null,
     latest_invoice_date: '2026-06-01',
     latest_due_date: '2026-06-30',
     last_payment_date: null,
     last_payment_days_ago: null,
     has_recent_partial_payment: false,
+    organisation_base_currency_code: 'GBP',
     currency_code: 'GBP',
+    native_currency_breakdown: [
+      {
+        currency_code: 'GBP',
+        total_outstanding_native: '500',
+        overdue_outstanding_native: '500',
+      },
+    ],
     ...overrides,
   }
+
+  if (!Object.hasOwn(overrides, 'total_outstanding_base_decimal')) {
+    row.total_outstanding_base_decimal = String(row.total_outstanding_base)
+  }
+  if (!Object.hasOwn(overrides, 'overdue_outstanding_base_decimal')) {
+    row.overdue_outstanding_base_decimal = String(row.overdue_outstanding_base)
+  }
+
+  return row
 }
 
 function createQuery(rows) {
@@ -61,7 +86,18 @@ function createQuery(rows) {
   return query
 }
 
-function loadActionsRoute({ summaryRows, sourceCounts, actionRows = [] }) {
+function loadActionsRoute({
+  summaryRows,
+  sourceCounts,
+  actionRows = [],
+  organisationBaseCurrency = 'GBP',
+  currencyHealth = {
+    status: 'complete',
+    affectedInvoiceCount: 0,
+    affectedCustomerCount: 0,
+    failureReasons: {},
+  },
+}) {
   const tables = {
     customer_overrides: [],
     collection_actions: actionRows,
@@ -98,7 +134,12 @@ function loadActionsRoute({ summaryRows, sourceCounts, actionRows = [] }) {
       },
       '@/lib/collections/customer-summary': {
         async loadCustomerCollectionsSummaryWithMetadata() {
-          return { rows: summaryRows, sourceCounts }
+          return {
+            rows: summaryRows,
+            sourceCounts,
+            organisationBaseCurrency,
+            currencyHealth,
+          }
         },
       },
       '@/lib/collections/tenant-context': {
@@ -139,9 +180,10 @@ function loadActionsRoute({ summaryRows, sourceCounts, actionRows = [] }) {
 
 async function requestActions(options) {
   const { GET } = loadActionsRoute(options)
+  const limit = Number.isInteger(options.limit) ? `&limit=${options.limit}` : ''
   const response = await GET({
     nextUrl: new URL(
-      'http://localhost/api/collections/actions?tenantId=queue-tenant&overdueOnly=true'
+      `http://localhost/api/collections/actions?tenantId=queue-tenant&overdueOnly=true${limit}`
     ),
   })
   return { response, payload: await response.json() }
@@ -159,6 +201,169 @@ test('mapped overdue data returns an eligible collections customer', async () =>
   assert.equal(payload.queue.status, 'ready')
   assert.equal(payload.queue.eligibleCustomerCount, 1)
   assert.equal(payload.queue.remainingCustomerCount, 1)
+  assert.equal(payload.organisationBaseCurrency, 'GBP')
+  assert.equal(payload.currencyHealth.status, 'complete')
+  assert.equal(payload.portfolio.totalOverdueBase, 500)
+})
+
+for (const organisationBaseCurrency of ['USD', 'AUD']) {
+  test(`${organisationBaseCurrency} organisation ranks in its explicit base currency`, async () => {
+    const { payload } = await requestActions({
+      summaryRows: [
+        buildSummaryRow({
+          organisation_base_currency_code: organisationBaseCurrency,
+          currency_code: organisationBaseCurrency,
+          native_currency_breakdown: [
+            {
+              currency_code: organisationBaseCurrency,
+              total_outstanding_native: '500',
+              overdue_outstanding_native: '500',
+            },
+          ],
+        }),
+      ],
+      sourceCounts: { customers: 1, invoices: 1, payments: 0 },
+      organisationBaseCurrency,
+    })
+
+    assert.equal(payload.rows.length, 1)
+    assert.equal(payload.organisationBaseCurrency, organisationBaseCurrency)
+    assert.equal(
+      payload.rows[0].organisation_base_currency_code,
+      organisationBaseCurrency
+    )
+    assert.equal(payload.rows[0].exposure_score, 100)
+  })
+}
+
+test('mixed GBP and USD customers use base-currency exposure and portfolio denominators', async () => {
+  const { payload } = await requestActions({
+    summaryRows: [
+      buildSummaryRow({
+        customer_source_id: 'customer-gbp',
+        customer_name: 'GBP Customer',
+        total_outstanding_base: 20_000,
+        overdue_outstanding_base: 20_000,
+        total_outstanding: 20_000,
+        overdue_outstanding: 20_000,
+        native_currency_breakdown: [
+          {
+            currency_code: 'GBP',
+            total_outstanding_native: '20000',
+            overdue_outstanding_native: '20000',
+          },
+        ],
+      }),
+      buildSummaryRow({
+        customer_source_id: 'customer-usd',
+        customer_name: 'USD Customer',
+        total_outstanding_base: 40_000,
+        overdue_outstanding_base: 40_000,
+        total_outstanding: 40_000,
+        overdue_outstanding: 40_000,
+        native_currency_breakdown: [
+          {
+            currency_code: 'USD',
+            total_outstanding_native: '50000',
+            overdue_outstanding_native: '50000',
+          },
+        ],
+      }),
+    ],
+    sourceCounts: { customers: 2, invoices: 2, payments: 0 },
+  })
+
+  const gbpCustomer = payload.rows.find((row) => row.customer_source_id === 'customer-gbp')
+  const usdCustomer = payload.rows.find((row) => row.customer_source_id === 'customer-usd')
+
+  assert.equal(payload.portfolio.totalOverdueBase, 60_000)
+  assert.equal(payload.portfolio.largestCustomerOverdueBase, 40_000)
+  assert.equal(usdCustomer.exposure_score, 100)
+  assert.equal(gbpCustomer.exposure_score, 50)
+  assert.ok(Math.abs(usdCustomer.exposure_share_percent - 66.66666666666666) < 1e-9)
+  assert.ok(Math.abs(gbpCustomer.exposure_share_percent - 33.33333333333333) < 1e-9)
+})
+
+test('base-currency conversion reverses a ranking that raw native numbers would get wrong', async () => {
+  const { payload } = await requestActions({
+    summaryRows: [
+      buildSummaryRow({
+        customer_source_id: 'customer-usd-native-larger',
+        customer_name: 'USD Native Larger',
+        total_outstanding_base: 800,
+        overdue_outstanding_base: 800,
+        total_outstanding: 800,
+        overdue_outstanding: 800,
+        native_currency_breakdown: [
+          {
+            currency_code: 'USD',
+            total_outstanding_native: '1000',
+            overdue_outstanding_native: '1000',
+          },
+        ],
+      }),
+      buildSummaryRow({
+        customer_source_id: 'customer-gbp-base-larger',
+        customer_name: 'GBP Base Larger',
+        total_outstanding_base: 900,
+        overdue_outstanding_base: 900,
+        total_outstanding: 900,
+        overdue_outstanding: 900,
+        native_currency_breakdown: [
+          {
+            currency_code: 'GBP',
+            total_outstanding_native: '900',
+            overdue_outstanding_native: '900',
+          },
+        ],
+      }),
+    ],
+    sourceCounts: { customers: 2, invoices: 2, payments: 0 },
+  })
+
+  assert.deepEqual(
+    payload.rows.map((row) => row.customer_source_id),
+    ['customer-gbp-base-larger', 'customer-usd-native-larger']
+  )
+  assert.equal(payload.rows[0].exposure_score, 100)
+  assert.ok(payload.rows[1].exposure_score < 100)
+})
+
+test('incomplete relevant conversion fails the ranked queue closed', async () => {
+  const { payload } = await requestActions({
+    summaryRows: [buildSummaryRow()],
+    sourceCounts: { customers: 1, invoices: 1, payments: 0 },
+    currencyHealth: {
+      status: 'incomplete',
+      affectedInvoiceCount: 1,
+      affectedCustomerCount: 1,
+      failureReasons: { missing_rate: 1 },
+    },
+  })
+
+  assert.deepEqual(payload.rows, [])
+  assert.equal(payload.queue.status, 'currency_data_incomplete')
+  assert.equal(payload.currencyHealth.failureReasons.missing_rate, 1)
+  assert.equal(payload.portfolio, null)
+})
+
+test('missing organisation base currency fails closed instead of assuming GBP', async () => {
+  const { payload } = await requestActions({
+    summaryRows: [],
+    sourceCounts: { customers: 1, invoices: 1, payments: 0 },
+    organisationBaseCurrency: null,
+    currencyHealth: {
+      status: 'incomplete',
+      affectedInvoiceCount: 1,
+      affectedCustomerCount: 1,
+      failureReasons: { missing_organisation_base_currency: 1 },
+    },
+  })
+
+  assert.deepEqual(payload.rows, [])
+  assert.equal(payload.organisationBaseCurrency, null)
+  assert.equal(payload.queue.status, 'currency_data_incomplete')
+  assert.equal(payload.currencyHealth.failureReasons.missing_organisation_base_currency, 1)
 })
 
 test('partial-payment status cannot change route-level scores or queue ordering', async () => {
@@ -207,6 +412,105 @@ test('partial-payment status cannot change route-level scores or queue ordering'
   )
 })
 
+test('relative lateness is scored by the production engine and changes ordering', async () => {
+  const { payload } = await requestActions({
+    summaryRows: [
+      buildSummaryRow({
+        customer_source_id: 'customer-alpha',
+        customer_name: 'Alpha Customer',
+        historical_paid_invoice_count: 3,
+        historical_normal_days_late: 54,
+        relative_lateness_days: 5,
+      }),
+      buildSummaryRow({
+        customer_source_id: 'customer-zebra',
+        customer_name: 'Zebra Customer',
+        historical_paid_invoice_count: 20,
+        historical_normal_days_late: 39,
+        relative_lateness_days: 20,
+      }),
+    ],
+    sourceCounts: { customers: 2, invoices: 8, payments: 6 },
+  })
+
+  assert.equal(payload.queue.relativeLateness.mode, 'absolute-fallback')
+  assert.equal(payload.queue.relativeLateness.materialObservationCount, 2)
+  assert.deepEqual(
+    payload.rows.map((row) => row.customer_source_id),
+    ['customer-zebra', 'customer-alpha']
+  )
+  assert.equal(payload.rows[0].relative_lateness_days, 20)
+  assert.ok(Math.abs(payload.rows[0].relative_lateness_score - 62.96296296296296) < 1e-9)
+  assert.equal(payload.rows[0].base_score, 94.4)
+  assert.equal(payload.rows[0].final_score, 94.4)
+  assert.equal(payload.rows[1].relative_lateness_days, 5)
+  assert.ok(Math.abs(payload.rows[1].relative_lateness_score - 7.407407407407407) < 1e-9)
+  assert.equal(payload.rows[1].base_score, 86.1)
+  assert.equal(payload.rows[1].final_score, 86.1)
+  assert.match(payload.rows[0].score_breakdown_lines.join('\n'), /Customer-relative deterioration/)
+})
+
+test('relative-lateness portfolio context uses the full eligible queue before limiting results', async () => {
+  const relativeValues = [8, 10, 12, 14, 16]
+  const { payload } = await requestActions({
+    summaryRows: relativeValues.map((relativeLatenessDays, index) =>
+      buildSummaryRow({
+        customer_source_id: `customer-${index + 1}`,
+        customer_name: `Customer ${index + 1}`,
+        historical_paid_invoice_count: 5,
+        relative_lateness_days: relativeLatenessDays,
+      })
+    ),
+    sourceCounts: { customers: 5, invoices: 20, payments: 15 },
+    limit: 1,
+  })
+
+  assert.equal(payload.rows.length, 1)
+  assert.equal(payload.queue.returnedCustomerCount, 1)
+  assert.equal(payload.queue.relativeLateness.materialObservationCount, 5)
+  assert.equal(payload.queue.relativeLateness.mode, 'portfolio-relative')
+  assert.equal(payload.queue.relativeLateness.materialP50Days, 12)
+  assert.ok(Math.abs(payload.rows[0].relative_lateness_score - 48.148148148148145) < 1e-9)
+})
+
+test('relative lateness context excludes customers suppressed from the queue', async () => {
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const yesterdayTimestamp = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const relativeValues = [25, 30, 35, 40, 45]
+  const summaryRows = relativeValues.map((relativeLatenessDays, index) =>
+    buildSummaryRow({
+      customer_source_id: `customer-${index + 1}`,
+      customer_name: `Customer ${index + 1}`,
+      historical_paid_invoice_count: 5,
+      historical_normal_days_late: 59 - relativeLatenessDays,
+      relative_lateness_days: relativeLatenessDays,
+    })
+  )
+
+  const { payload } = await requestActions({
+    summaryRows,
+    sourceCounts: { customers: 5, invoices: 20, payments: 15 },
+    actionRows: [
+      {
+        id: 'suppress-fifth-customer',
+        user_id: 'queue-user',
+        tenant_id: 'queue-tenant',
+        customer_source_id: 'customer-5',
+        action_type: 'postponed',
+        outcome: null,
+        next_action_date: tomorrow,
+        action_timestamp: yesterdayTimestamp,
+      },
+    ],
+  })
+
+  assert.equal(payload.queue.relativeLateness.materialObservationCount, 4)
+  assert.equal(payload.queue.relativeLateness.mode, 'absolute-fallback')
+  assert.equal(payload.rows.some((row) => row.customer_source_id === 'customer-5'), false)
+  const firstCustomer = payload.rows.find((row) => row.customer_source_id === 'customer-1')
+  assert.ok(Math.abs(firstCustomer.relative_lateness_score - 81.48148148148148) < 1e-9)
+})
+
 test('raw-only failure mode is reported as no mapped data rather than queue complete', async () => {
   const { payload } = await requestActions({
     summaryRows: [],
@@ -224,6 +528,8 @@ test('mapped data with no overdue receivables reports no overdue customers', asy
       buildSummaryRow({
         open_invoices_count: 0,
         overdue_invoices_count: 0,
+        total_outstanding_base: 0,
+        overdue_outstanding_base: 0,
         total_outstanding: 0,
         overdue_outstanding: 0,
         oldest_overdue_invoice_date: null,
@@ -317,6 +623,8 @@ test('empty queue UI renders reason-specific states and gates the completion sum
 
   assert.match(source, /queueInfo\?\.status === 'no_mapped_data'/)
   assert.match(source, /Collections data not ready/)
+  assert.match(source, /queueInfo\?\.status === 'currency_data_incomplete'/)
+  assert.match(source, /Currency data needs refreshing/)
   assert.match(source, /queueInfo\?\.status === 'no_overdue_customers'/)
   assert.match(source, /No overdue customers/)
   assert.match(source, /queueInfo\?\.status === 'complete_today'/)

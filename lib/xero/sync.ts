@@ -50,7 +50,13 @@ type TokenAcquisitionResult = TokenAcquisitionSuccess | TokenAcquisitionFailure
 
 type XeroAuthState = 'active' | 'reauth_required' | 'disconnected' | 'error'
 
-const RESOURCE_TYPES: XeroResourceType[] = ['accounts', 'contacts', 'invoices']
+const RESOURCE_TYPES: XeroResourceType[] = [
+  'accounts',
+  'contacts',
+  'invoices',
+  'organisations',
+  'organisation_actions',
+]
 const REFRESH_LOCK_TTL_SECONDS = 45
 const REFRESH_LOCK_WAIT_MS = 300
 const MAX_REFRESH_RACE_RETRIES = 1
@@ -801,16 +807,20 @@ async function getValidXeroAccessTokenForTenant(params: {
 }
 
 async function fetchAllAccountingResources(params: { accessToken: string; tenantId: string }) {
-  const [accounts, contacts, invoices] = await Promise.all([
+  const [accounts, contacts, invoices, organisations, organisationActions] = await Promise.all([
     fetchXeroAccountingResource('accounts', params.accessToken, params.tenantId),
     fetchXeroAccountingResource('contacts', params.accessToken, params.tenantId),
     fetchXeroAccountingResource('invoices', params.accessToken, params.tenantId),
+    fetchXeroAccountingResource('organisations', params.accessToken, params.tenantId),
+    fetchXeroAccountingResource('organisation_actions', params.accessToken, params.tenantId),
   ])
 
   return {
     accounts,
     contacts,
     invoices,
+    organisations,
+    organisation_actions: organisationActions,
   }
 }
 
@@ -895,11 +905,15 @@ export async function syncXeroTenantForUser(params: { userId: string; tenantId: 
     accounts: resources.accounts.length,
     contacts: resources.contacts.length,
     invoices: resources.invoices.length,
+    organisations: resources.organisations.length,
+    organisation_actions: resources.organisation_actions.length,
   }
   const persistedCounts: Record<XeroResourceType, number> = {
     accounts: 0,
     contacts: 0,
     invoices: 0,
+    organisations: 0,
+    organisation_actions: 0,
   }
 
   for (const resourceType of RESOURCE_TYPES) {

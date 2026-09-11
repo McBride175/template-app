@@ -959,7 +959,7 @@ export const seoProblemPages = [
       'Keep any deferred large balance tied to a firm review date.',
     ],
     productBridge:
-      'Xero can supply the balances, invoice dates and payment records; your business still knows whether an agreed plan is credible or a new risk has appeared. The app combines those two views so a large, progressing balance does not automatically consume the first chasing slot.',
+      'Xero can supply the balances, invoice dates and payment records; your business still knows whether an agreed plan is credible or a new risk has appeared. The app ranks the accounting evidence and lets your chosen priority adjustment reflect that wider context, so a large, progressing balance does not automatically consume the first chasing slot.',
     ctaHeading: 'See beyond the biggest balance',
     ctaDescription:
       'See plans for ranking Xero customers by exposure, ageing and payment evidence, with room for your own priority judgement.',
@@ -1346,7 +1346,7 @@ export const seoProblemPages = [
       'Set the next evidence trigger and revise the adjustment when that trigger occurs.',
     ],
     productBridge:
-      'The app builds the accounting side of the ranking from current Xero evidence and lets your customer-priority judgement adjust it. That keeps the human decision attached to a live ledger rather than maintained in a separate list that quickly goes stale.',
+      'The app builds the accounting side of the ranking from current Xero evidence and applies the priority adjustment you choose based on customer context. That keeps the human decision attached to a live ledger rather than maintained in a separate list that quickly goes stale.',
     ctaHeading: 'Use judgement without losing the ledger evidence',
     ctaDescription:
       'See plans for combining Xero-derived customer priorities with the risk context only your business can supply.',
@@ -1608,8 +1608,8 @@ export const seoProblemPages = [
       'Judge the approach by cleared cash and removed blockages, not the number of reminders sent.',
     ],
     productBridge:
-      'You can run this triage manually from Xero, contact notes and what you know about each account. The difficult part is repeating it whenever a payment lands or a promise fails. The product keeps the customer-level order current from Xero evidence and your risk judgement; it does not resolve disputes or make the commercial decision for you.',
-    ctaHeading: 'Start each chase with the account most likely to move',
+      'You can run this triage manually from Xero, contact notes and what you know about each account. The difficult part is repeating it whenever a payment lands or a promise fails. The product keeps the customer-level order current from Xero evidence and your chosen priority adjustment; it does not resolve disputes or make the commercial decision for you.',
+    ctaHeading: 'Start each chase with a defensible first account',
     ctaDescription:
       'Compare plans for turning current Xero payment evidence into a focused overdue-customer queue.',
     ctaLabel: 'See plans and pricing',
@@ -1761,7 +1761,7 @@ export const seoProblemPages = [
       },
     ],
     productBridge:
-      'The diagnosis may point outside the product. When scarce chasing attention is the constraint, the product combines Xero evidence with founder-assigned priority to keep the highest-impact overdue customers visible.',
+      'The diagnosis may point outside the product. When scarce chasing attention is the constraint, the product combines Xero evidence with founder-assigned priority to keep the highest-priority overdue customers visible.',
     ctaHeading: 'Test whether prioritisation is your collection constraint',
     ctaDescription:
       'See how the product focuses limited human time without pretending to replace the rest of the collection system.',
@@ -1914,7 +1914,7 @@ export const seoProblemPages = [
       },
     ],
     productBridge:
-      'You still own the calculation and changes to terms, invoicing or disputes. For customer delay, the product uses Xero payment behaviour and founder-assigned priority to surface overdue accounts needing human attention.',
+      'You still own the calculation and changes to terms, invoicing or disputes. For customer delay, the product ranks current Xero exposure, overdue age and payment recency, then applies the priority adjustment you choose.',
     ctaHeading: 'Focus on the customers adding avoidable days',
     ctaDescription:
       'Compare plans for using Xero payment behaviour to direct the human part of your debtor-days plan.',
@@ -2040,7 +2040,7 @@ export const seoProblemPages = [
       'Review net backlog movement weekly and keep cash recovery distinct from ledger adjustments.',
     ],
     productBridge:
-      'The prevention track still depends on invoicing, terms and customer management. For the backlog-clearing track, the product uses Xero payment evidence and founder-assigned priority to keep the customers with the most important actionable debt at the top of the human queue.',
+      'The prevention track still depends on invoicing, terms and customer management. For the backlog-clearing track, the product uses Xero accounting evidence and your chosen priority adjustment to keep the highest-scoring overdue customers at the top of the human queue.',
     ctaHeading: 'Work the backlog in the order that can change it',
     ctaDescription:
       'Compare plans for turning Xero balances and payment evidence into a focused customer-level queue.',
@@ -2172,7 +2172,7 @@ export const seoProblemPages = [
       'Compare new invoice cohorts and keep only changes that bring accepted invoices to cash sooner.',
     ],
     productBridge:
-      'You make the decisions about invoice design, terms and future exposure. The product supports the monitoring step by using Xero payment history and founder-assigned priority to surface material customers whose normal pattern is worsening and needs attention.',
+      'You make the decisions about invoice design, terms and future exposure. The product shows Xero payment-history context alongside current exposure; in the current queue, the priority adjustment you choose can reflect a worsening pattern that needs attention.',
     ctaHeading: 'Spot the payment patterns that need intervention',
     ctaDescription:
       'Compare plans for using Xero history and business context to focus attention on changing customer behaviour.',
@@ -2486,7 +2486,7 @@ export const seoProblemPages = [
       },
     ],
     productBridge:
-      'The cash forecast, disputes and funding response remain yours. The product combines Xero payment evidence with founder-assigned priority to identify material overdue customers where human contact could change the near-term outcome.',
+      'The cash forecast, disputes and funding response remain yours. The product combines Xero accounting evidence with the priority adjustment you choose to surface material overdue customers for human review.',
     ctaHeading: 'Find the receivables worth acting on inside the cash window',
     ctaDescription:
       'Compare plans for prioritising material overdue customers from Xero evidence and business context.',
@@ -2602,7 +2602,7 @@ export const seoProblemPages = [
       'Record changes so a stable bad habit is not confused with new deterioration.',
     ],
     productBridge:
-      'A manual history review becomes harder across many customers. The app combines current Xero payment evidence with your customer-priority judgement so a familiar late pattern and a new concern can influence attention differently.',
+      'A manual history review becomes harder across many customers. The app shows current Xero payment evidence and historical timing context, while the priority adjustment you choose lets a familiar late pattern and a new concern influence attention differently.',
     ctaHeading: 'Keep changing late-payment patterns visible',
     ctaDescription:
       'Compare plans for separating predictable late payers from customers whose behaviour is getting worse.',
@@ -2728,7 +2728,7 @@ export const seoProblemPages = [
       'Use the result to adjust customer priority and decide which trends need ongoing monitoring.',
     ],
     productBridge:
-      'Comparing risk evidence manually becomes slow as the customer base grows. The app combines current Xero payment evidence with your customer-priority judgement to help focus attention on the accounts that merit investigation.',
+      'Comparing risk evidence manually becomes slow as the customer base grows. The app ranks current Xero accounting evidence and applies the priority adjustment you choose to help focus attention on accounts for investigation.',
     ctaHeading: 'Find the customers whose warning signs reinforce one another',
     ctaDescription:
       'Compare plans for combining Xero payment evidence with customer context in one prioritised queue.',
@@ -2845,7 +2845,7 @@ export const seoProblemPages = [
       'Increase priority or control further exposure if the slowdown continues without credible progress.',
     ],
     productBridge:
-      'Xero supplies the payment timeline; your team supplies what has changed in approval, dispute or the relationship. The product brings those inputs into customer priority without labelling a slowdown as financial distress.',
+      'Xero supplies the payment timeline; your team supplies what has changed in approval, dispute or the relationship. The product shows the accounting evidence and lets your chosen priority adjustment reflect that context without labelling a slowdown as financial distress.',
     ctaHeading: 'Bring unusual payment slowdowns into today’s chase order',
     ctaDescription:
       'Compare plans for identifying customers whose current behaviour has moved beyond their normal pattern.',
@@ -2962,7 +2962,7 @@ export const seoProblemPages = [
       'Set an explicit escalation review if payment or credible progress does not occur.',
     ],
     productBridge:
-      'A 60-day gap and total exposure come from Xero; the approval history and quality of contact do not. The product lets that business context adjust customer priority while leaving cause and treatment to you.',
+      'A 60-day gap and total exposure come from Xero; the approval history and quality of contact do not. The product lets the priority adjustment you choose from that context change the order while leaving cause and treatment to you.',
     ctaHeading: 'Make serious payment gaps visible before they drift further',
     ctaDescription:
       'Compare plans for prioritising 60-day payment gaps using exposure, payment history and customer context.',
@@ -3415,7 +3415,7 @@ export const seoProblemPages = [
       'Record who authorised the decision and the evidence they used.',
     ],
     productBridge:
-      'The product makes current exposure and payment behaviour visible in the priority order. You supply the commercial importance and risk tolerance; deposits, terms and further supply remain business decisions.',
+      'The product makes current exposure and payment recency visible in the priority order and shows historical payment timing as context. You supply the commercial importance and risk tolerance; deposits, terms and further supply remain business decisions.',
     ctaHeading: 'See the existing exposure before accepting more',
     ctaDescription:
       'Compare plans for prioritising overdue customers using Xero balances, payment behaviour and your commercial risk judgement.',
@@ -3769,7 +3769,7 @@ export const seoProblemPages = [
       'The product uses Xero history to place current lateness and recent payment in context, while your priority adjustment accounts for facts such as a dispute or broken promise that the ledger cannot explain.',
     ctaHeading: 'Use payment history to shape today’s chase order',
     ctaDescription:
-      'Compare plans for ranking overdue customers from Xero history and current customer context.',
+      'Compare plans for using Xero history to inform overdue-customer prioritisation alongside current customer context.',
     ctaLabel: 'See plans and pricing',
     ctaHref: '/pricing',
     relatedSlugs: [

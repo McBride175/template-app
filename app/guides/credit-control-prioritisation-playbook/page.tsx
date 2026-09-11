@@ -307,7 +307,7 @@ export default function CreditControlPrioritisationPlaybookPage() {
           </h2>
           <p className="mt-4 leading-7 text-gray-700">
             The app refreshes the accounting evidence across all customers, compares exposure,
-            lateness and payment behaviour, and applies the priority context you provide. It does
+            lateness and payment recency, and applies the priority adjustment you choose. It does
             not pretend to predict default or replace your judgement. It keeps both sources of
             evidence in one current queue so you can decide who deserves attention now.
           </p>

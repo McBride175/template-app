@@ -12,7 +12,7 @@ export const PRIORITIZATION_CONFIG = {
     { min: 5, max: Number.POSITIVE_INFINITY, bonus: 15 },
   ],
   behaviour: {
-    paymentRecencyRiskBands: [
+    paymentRecencyBands: [
       { min: 0, max: 0, score: 0 },
       { min: 1, max: 7, score: 10 },
       { min: 8, max: 14, score: 20 },
@@ -22,11 +22,10 @@ export const PRIORITIZATION_CONFIG = {
       { min: 61, max: Number.POSITIVE_INFINITY, score: 100 },
     ],
     noPaymentHistoryScore: 100,
-    partialPaymentRiskBonus: 15,
   },
   actions: {
-    callImmediatelyMin: 70,
-    emailReminderMin: 30,
+    reviewNowMin: 70,
+    followUpMin: 30,
     monitorMinExclusive: 0,
   },
 } as const
@@ -63,7 +62,7 @@ export interface PrioritizedCustomerRow extends PrioritizationCustomerRow {
   base_score: number
   final_score: number
   priority_score: number
-  recommended_action: 'Call immediately' | 'Email reminder' | 'Monitor' | 'No action'
+  recommended_action: 'Review now' | 'Follow up' | 'Monitor' | 'No action'
   reason: string
   score_breakdown_lines: string[]
 }
@@ -107,20 +106,17 @@ function formatAmount(value: number, currencyCode: string | null | undefined) {
   }
 }
 
-function describeExposureDriver(row: PrioritizationCustomerRow, exposureSharePercent: number) {
+function describeExposureDriver(
+  row: PrioritizationCustomerRow,
+  exposureSharePercent: number,
+  exposureRelativeToLargestPercent: number
+) {
   const amount = formatAmount(row.overdue_outstanding, row.currency_code)
-  const share = `${exposureSharePercent.toFixed(1)}%`
-
-  if (exposureSharePercent >= 40) {
-    return `this customer accounts for a high share of total overdue AR (${share}, ${amount})`
-  }
-
-  if (exposureSharePercent >= 20) {
-    return `this customer accounts for a material share of total overdue AR (${share}, ${amount})`
-  }
+  const relativeToLargest = `${exposureRelativeToLargestPercent.toFixed(1)}%`
+  const shareOfTotal = `${exposureSharePercent.toFixed(1)}%`
 
   if (exposureSharePercent > 0) {
-    return `this customer contributes ${share} of total overdue AR (${amount})`
+    return `this customer has ${amount} overdue, equal to ${relativeToLargest} of the largest eligible overdue balance (${shareOfTotal} of total overdue AR)`
   }
 
   return 'there is no overdue receivable exposure for this customer'
@@ -145,47 +141,37 @@ function describeUrgencyDriver(row: PrioritizationCustomerRow, urgencyScore: num
   return `the debt is aging (weighted average ${weightedDays} days across ${invoiceText})`
 }
 
-function describeBehaviourDriver(
-  row: PrioritizationCustomerRow,
-  behaviourScore: number,
-  partialPaymentRiskBonus: number
-) {
+function describeBehaviourDriver(row: PrioritizationCustomerRow, behaviourScore: number) {
   if (behaviourScore <= 0) return null
 
   if (row.last_payment_days_ago === null) {
-    return partialPaymentRiskBonus > 0
-      ? 'no payment history is available, and recent partial payments add further recovery risk'
-      : 'no payment history is available, which is high risk for collections'
+    return 'no payment history is available, so payment recency adds maximum priority'
   }
 
   const daysSinceLastPayment = Math.max(0, Math.round(row.last_payment_days_ago))
   const dayWord = daysSinceLastPayment === 1 ? 'day' : 'days'
-  const partialRiskSuffix =
-    partialPaymentRiskBonus > 0
-      ? ', and recent partial payments add additional risk'
-      : ''
 
   if (daysSinceLastPayment === 0) {
-    return `last payment was today, so behaviour risk is minimal${partialRiskSuffix}`
+    return 'last payment was today, so payment recency adds no priority'
   }
 
   if (daysSinceLastPayment <= 7) {
-    return `last payment was ${daysSinceLastPayment} ${dayWord} ago, which is low risk${partialRiskSuffix}`
+    return `last payment was ${daysSinceLastPayment} ${dayWord} ago, so payment recency adds little priority`
   }
 
   if (daysSinceLastPayment <= 14) {
-    return `last payment was ${daysSinceLastPayment} ${dayWord} ago, which is mild risk${partialRiskSuffix}`
+    return `last payment was ${daysSinceLastPayment} ${dayWord} ago, so payment recency adds limited priority`
   }
 
   if (daysSinceLastPayment <= 30) {
-    return `last payment was ${daysSinceLastPayment} ${dayWord} ago, which is moderate risk${partialRiskSuffix}`
+    return `last payment was ${daysSinceLastPayment} ${dayWord} ago, so payment recency adds moderate priority`
   }
 
   if (daysSinceLastPayment <= 60) {
-    return `last payment was ${daysSinceLastPayment} ${dayWord} ago, which is elevated risk${partialRiskSuffix}`
+    return `last payment was ${daysSinceLastPayment} ${dayWord} ago, so payment recency adds substantial priority`
   }
 
-  return `no payment has been recorded for ${daysSinceLastPayment} ${dayWord}, which is high risk${partialRiskSuffix}`
+  return `no payment has been recorded for ${daysSinceLastPayment} ${dayWord}, so payment recency adds maximum priority`
 }
 
 function describePaymentGap(row: PrioritizationCustomerRow) {
@@ -318,7 +304,7 @@ function computeBehaviourComponents(row: PrioritizationCustomerRow) {
   } else {
     const daysSinceLastPayment = Math.max(0, row.last_payment_days_ago)
 
-    for (const band of PRIORITIZATION_CONFIG.behaviour.paymentRecencyRiskBands) {
+    for (const band of PRIORITIZATION_CONFIG.behaviour.paymentRecencyBands) {
       if (daysSinceLastPayment >= band.min && daysSinceLastPayment <= band.max) {
         baseScore = band.score
         break
@@ -326,23 +312,16 @@ function computeBehaviourComponents(row: PrioritizationCustomerRow) {
     }
   }
 
-  const partialPaymentRiskBonus = row.has_recent_partial_payment
-    ? PRIORITIZATION_CONFIG.behaviour.partialPaymentRiskBonus
-    : 0
-
-  const behaviourScore = Math.max(0, Math.min(100, baseScore + partialPaymentRiskBonus))
-
   return {
     baseScore,
-    partialPaymentRiskBonus,
-    behaviourScore,
+    behaviourScore: Math.max(0, Math.min(100, baseScore)),
   }
 }
 
 export function recommendAction(row: PrioritizationCustomerRow, finalScore: number) {
   if (row.overdue_outstanding <= 0) return 'No action' as const
-  if (finalScore >= PRIORITIZATION_CONFIG.actions.callImmediatelyMin) return 'Call immediately' as const
-  if (finalScore >= PRIORITIZATION_CONFIG.actions.emailReminderMin) return 'Email reminder' as const
+  if (finalScore >= PRIORITIZATION_CONFIG.actions.reviewNowMin) return 'Review now' as const
+  if (finalScore >= PRIORITIZATION_CONFIG.actions.followUpMin) return 'Follow up' as const
   if (finalScore > PRIORITIZATION_CONFIG.actions.monitorMinExclusive) return 'Monitor' as const
   return 'No action' as const
 }
@@ -353,13 +332,14 @@ export function buildReason(
   totalOverdueOutstanding: number,
   maxOverdueOutstanding: number,
   overallWeightedAvgOverdueDays: number,
-  maxWeightedAvgOverdueDays: number
+  maxWeightedAvgOverdueDays: number,
+  overrideLevel: CustomerOverrideLevel = DEFAULT_OVERRIDE_LEVEL
 ) {
   if (row.overdue_outstanding <= 0) {
     return 'No chase needed: there are no overdue receivables.'
   }
 
-  const { exposureSharePercent, exposureScore } = computeExposureComponents(
+  const { exposureSharePercent, exposureRelativeToLargestPercent, exposureScore } = computeExposureComponents(
     row,
     totalOverdueOutstanding,
     maxOverdueOutstanding
@@ -370,15 +350,23 @@ export function buildReason(
     overallWeightedAvgOverdueDays,
     maxWeightedAvgOverdueDays,
   })
-  const { partialPaymentRiskBonus, behaviourScore } = computeBehaviourComponents(row)
+  const { behaviourScore } = computeBehaviourComponents(row)
   const action = recommendAction(row, finalScore)
+
+  if (overrideLevel === 'do_not_chase') {
+    return 'No chase is suggested because you set this customer to Do not chase. The accounting signals remain visible in the score breakdown, but the adjustment sets the final score to 0.'
+  }
 
   const rankedDrivers: Array<{ contribution: number; text: string }> = []
 
   if (exposureScore > 0) {
     rankedDrivers.push({
       contribution: PRIORITIZATION_CONFIG.weights.exposure * exposureScore,
-      text: describeExposureDriver(row, exposureSharePercent),
+      text: describeExposureDriver(
+        row,
+        exposureSharePercent,
+        exposureRelativeToLargestPercent
+      ),
     })
   }
 
@@ -389,7 +377,7 @@ export function buildReason(
     })
   }
 
-  const behaviourDriver = describeBehaviourDriver(row, behaviourScore, partialPaymentRiskBonus)
+  const behaviourDriver = describeBehaviourDriver(row, behaviourScore)
   if (behaviourDriver && behaviourScore > 0) {
     rankedDrivers.push({
       contribution: PRIORITIZATION_CONFIG.weights.behaviour * behaviourScore,
@@ -400,10 +388,10 @@ export function buildReason(
   rankedDrivers.sort((a, b) => b.contribution - a.contribution)
   const topDrivers = rankedDrivers.slice(0, 2).map((driver) => driver.text)
 
-  let leadIn = 'Prioritized because'
-  if (action === 'Call immediately') {
-    leadIn = 'Ranked as a top chase target because'
-  } else if (action === 'Email reminder') {
+  let leadIn = 'Prioritised because'
+  if (action === 'Review now') {
+    leadIn = 'Ranked for review now because'
+  } else if (action === 'Follow up') {
     leadIn = 'Ranked for prompt follow-up because'
   } else if (action === 'Monitor') {
     leadIn = 'Ranked for monitoring because'
@@ -417,9 +405,19 @@ export function buildReason(
   }
 
   const paymentGap = describePaymentGap(row)
-  if (!paymentGap) return reason
+  if (paymentGap && !topDrivers.includes(behaviourDriver ?? '')) {
+    reason = `${reason} ${paymentGap}`
+  }
 
-  return `${reason} ${paymentGap}`
+  if (overrideLevel === 'safe') {
+    return `${reason} Your Safe adjustment then reduces the accounting score.`
+  }
+
+  if (overrideLevel === 'priority') {
+    return `${reason} Your Priority adjustment then increases the accounting score.`
+  }
+
+  return reason
 }
 
 export function prioritiseCustomer(
@@ -447,8 +445,7 @@ export function prioritiseCustomer(
     invoiceCountBonus,
     urgencyScore,
   } = computeUrgencyComponents(row, context)
-  const { baseScore: behaviourBaseScore, partialPaymentRiskBonus, behaviourScore } =
-    computeBehaviourComponents(row)
+  const { baseScore: behaviourBaseScore, behaviourScore } = computeBehaviourComponents(row)
   const behaviourDaysInput =
     row.last_payment_days_ago === null
       ? 'no payment history'
@@ -474,15 +471,16 @@ export function prioritiseCustomer(
     context.totalOverdueOutstanding,
     context.maxOverdueOutstanding,
     context.overallWeightedAvgOverdueDays,
-    context.maxWeightedAvgOverdueDays
+    context.maxWeightedAvgOverdueDays,
+    normalizedOverrideLevel
   )
   const scoreBreakdownLines = [
     `Exposure inputs: customer overdue AR = ${customerOverdueOutstanding.toFixed(2)}; total overdue AR = ${normalizedTotalOverdue.toFixed(2)}; share of total = ${exposureSharePercent.toFixed(1)}%; largest customer overdue AR = ${normalizedMaxOverdue.toFixed(2)}`,
     `Exposure: (${customerOverdueOutstanding.toFixed(2)} / ${normalizedMaxOverdue.toFixed(2)} = ${exposureRelativeToLargestPercent.toFixed(1)}%) -> ${exposureScore.toFixed(1)}/100 × ${PRIORITIZATION_CONFIG.weights.exposure.toFixed(2)} = ${weightedExposure.toFixed(1)}`,
     `Urgency inputs: customer weighted avg overdue days = ${urgencyWeightedAvgDays.toFixed(1)}; portfolio weighted avg overdue days = ${portfolioAvgWeightedDays.toFixed(1)}; portfolio max weighted avg overdue days = ${portfolioMaxWeightedDays.toFixed(1)}`,
     `Urgency: (${roundedUrgencyBaseScore} + invoice bonus ${invoiceCountBonus} = ${roundedUrgencyScore})/100 × ${PRIORITIZATION_CONFIG.weights.urgency.toFixed(2)} = ${weightedUrgency.toFixed(1)}`,
-    `Behaviour inputs: last payment = ${behaviourDaysInput}; recent partial payment = ${row.has_recent_partial_payment ? 'yes' : 'no'}`,
-    `Behaviour: (recency ${behaviourBaseScore} + partial payment bonus ${partialPaymentRiskBonus} = ${behaviourScore})/100 × ${PRIORITIZATION_CONFIG.weights.behaviour.toFixed(2)} = ${weightedBehaviour.toFixed(1)}`,
+    `Payment recency input: last payment = ${behaviourDaysInput}`,
+    `Payment recency: ${behaviourBaseScore}/100 × ${PRIORITIZATION_CONFIG.weights.behaviour.toFixed(2)} = ${weightedBehaviour.toFixed(1)}`,
     `Total: ${weightedExposure.toFixed(1)} + ${weightedUrgency.toFixed(1)} + ${weightedBehaviour.toFixed(1)} = ${rawScore.toFixed(1)} (rounded to ${PRIORITIZATION_CONFIG.scoreDecimalPlaces} dp: ${baseScore.toFixed(1)})`,
     `Override: ${getOverrideLabel(normalizedOverrideLevel)}`,
     `Multiplier: x${overrideMultiplier.toFixed(2)}`,

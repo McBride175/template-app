@@ -120,7 +120,7 @@ export const hubESeoPages = [
       'Refresh that customer when new evidence arrives instead of rebuilding the list from memory.',
     ],
     productBridge:
-      'You can build this queue manually from Xero data. The repetitive part is regrouping invoices and refreshing exposure, behaviour and payment recency as the ledger changes. The product performs that comparison and lets founder-assigned risk change the order; it does not send every reminder, resolve disputes or make escalation decisions.',
+      'You can build this queue manually from Xero data. The repetitive part is regrouping invoices and refreshing exposure, overdue age and payment recency as the ledger changes. The product performs that accounting comparison and applies the priority adjustment you choose based on customer context; it does not send every reminder, resolve disputes or make escalation decisions.',
     ctaHeading: 'Keep the Xero customer order current',
     ctaDescription:
       'See plans for turning changing Xero invoice and payment data into a ranked queue using the priority adjustment you choose.',
@@ -288,7 +288,7 @@ export const hubESeoPages = [
       },
     ],
     productBridge:
-      'The product supports one output from this loop: the ranked human-attention queue. It combines relevant Xero accounting signals with founder-assigned customer risk. It does not replace Xero or the surrounding work of reminders, blocker ownership, contact records and escalation.',
+      'The product supports one output from this loop: the ranked human-attention queue. It combines relevant Xero accounting signals with the priority adjustment you choose based on customer context. It does not replace Xero or the surrounding work of reminders, blocker ownership, contact records and escalation.',
     ctaHeading: 'Add a ranked queue to your Xero control loop',
     ctaDescription:
       'See plans if the process works but deciding where human attention goes still takes too long.',
@@ -452,7 +452,7 @@ export const hubESeoPages = [
       },
     ],
     productBridge:
-      'The product helps decide which overdue Xero customers should enter the manual exception queue first by combining accounting signals with founder-assigned risk. It does not write every message, resolve disputes or decide what a customer-specific conversation should promise.',
+      'The product helps decide which overdue Xero customers should enter the manual exception queue first by combining accounting signals with the priority adjustment you choose based on customer context. It does not write every message, resolve disputes or decide what a customer-specific conversation should promise.',
     ctaHeading: 'Start each manual chase session with the exceptions',
     ctaDescription:
       'See plans if finding the few Xero customers who need personal attention is the slow part.',
@@ -589,7 +589,7 @@ export const hubESeoPages = [
       'When new evidence arrives, update that customer’s state and treatment rather than starting the review again.',
     ],
     productBridge:
-      'The product helps with one column in this control list: which overdue Xero customers deserve human attention first. It combines accounting signals with founder-assigned risk. Your team still sets the state, carries out the treatment, owns blockers and makes escalation decisions.',
+      'The product helps with one column in this control list: which overdue Xero customers deserve human attention first. It combines accounting signals with the priority adjustment you choose based on customer context. Your team still sets the state, carries out the treatment, owns blockers and makes escalation decisions.',
     ctaHeading: 'Rank the human-attention column of your control list',
     ctaDescription:
       'See plans if customer states are clear but deciding which Xero accounts need attention first is still manual.',
@@ -751,12 +751,12 @@ export const hubESeoPages = [
         {
           source: 'Relevant Xero accounting signals',
           contribution:
-            'Exposure, payment behaviour and recency provide accounting evidence.',
+            'Overdue exposure, urgency and payment recency provide the current scored evidence.',
         },
         {
-          source: 'Founder-assigned customer risk',
+          source: 'User-selected priority adjustment',
           contribution:
-            'The founder adds current knowledge outside the ledger.',
+            'The user chooses Safe, Normal, Priority or Do not chase based on context outside the ledger.',
         },
       ],
       outcome:

@@ -159,7 +159,7 @@ export const hubDSeoPages = [
       },
     ],
     productBridge:
-      'A complete credit-control cycle still needs a defensible order for scarce human attention. The product starts from current Xero-derived signals, while your adjustment supplies context the ledger lacks; the wider function still owns disputes, contact and escalation.',
+      'A complete credit-control cycle still needs a defensible order for scarce human attention. The product starts from current Xero-derived signals, while your selected priority adjustment lets the order reflect context the ledger lacks; the wider function still owns disputes, contact and escalation.',
     ctaHeading: 'Put prioritisation inside your credit-control routine',
     ctaDescription:
       'See plans if Xero data and customer context still do not produce a clear first action.',
@@ -635,7 +635,7 @@ export const hubDSeoPages = [
       },
     ],
     productBridge:
-      'Make prioritisation an explicit stage in the design. The product can supply a customer order from Xero-derived exposure, urgency and payment behaviour, with your override accounting for what the ledger misses. The process itself must define dispute routes, records and escalation ownership.',
+      'Make prioritisation an explicit stage in the design. The product can supply a customer order from Xero-derived exposure, urgency and payment recency, with your chosen priority adjustment reflecting what the ledger misses. The process itself must define dispute routes, records and escalation ownership.',
     ctaHeading: 'Add a prioritisation stage your team can run',
     ctaDescription:
       'See plans for the customer-ordering step, without mistaking it for the whole credit-control workflow.',
@@ -925,7 +925,7 @@ export const hubDSeoPages = [
       'Complete the first actions, record outcomes and repeat the triage on the reduced backlog.',
     ],
     productBridge:
-      'For the immediate-action group, the product can form a shortlist from ledger evidence and the adjustment you supply for customer context. Cleaning items, investigating disputes and controlling the remaining groups still belong to the backlog process.',
+      'For the immediate-action group, the product can form a shortlist from ledger evidence and the priority adjustment you choose based on customer context. Cleaning items, investigating disputes and controlling the remaining groups still belong to the backlog process.',
     ctaHeading: 'Turn the backlog into a short human-attention list',
     ctaDescription:
       'See plans for finding the first customer actions without pretending every overdue item needs a person today.',
@@ -1358,7 +1358,7 @@ export const hubDSeoPages = [
       },
     ],
     productBridge:
-      'The product targets one source of wasted time: rebuilding customer priority from changing accounting data. Your adjustment adds the context needed to refine that order; records, disputes and the rest of the chase process remain outside its scope.',
+      'The product targets one source of wasted time: rebuilding customer priority from changing accounting data. Your chosen priority adjustment lets the order reflect relevant context; records, disputes and the rest of the chase process remain outside its scope.',
     ctaHeading: 'Stop rebuilding the chase order by hand',
     ctaDescription:
       'See plans if preparing the customer priority list is the repeated work you need to remove.',

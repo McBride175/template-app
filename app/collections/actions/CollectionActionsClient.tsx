@@ -21,7 +21,7 @@ interface CollectionActionRow {
   base_score: number
   final_score: number
   priority_score: number
-  recommended_action: 'Call immediately' | 'Email reminder' | 'Monitor' | 'No action'
+  recommended_action: 'Review now' | 'Follow up' | 'Monitor' | 'No action'
   reason: string
   score_breakdown_lines: string[]
   currency_code: string | null
@@ -196,11 +196,11 @@ function formatWeightedDays(value: number) {
 }
 
 function getRecommendedActionClasses(action: CollectionActionRow['recommended_action']) {
-  if (action === 'Call immediately') {
+  if (action === 'Review now') {
     return 'bg-red-100 text-red-700'
   }
 
-  if (action === 'Email reminder') {
+  if (action === 'Follow up') {
     return 'bg-amber-100 text-amber-800'
   }
 
@@ -981,7 +981,7 @@ export default function CollectionActionsClient({
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Today&apos;s Collection Actions</h1>
             <p className="mt-1 text-sm text-gray-600">
-              Prioritised customer-level actions ranked by exposure, urgency, and recent payment behaviour.
+              Customers ranked by overdue exposure, urgency, payment recency, and the priority adjustment you choose. Score-based prompts indicate review urgency; you decide the appropriate contact or treatment.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1058,6 +1058,9 @@ export default function CollectionActionsClient({
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">Next to chase</h3>
                   <p className="text-sm text-gray-600">{`${queueRows.length} remaining in your queue`}</p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Score-based prompts show review urgency, not a prescribed contact method.
+                  </p>
                 </div>
                 <Button
                   onClick={() => void loadRows(true)}
@@ -1214,7 +1217,10 @@ export default function CollectionActionsClient({
                       </div>
                     )}
                   </div>
-                  <div>
+                  <div className="text-right">
+                    <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-500">
+                      Score-based prompt
+                    </p>
                     <span
                       className={`inline-flex rounded-full px-3 py-1.5 text-sm font-semibold ${getRecommendedActionClasses(currentQueueRow.recommended_action)}`}
                     >
@@ -1484,7 +1490,7 @@ export default function CollectionActionsClient({
                 <th className="px-4 py-3 font-medium">Weighted avg days late</th>
                 <th className="px-4 py-3 font-medium">Last payment date</th>
                 <th className="px-4 py-3 font-medium">Priority score</th>
-                <th className="px-4 py-3 font-medium">Recommended action</th>
+                <th className="px-4 py-3 font-medium">Score-based prompt</th>
                 <th className="px-4 py-3 font-medium">Override</th>
                 <th className="px-4 py-3 font-medium">Reasoning</th>
               </tr>

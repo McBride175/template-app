@@ -24,12 +24,8 @@ interface PlanFeature {
 
 const PLAN_FEATURES: PlanFeature[] = [
   { label: 'Overdue action queue with priority scoring', basic: true, pro: true },
-  { label: 'Recommended next action and reason visibility', basic: true, pro: true },
+  { label: 'Score-based priority prompts and reason visibility', basic: true, pro: true },
   { label: 'Xero sync and canonical data mapping', basic: true, pro: true },
-  { label: 'Collections performance trend reports', basic: false, pro: true },
-  { label: 'Team workflows and role-based access', basic: false, pro: true },
-  { label: 'Advanced exports and API access', basic: false, pro: true },
-  { label: 'Priority support and onboarding', basic: false, pro: true },
 ]
 
 export default function PricingClient() {
@@ -135,8 +131,7 @@ export default function PricingClient() {
 
       <Card>
         <p className="text-sm text-gray-700">
-          Pricing idea: anchor plans to cash impact. Basic suits smaller teams proving ROI; Pro suits teams that
-          need deeper analytics, collaboration, and automation to scale collections efficiency.
+          Both plans include the current prioritisation workflow: Xero sync, the overdue action queue, score-based prompts and reason visibility.
         </p>
       </Card>
 
@@ -191,7 +186,7 @@ export default function PricingClient() {
               <h2 className="mb-1">Pro</h2>
               <p className="text-sm text-gray-600">Suggested: $149 / month</p>
               <p className="mt-1 text-xs text-gray-500">
-                For scaling finance teams optimising collector effort against larger overdue books.
+                For larger finance teams managing bigger overdue books with the current prioritisation workflow.
               </p>
             </div>
             <ul className="space-y-2 text-sm">

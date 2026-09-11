@@ -172,14 +172,11 @@ function buildShortReason(
   engineReason: string,
   concern: PlaybookConcern
 ) {
-  const adjustmentReason =
-    concern === 'high'
-      ? 'Your High concern applies the engine’s Priority adjustment.'
-      : concern === 'medium'
-        ? 'Medium is neutral, so no founder adjustment is applied.'
-        : 'Your Low concern applies the engine’s Safe adjustment.'
+  if (concern === 'medium') {
+    return `${engineReason} Medium is neutral, so the accounting score is unchanged.`
+  }
 
-  return `${engineReason} ${adjustmentReason}`
+  return engineReason
 }
 
 export function getInitialPlaybookConcerns(): Record<string, PlaybookConcern> {

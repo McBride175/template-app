@@ -161,6 +161,52 @@ test('mapped overdue data returns an eligible collections customer', async () =>
   assert.equal(payload.queue.remainingCustomerCount, 1)
 })
 
+test('partial-payment status cannot change route-level scores or queue ordering', async () => {
+  const sourceCounts = { customers: 2, invoices: 2, payments: 1 }
+  const makeRows = (alphaPartialPayment, zebraPartialPayment) => [
+    buildSummaryRow({
+      customer_source_id: 'customer-alpha',
+      customer_name: 'Alpha Customer',
+      has_recent_partial_payment: alphaPartialPayment,
+    }),
+    buildSummaryRow({
+      customer_source_id: 'customer-zebra',
+      customer_name: 'Zebra Customer',
+      has_recent_partial_payment: zebraPartialPayment,
+    }),
+  ]
+
+  const first = await requestActions({
+    summaryRows: makeRows(false, true),
+    sourceCounts,
+  })
+  const swapped = await requestActions({
+    summaryRows: makeRows(true, false),
+    sourceCounts,
+  })
+
+  assert.deepEqual(
+    first.payload.rows.map((row) => row.customer_source_id),
+    ['customer-alpha', 'customer-zebra']
+  )
+  assert.deepEqual(
+    swapped.payload.rows.map((row) => row.customer_source_id),
+    ['customer-alpha', 'customer-zebra']
+  )
+  assert.equal(first.payload.rows[0].base_score, first.payload.rows[1].base_score)
+  assert.equal(swapped.payload.rows[0].base_score, swapped.payload.rows[1].base_score)
+  assert.deepEqual(
+    first.payload.rows.map((row) => row.final_score),
+    swapped.payload.rows.map((row) => row.final_score)
+  )
+  assert.equal(
+    first.payload.rows.flatMap((row) => row.score_breakdown_lines).some(
+      (line) => /partial payment/i.test(line)
+    ),
+    false
+  )
+})
+
 test('raw-only failure mode is reported as no mapped data rather than queue complete', async () => {
   const { payload } = await requestActions({
     summaryRows: [],
@@ -215,6 +261,55 @@ test('queue is complete only when an eligible customer was actioned today', asyn
   assert.equal(payload.queue.eligibleCustomerCount, 1)
   assert.equal(payload.queue.actionedTodayCount, 1)
   assert.equal(payload.queue.remainingCustomerCount, 0)
+})
+
+test('future postpone and promise dates still suppress customers without becoming score inputs', async () => {
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const yesterdayTimestamp = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const summaryRows = [
+    buildSummaryRow({ customer_source_id: 'postponed', customer_name: 'Postponed' }),
+    buildSummaryRow({ customer_source_id: 'promised', customer_name: 'Promised' }),
+    buildSummaryRow({ customer_source_id: 'called', customer_name: 'Called' }),
+  ]
+  const baseAction = {
+    user_id: 'queue-user',
+    tenant_id: 'queue-tenant',
+    next_action_date: tomorrow,
+    action_timestamp: yesterdayTimestamp,
+  }
+
+  const { payload } = await requestActions({
+    summaryRows,
+    sourceCounts: { customers: 3, invoices: 3, payments: 0 },
+    actionRows: [
+      {
+        ...baseAction,
+        id: 'action-postponed',
+        customer_source_id: 'postponed',
+        action_type: 'postponed',
+        outcome: null,
+      },
+      {
+        ...baseAction,
+        id: 'action-promised',
+        customer_source_id: 'promised',
+        action_type: 'called',
+        outcome: 'promised_to_pay',
+      },
+      {
+        ...baseAction,
+        id: 'action-called',
+        customer_source_id: 'called',
+        action_type: 'called',
+        outcome: 'spoke_to_customer',
+      },
+    ],
+  })
+
+  assert.deepEqual(payload.rows.map((row) => row.customer_source_id), ['called'])
+  assert.equal(payload.queue.suppressedCustomerCount, 2)
+  assert.equal(payload.queue.remainingCustomerCount, 1)
+  assert.equal(payload.queue.status, 'ready')
 })
 
 test('empty queue UI renders reason-specific states and gates the completion summary', async () => {

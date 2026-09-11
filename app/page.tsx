@@ -8,33 +8,33 @@ const siteUrl = getSiteUrl()
 
 export const metadata: Metadata = {
   title: {
-    absolute: 'Collections Decision Engine for Cash per Effort',
+    absolute: 'Overdue Customer Prioritisation for SMEs',
   },
   description:
-    'Prioritise overdue accounts by cash impact and urgency so teams spend effort where it drives the most collections.',
+    'Rank overdue customers by exposure, urgency, payment recency and the priority adjustment your team chooses.',
   alternates: {
     canonical: '/',
   },
   keywords: [
     'collections decision engine',
     'accounts receivable prioritization',
-    'cash collection optimisation',
+    'overdue customer prioritisation',
     'overdue invoice actions',
     'collections workflow',
-    'effort per cash collected',
+    'who to chase first',
   ],
   openGraph: {
-    title: 'Collections Decision Engine for Cash per Effort',
+    title: 'Overdue Customer Prioritisation for SMEs',
     description:
-      'Rank overdue customers by expected impact so your team takes the highest-return collection actions first.',
+      'Decide which overdue customers deserve attention first using current Xero evidence and your team’s priority adjustment.',
     url: siteUrl,
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Collections Decision Engine for Cash per Effort',
+    title: 'Overdue Customer Prioritisation for SMEs',
     description:
-      'Rank overdue customers by expected impact so your team takes the highest-return collection actions first.',
+      'Decide which overdue customers deserve attention first using current Xero evidence and your team’s priority adjustment.',
   },
 }
 
@@ -50,20 +50,19 @@ export default function Home() {
           Collections Decision Engine
         </p>
         <h1 className="mt-5 max-w-5xl text-balance text-5xl font-semibold leading-[1.08] text-gray-900 sm:text-6xl">
-          Optimise effort spent per cash collected
+          Know which overdue customer to chase first
         </h1>
         <p className="mt-6 max-w-3xl text-lg leading-relaxed text-gray-700">
-          Focus your team on the overdue customers that will return the highest
-          cash impact first. The dashboard ranks who to call, email, or monitor
-          by combining Xero evidence, payment behaviour, and the priority adjustment
-          your team chooses.
+          Turn a changing Xero debtor book into a clear customer order. The dashboard
+          compares overdue exposure, urgency and payment recency, then applies the
+          priority adjustment your team chooses.
         </p>
         <div className="mt-10 flex flex-wrap items-center gap-4">
           <Link
             href="/pricing"
             className="inline-flex min-h-11 items-center justify-center rounded-xl bg-gray-900 px-6 py-3 text-sm font-medium text-white transition hover:bg-gray-800"
           >
-            Start optimizing
+            Start prioritising
           </Link>
           <Link
             href="/login"
@@ -76,21 +75,21 @@ export default function Home() {
 
       <section className="grid gap-6 sm:grid-cols-3">
         <Card className="rounded-xl p-7">
-          <h2 className="text-xl font-semibold">Action Ranking</h2>
+          <h2 className="text-xl font-semibold">Customer Ranking</h2>
           <p className="mt-3 text-base leading-relaxed text-gray-600">
-            Surface the next best customer actions with clear priority scores and reasons.
+            Surface overdue customers in a clear order with transparent priority scores and reasons.
           </p>
         </Card>
         <Card className="rounded-xl p-7">
-          <h2 className="text-xl font-semibold">Effort Efficiency</h2>
+          <h2 className="text-xl font-semibold">Focused Collection Time</h2>
           <p className="mt-3 text-base leading-relaxed text-gray-600">
-            Allocate collector time where each follow-up is expected to return the most cash.
+            Use limited chasing time on the customers whose current signals place them first.
           </p>
         </Card>
         <Card className="rounded-xl p-7">
-          <h2 className="text-xl font-semibold">Operational Clarity</h2>
+          <h2 className="text-xl font-semibold">Human Context</h2>
           <p className="mt-3 text-base leading-relaxed text-gray-600">
-            Keep your team aligned on overdue risk, recommended action, and what to do next.
+            Adjust priority when your team knows something the ledger cannot explain.
           </p>
         </Card>
       </section>
@@ -98,9 +97,9 @@ export default function Home() {
       <section className="rounded-2xl border border-gray-200 bg-white p-8 sm:p-10">
         <h2 className="text-2xl font-semibold text-gray-900">Why finance teams use this engine</h2>
         <p className="mt-5 max-w-3xl text-lg leading-relaxed text-gray-700">
-          Collections performance improves when effort is directed, not just increased.
-          This engine helps teams prioritise high-return actions and reduce time spent
-          on low-impact follow-ups.
+          Treating every overdue customer equally wastes limited collection time. This
+          engine keeps a defensible customer order current so the team can start with
+          the accounts that deserve attention first.
         </p>
         <div className="mt-8 flex flex-wrap items-center gap-4">
           <Link

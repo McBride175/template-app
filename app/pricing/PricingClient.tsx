@@ -26,6 +26,8 @@ const PLAN_FEATURES: PlanFeature[] = [
   { label: 'Overdue action queue with priority scoring', basic: true, pro: true },
   { label: 'Score-based priority prompts and reason visibility', basic: true, pro: true },
   { label: 'Xero sync and canonical data mapping', basic: true, pro: true },
+  { label: 'Single-currency collections', basic: true, pro: true },
+  { label: 'Multi-currency collections', basic: false, pro: true },
 ]
 
 export default function PricingClient() {
@@ -131,7 +133,8 @@ export default function PricingClient() {
 
       <Card>
         <p className="text-sm text-gray-700">
-          Both plans include the current prioritisation workflow: Xero sync, the overdue action queue, score-based prompts and reason visibility.
+          Both plans include the current prioritisation workflow. Basic supports single-currency
+          collections; Pro supports multi-currency collections.
         </p>
       </Card>
 

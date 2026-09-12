@@ -8,6 +8,8 @@ import {
   getConfiguredPaidPriceIds,
   getUtcUsageDate,
   isSubscriptionPaid,
+  resolveConfiguredPaidPlan,
+  type PaidPlan,
   type SubscriptionEntitlementInput,
 } from '@/lib/billing/policy'
 
@@ -31,6 +33,7 @@ type AdminSupabaseClient = ReturnType<typeof createSupabaseAdminClient>
 export interface ActionsEntitlementStatus {
   plan: BillingPlan
   isPaid: boolean
+  paidPlan: PaidPlan | null
   tenantId: string | null
   usageDaysConsumed: number
   usageDaysRemaining: number | null
@@ -42,6 +45,7 @@ export interface ActionsEntitlementStatus {
 
 function buildEntitlementStatus(params: {
   isPaid: boolean
+  paidPlan: PaidPlan | null
   tenantId: string | null
   usageDaysConsumed: number
   usageDate: string
@@ -60,6 +64,7 @@ function buildEntitlementStatus(params: {
   return {
     plan,
     isPaid: params.isPaid,
+    paidPlan: params.isPaid ? params.paidPlan : null,
     tenantId: params.tenantId,
     usageDaysConsumed: params.usageDaysConsumed,
     usageDaysRemaining,
@@ -142,6 +147,9 @@ export async function getActionsEntitlementStatus(params: {
     now,
     paidPriceIds: getConfiguredPaidPriceIds(),
   })
+  const paidPlan = isPaid
+    ? resolveConfiguredPaidPlan(subscription?.stripe_price_id)
+    : null
   const tenantId = await resolveConnectedXeroTenantId(
     supabase,
     params.userId,
@@ -154,6 +162,7 @@ export async function getActionsEntitlementStatus(params: {
   if (isPaid) {
     return buildEntitlementStatus({
       isPaid: true,
+      paidPlan,
       tenantId,
       usageDaysConsumed: 0,
       usageDate,
@@ -177,6 +186,7 @@ export async function getActionsEntitlementStatus(params: {
 
   return buildEntitlementStatus({
     isPaid,
+    paidPlan,
     tenantId,
     usageDaysConsumed: usageDecision.usageDaysConsumed,
     usageDate,
@@ -232,6 +242,7 @@ export async function claimActionsEntitlementStatus(params: {
 
   return buildEntitlementStatus({
     isPaid: false,
+    paidPlan: null,
     tenantId: current.tenantId,
     usageDaysConsumed: data.usage_days_consumed,
     usageDate,

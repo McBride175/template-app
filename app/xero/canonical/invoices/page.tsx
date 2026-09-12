@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
+import { resolveCollectionsCurrencyAccess } from '@/lib/billing/collections-access'
+import { loadCollectionsCurrencyContext } from '@/lib/collections/currency-context-server'
 import {
   CANONICAL_ACTION_LINK_CLASS,
   CANONICAL_EMPTY_STATE_MESSAGE,
@@ -22,6 +24,10 @@ interface CanonicalInvoiceRow {
   amount_due: string | null
   amount_paid: string | null
   amount_credited: string | null
+  transaction_currency_code: string | null
+  organisation_base_currency_code: string | null
+  amount_due_native: string | null
+  amount_due_base: string | null
   sent_to_contact: boolean | null
 }
 
@@ -29,6 +35,23 @@ function formatBoolean(value: boolean | null) {
   if (value === true) return 'true'
   if (value === false) return 'false'
   return 'null'
+}
+
+function formatMoney(value: string | null, currencyCode: string | null) {
+  if (value === null) return '—'
+  const amount = Number(value)
+  if (!Number.isFinite(amount) || !currencyCode) return value
+
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: currencyCode,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount)
+  } catch {
+    return `${currencyCode} ${value}`
+  }
 }
 
 function parseTenantId(value: string | string[] | undefined) {
@@ -78,10 +101,21 @@ export default async function XeroCanonicalInvoicesPage({
   }
 
   const supabaseAdmin = createSupabaseAdminClient()
+  const currencyContext = await loadCollectionsCurrencyContext({
+    supabaseAdmin,
+    userId: user.id,
+    tenantId,
+  })
+  const currencyAccess = resolveCollectionsCurrencyAccess({ entitlement, currencyContext })
+  if (!currencyAccess.allowed) {
+    redirect('/pricing?reason=multi-currency')
+  }
+  const showMultiCurrencyAmounts = currencyContext.mode === 'multi_currency'
+
   const { data: rows, error } = await supabaseAdmin
     .from('canonical_invoices')
     .select(
-      'id, invoice_number, customer_source_id, status, issue_date, due_date, total, amount_due, amount_paid, amount_credited, sent_to_contact'
+      'id, invoice_number, customer_source_id, status, issue_date, due_date, total, amount_due, amount_paid, amount_credited, transaction_currency_code, organisation_base_currency_code, amount_due_native, amount_due_base, sent_to_contact'
     )
     .eq('user_id', user.id)
     .eq('tenant_id', tenantId)
@@ -138,7 +172,34 @@ export default async function XeroCanonicalInvoicesPage({
                   <td className="px-4 py-3">{invoice.issue_date ?? 'null'}</td>
                   <td className="px-4 py-3">{invoice.due_date ?? 'null'}</td>
                   <td className="px-4 py-3">{invoice.total ?? 'null'}</td>
-                  <td className="px-4 py-3">{invoice.amount_due ?? 'null'}</td>
+                  <td className="px-4 py-3">
+                    {showMultiCurrencyAmounts ? (
+                      <div>
+                        <p>
+                          {formatMoney(
+                            invoice.amount_due_native,
+                            invoice.transaction_currency_code
+                          )}{' '}
+                          invoiced
+                        </p>
+                        {invoice.amount_due_base !== null && (
+                          <p className="mt-0.5 text-xs text-gray-500">
+                            {formatMoney(
+                              invoice.amount_due_base,
+                              invoice.organisation_base_currency_code
+                            )}{' '}
+                            equivalent
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      formatMoney(
+                        invoice.amount_due_native ?? invoice.amount_due,
+                        invoice.transaction_currency_code ??
+                          invoice.organisation_base_currency_code
+                      )
+                    )}
+                  </td>
                   <td className="px-4 py-3">{invoice.amount_paid ?? 'null'}</td>
                   <td className="px-4 py-3">{invoice.amount_credited ?? 'null'}</td>
                   <td className="px-4 py-3">{formatBoolean(invoice.sent_to_contact)}</td>

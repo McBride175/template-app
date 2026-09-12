@@ -11,7 +11,11 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import { getConfiguredPaidPriceIds, isSubscriptionPaid } from '@/lib/billing/policy'
+import {
+  getConfiguredPaidPriceIds,
+  isSubscriptionPaid,
+  resolveConfiguredPaidPlan,
+} from '@/lib/billing/policy'
 
 export async function GET(request: NextRequest) {
   try {
@@ -104,12 +108,7 @@ export async function GET(request: NextRequest) {
 
     // DB field: stripe_price_id; env vars: STRIPE_PRICE_ID_BASIC/PRO
     const priceId = subscription?.stripe_price_id ?? null
-    const plan =
-      priceId && priceId === process.env.STRIPE_PRICE_ID_PRO
-        ? 'pro'
-        : priceId && priceId === process.env.STRIPE_PRICE_ID_BASIC
-          ? 'basic'
-          : null
+    const plan = resolveConfiguredPaidPlan(priceId)
 
     // Create JSON response with subscription data
     const res = NextResponse.json(

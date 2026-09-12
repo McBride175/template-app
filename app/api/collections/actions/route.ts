@@ -17,6 +17,10 @@ import {
   claimActionsEntitlementStatus,
 } from '@/lib/billing/entitlements'
 import {
+  MULTI_CURRENCY_REQUIRES_PRO_CODE,
+  resolveCollectionsCurrencyAccess,
+} from '@/lib/billing/collections-access'
+import {
   compareDecimalValues,
   decimalValueToFiniteNumber,
   sumDecimalValues,
@@ -174,6 +178,30 @@ export async function GET(request: NextRequest) {
 
     const supabaseAdmin = createSupabaseAdminClient()
 
+    const {
+      rows: summaryRows,
+      sourceCounts,
+      organisationBaseCurrency,
+      currencyHealth,
+      currencyEvaluation,
+      currencyContext,
+      reviewRequiredCustomers,
+    } = await loadCustomerCollectionsSummaryWithMetadata(supabaseAdmin, user.id, tenantId)
+    const currencyAccess = resolveCollectionsCurrencyAccess({ entitlement, currencyContext })
+
+    if (!currencyAccess.allowed) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: MULTI_CURRENCY_REQUIRES_PRO_CODE,
+          entitlement,
+          currencyContext,
+          currencyAccess,
+        },
+        { status: 402 }
+      )
+    }
+
     const overrideLevelByCustomerSourceId = new Map<string, CustomerOverrideLevel>()
     const latestActionByCustomerSourceId = new Map<string, LoggedCollectionAction>()
     const actionsTakenByCustomerId: Record<string, LoggedCollectionAction> = {}
@@ -235,16 +263,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const {
-      rows: summaryRows,
-      sourceCounts,
-      organisationBaseCurrency,
-      currencyHealth,
-      currencyEvaluation,
-      reviewRequiredCustomers,
-    } =
-      await loadCustomerCollectionsSummaryWithMetadata(supabaseAdmin, user.id, tenantId)
-
     logCollectionsCurrencyHealth({
       route: 'collections.actions.get',
       accountId: user.id,
@@ -257,6 +275,8 @@ export async function GET(request: NextRequest) {
         ok: true,
         tenantId,
         entitlement,
+        currencyContext,
+        currencyAccess,
         organisationBaseCurrency,
         currencyHealth,
         reviewRequiredCustomers,
@@ -451,6 +471,8 @@ export async function GET(request: NextRequest) {
       ok: true,
       tenantId,
       entitlement,
+      currencyContext,
+      currencyAccess,
       organisationBaseCurrency,
       currencyHealth,
       reviewRequiredCustomers,

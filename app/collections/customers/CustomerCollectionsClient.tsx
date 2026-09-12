@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Card from '@/app/components/Card'
 import Button from '@/app/components/Button'
+import MultiCurrencyPlanGate from '@/app/collections/MultiCurrencyPlanGate'
 import {
   formatCurrentOverdueAge,
   formatHistoricalPaymentTiming,
@@ -43,6 +44,23 @@ interface CustomerCollectionsSummaryRow {
   latest_due_date: string | null
   last_payment_date: string | null
   organisation_base_currency_code: string
+  native_currency_breakdown: Array<{
+    currency_code: string
+    total_outstanding_native: string
+    overdue_outstanding_native: string
+  }>
+}
+
+interface CollectionsCurrencyContext {
+  mode: 'single_currency' | 'multi_currency'
+  invoicedCurrencies: string[]
+  relevantInvoiceCount: number
+}
+
+interface CollectionsCurrencyAccess {
+  allowed: boolean
+  requiresPro: boolean
+  reason: 'allowed' | 'actions_access_required' | 'multi_currency_requires_pro'
 }
 
 interface CollectionsCurrencyHealth {
@@ -71,9 +89,12 @@ interface CurrencyReviewRequiredCustomer {
 
 interface CollectionsApiResponse {
   ok?: boolean
+  code?: string
   rows?: CustomerCollectionsSummaryRow[]
   tenantId?: string | null
   organisationBaseCurrency?: string | null
+  currencyContext?: CollectionsCurrencyContext
+  currencyAccess?: CollectionsCurrencyAccess
   currencyHealth?: CollectionsCurrencyHealth
   reviewRequiredCustomers?: CurrencyReviewRequiredCustomer[]
   error?: string
@@ -126,10 +147,20 @@ function formatMoney(amount: number, currencyCode: string | null) {
   }).format(amount)
 }
 
-function formatNativeAmount(amount: string, currencyCode: string) {
+function formatInvoicedAmount(amount: string, currencyCode: string) {
   const numericAmount = Number(amount)
   if (!Number.isFinite(numericAmount)) return `${currencyCode} ${amount}`
-  return formatMoney(numericAmount, currencyCode)
+  return `${formatMoney(numericAmount, currencyCode)} ${currencyCode}`
+}
+
+function formatInvoicedBreakdown(
+  breakdown: CustomerCollectionsSummaryRow['native_currency_breakdown'],
+  amountField: 'total_outstanding_native' | 'overdue_outstanding_native'
+) {
+  return breakdown
+    .filter((entry) => Number(entry[amountField]) > 0)
+    .map((entry) => formatInvoicedAmount(entry[amountField], entry.currency_code))
+    .join(' · ')
 }
 
 function formatCurrencyFailureReason(reason: string) {
@@ -163,6 +194,8 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [organisationBaseCurrency, setOrganisationBaseCurrency] = useState<string | null>(null)
+  const [currencyContext, setCurrencyContext] = useState<CollectionsCurrencyContext | null>(null)
+  const [currencyAccess, setCurrencyAccess] = useState<CollectionsCurrencyAccess | null>(null)
   const [currencyHealth, setCurrencyHealth] = useState<CollectionsCurrencyHealth | null>(null)
   const [reviewRequiredCustomers, setReviewRequiredCustomers] = useState<
     CurrencyReviewRequiredCustomer[]
@@ -199,18 +232,31 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
           return
         }
 
+        const payload = (await response.json().catch(() => null)) as CollectionsApiResponse | null
+
+        if (response.status === 402 && payload?.code === 'MULTI_CURRENCY_REQUIRES_PRO') {
+          setRows([])
+          setOrganisationBaseCurrency(null)
+          setCurrencyContext(payload.currencyContext ?? null)
+          setCurrencyAccess(payload.currencyAccess ?? null)
+          setCurrencyHealth(null)
+          setReviewRequiredCustomers([])
+          return
+        }
+
         if (response.status === 402) {
           router.push('/pricing?reason=usage-limit')
           return
         }
 
-        const payload = (await response.json().catch(() => null)) as CollectionsApiResponse | null
         if (!response.ok || !payload?.ok) {
           throw new Error(payload?.error || 'Failed to load customer collections summary.')
         }
 
         setRows(payload.rows ?? [])
         setOrganisationBaseCurrency(payload.organisationBaseCurrency ?? null)
+        setCurrencyContext(payload.currencyContext ?? null)
+        setCurrencyAccess(payload.currencyAccess ?? null)
         setCurrencyHealth(payload.currencyHealth ?? null)
         setReviewRequiredCustomers(payload.reviewRequiredCustomers ?? [])
       } catch (fetchError) {
@@ -230,6 +276,13 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
   useEffect(() => {
     void loadRows(false)
   }, [loadRows])
+
+  const multiCurrencyPlanRequired = Boolean(
+    currencyAccess?.requiresPro && !currencyAccess.allowed
+  )
+  const showMultiCurrencyAmounts = Boolean(
+    currencyAccess?.allowed && currencyContext?.mode === 'multi_currency'
+  )
 
   const description = useMemo(() => {
     if (loading) return 'Loading customer aggregation…'
@@ -275,7 +328,7 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
         </div>
       </div>
 
-      <Card>
+      {!multiCurrencyPlanRequired && <Card>
         <div className="flex flex-wrap items-end gap-4">
           <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-700">
             <input
@@ -306,12 +359,19 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
             {refreshing ? 'Refreshing…' : 'Refresh'}
           </Button>
         </div>
-      </Card>
+      </Card>}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
-      {!error && <p className="text-sm text-gray-600">{description}</p>}
+      {!error && !multiCurrencyPlanRequired && (
+        <p className="text-sm text-gray-600">{description}</p>
+      )}
 
-      {!error && !loading && currencyHealth?.status === 'unavailable' && (
+      {multiCurrencyPlanRequired && <MultiCurrencyPlanGate />}
+
+      {!error &&
+        !multiCurrencyPlanRequired &&
+        !loading &&
+        currencyHealth?.status === 'unavailable' && (
         <Card>
           <h2 className="text-lg font-semibold text-gray-900">Currency data needs refreshing</h2>
           <p className="mt-1 text-sm text-gray-600">
@@ -333,7 +393,10 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
         </Card>
       )}
 
-      {!error && !loading && currencyHealth?.status === 'degraded' && (
+      {!error &&
+        !multiCurrencyPlanRequired &&
+        !loading &&
+        currencyHealth?.status === 'degraded' && (
         <Card>
           <h2 className="text-lg font-semibold text-gray-900">Ranking uses available currency data</h2>
           <p className="mt-1 text-sm text-gray-600">
@@ -351,7 +414,10 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
         </Card>
       )}
 
-      {!error && !loading && reviewRequiredCustomers.length > 0 && (
+      {!error &&
+        !multiCurrencyPlanRequired &&
+        !loading &&
+        reviewRequiredCustomers.length > 0 && (
         <Card>
           <div className="space-y-3">
             <div>
@@ -378,10 +444,10 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
                   </div>
                   {customer.native_currency_breakdown.length > 0 && (
                     <p className="mt-2 text-xs text-gray-600">
-                      Native outstanding:{' '}
+                      Invoiced outstanding:{' '}
                       {customer.native_currency_breakdown
                         .map((entry) =>
-                          formatNativeAmount(entry.total_outstanding_native, entry.currency_code)
+                          formatInvoicedAmount(entry.total_outstanding_native, entry.currency_code)
                         )
                         .join(' · ')}
                     </p>
@@ -408,19 +474,26 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
       )}
 
       {!error &&
+        !multiCurrencyPlanRequired &&
         !loading &&
         currencyHealth?.status !== 'unavailable' &&
         rows.length > 0 && (
         <div className="space-y-3">
           <div className="grid gap-3 rounded-md border border-gray-200 bg-gray-50 p-3 text-sm text-gray-800 sm:grid-cols-2 lg:grid-cols-4">
             <div>
-              <p className="text-xs uppercase tracking-wide text-gray-600">Outstanding total</p>
+              <p className="text-xs uppercase tracking-wide text-gray-600">
+                {showMultiCurrencyAmounts ? 'Equivalent outstanding total' : 'Outstanding total'}
+              </p>
               <p className="mt-1 font-semibold text-gray-900">
                 {formatMoney(totals.outstandingBase, organisationBaseCurrency)}
               </p>
             </div>
             <div>
-              <p className="text-xs uppercase tracking-wide text-gray-600">Overdue outstanding total</p>
+              <p className="text-xs uppercase tracking-wide text-gray-600">
+                {showMultiCurrencyAmounts
+                  ? 'Equivalent overdue total'
+                  : 'Overdue outstanding total'}
+              </p>
               <p className="mt-1 font-semibold text-gray-900">
                 {formatMoney(totals.overdueOutstandingBase, organisationBaseCurrency)}
               </p>
@@ -457,10 +530,42 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
                     <p className="text-xs text-gray-600">{row.customer_email || '—'}</p>
                   </td>
                   <td className="px-4 py-3">
-                    {formatMoney(row.total_outstanding_base, organisationBaseCurrency)}
+                    <p>
+                      {formatMoney(row.total_outstanding_base, organisationBaseCurrency)}
+                      {showMultiCurrencyAmounts ? ' equivalent' : ''}
+                    </p>
+                    {showMultiCurrencyAmounts &&
+                      formatInvoicedBreakdown(
+                        row.native_currency_breakdown,
+                        'total_outstanding_native'
+                      ) && (
+                        <p className="mt-0.5 text-xs text-gray-500">
+                          {formatInvoicedBreakdown(
+                            row.native_currency_breakdown,
+                            'total_outstanding_native'
+                          )}{' '}
+                          invoiced
+                        </p>
+                      )}
                   </td>
                   <td className="px-4 py-3">
-                    {formatMoney(row.overdue_outstanding_base, organisationBaseCurrency)}
+                    <p>
+                      {formatMoney(row.overdue_outstanding_base, organisationBaseCurrency)}
+                      {showMultiCurrencyAmounts ? ' equivalent overdue' : ''}
+                    </p>
+                    {showMultiCurrencyAmounts &&
+                      formatInvoicedBreakdown(
+                        row.native_currency_breakdown,
+                        'overdue_outstanding_native'
+                      ) && (
+                        <p className="mt-0.5 text-xs text-gray-500">
+                          {formatInvoicedBreakdown(
+                            row.native_currency_breakdown,
+                            'overdue_outstanding_native'
+                          )}{' '}
+                          invoiced
+                        </p>
+                      )}
                   </td>
                   <td className="px-4 py-3">{row.overdue_invoices_count}</td>
                   <td className="px-4 py-3">{row.oldest_overdue_days ?? '—'}</td>

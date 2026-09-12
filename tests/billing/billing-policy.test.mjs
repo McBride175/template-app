@@ -8,6 +8,7 @@ const {
   getConfiguredPaidPriceIds,
   getUtcUsageDate,
   isSubscriptionPaid,
+  resolveConfiguredPaidPlan,
 } = loadTypeScriptModule(POLICY_PATH)
 
 const paidPriceIds = new Set(['price_basic', 'price_pro'])
@@ -219,4 +220,25 @@ test('configured price IDs omit empty values and support both plans', () => {
     ['price_basic', 'price_pro']
   )
   assert.deepEqual([...getConfiguredPaidPriceIds({})], [])
+})
+
+test('configured paid plans resolve from exact distinct Stripe price IDs', () => {
+  const environment = {
+    STRIPE_PRICE_ID_BASIC: ' price_basic ',
+    STRIPE_PRICE_ID_PRO: 'price_pro',
+  }
+
+  assert.equal(resolveConfiguredPaidPlan('price_basic', environment), 'basic')
+  assert.equal(resolveConfiguredPaidPlan(' price_pro ', environment), 'pro')
+  assert.equal(resolveConfiguredPaidPlan('price_unknown', environment), null)
+  assert.equal(resolveConfiguredPaidPlan(null, environment), null)
+
+  assert.equal(
+    resolveConfiguredPaidPlan('price_shared', {
+      STRIPE_PRICE_ID_BASIC: 'price_shared',
+      STRIPE_PRICE_ID_PRO: 'price_shared',
+    }),
+    null,
+    'ambiguous plan configuration must fail closed'
+  )
 })

@@ -3,6 +3,11 @@ import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import { isMissingRelationError } from '@/lib/collections/tenant-context'
 import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
+import {
+  MULTI_CURRENCY_REQUIRES_PRO_CODE,
+  resolveCollectionsCurrencyAccess,
+} from '@/lib/billing/collections-access'
+import { loadCollectionsCurrencyContext } from '@/lib/collections/currency-context-server'
 
 type CollectionActionType = 'called' | 'emailed' | 'postponed'
 
@@ -122,6 +127,25 @@ export async function POST(request: Request) {
     }
 
     const supabaseAdmin = createSupabaseAdminClient()
+    const currencyContext = await loadCollectionsCurrencyContext({
+      supabaseAdmin,
+      userId: user.id,
+      tenantId,
+    })
+    const currencyAccess = resolveCollectionsCurrencyAccess({ entitlement, currencyContext })
+    if (!currencyAccess.allowed) {
+      return NextResponse.json(
+        {
+          error: 'Multi-currency collections require Pro',
+          code: MULTI_CURRENCY_REQUIRES_PRO_CODE,
+          entitlement,
+          currencyContext,
+          currencyAccess,
+        },
+        { status: 402 }
+      )
+    }
+
     const { data, error: insertError } = await supabaseAdmin
       .from('collection_actions')
       .insert({
@@ -208,6 +232,25 @@ export async function DELETE(request: Request) {
     if (!entitlement.hasActionsAccess) {
       return NextResponse.json(
         { error: 'Free usage allowance exhausted', code: 'ACTION_USAGE_LIMIT_REACHED', entitlement },
+        { status: 402 }
+      )
+    }
+
+    const currencyContext = await loadCollectionsCurrencyContext({
+      supabaseAdmin,
+      userId: user.id,
+      tenantId: existingAction.tenant_id,
+    })
+    const currencyAccess = resolveCollectionsCurrencyAccess({ entitlement, currencyContext })
+    if (!currencyAccess.allowed) {
+      return NextResponse.json(
+        {
+          error: 'Multi-currency collections require Pro',
+          code: MULTI_CURRENCY_REQUIRES_PRO_CODE,
+          entitlement,
+          currencyContext,
+          currencyAccess,
+        },
         { status: 402 }
       )
     }

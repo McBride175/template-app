@@ -5,6 +5,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState, type TouchEvent } 
 import { useRouter } from 'next/navigation'
 import Card from '@/app/components/Card'
 import Button from '@/app/components/Button'
+import MultiCurrencyPlanGate from '@/app/collections/MultiCurrencyPlanGate'
 
 interface CollectionActionRow {
   customer_source_id: string
@@ -32,6 +33,11 @@ interface CollectionActionRow {
   reason: string
   score_breakdown_lines: string[]
   organisation_base_currency_code: string
+  native_currency_breakdown: Array<{
+    currency_code: string
+    total_outstanding_native: string
+    overdue_outstanding_native: string
+  }>
   last_action_type: 'called' | 'emailed' | 'postponed' | null
   last_action_outcome: 'no_response' | 'spoke_to_customer' | 'promised_to_pay' | 'disputed' | null
   last_action_timestamp: string | null
@@ -45,6 +51,8 @@ interface CollectionActionsApiResponse {
   actionsTakenByCustomerId?: Record<string, ActionTakenLog>
   queue?: CollectionQueueInfo
   organisationBaseCurrency?: string | null
+  currencyContext?: CollectionsCurrencyContext
+  currencyAccess?: CollectionsCurrencyAccess
   currencyHealth?: CollectionsCurrencyHealth
   reviewRequiredCustomers?: CurrencyReviewRequiredCustomer[]
   error?: string
@@ -89,6 +97,18 @@ interface CollectionsCurrencyHealth {
   failureReasons: Record<string, number>
 }
 
+interface CollectionsCurrencyContext {
+  mode: 'single_currency' | 'multi_currency'
+  invoicedCurrencies: string[]
+  relevantInvoiceCount: number
+}
+
+interface CollectionsCurrencyAccess {
+  allowed: boolean
+  requiresPro: boolean
+  reason: 'allowed' | 'actions_access_required' | 'multi_currency_requires_pro'
+}
+
 interface CurrencyReviewRequiredCustomer {
   customer_source_id: string
   customer_name: string
@@ -108,6 +128,7 @@ interface CurrencyReviewRequiredCustomer {
 interface ActionsEntitlement {
   plan: 'free' | 'paid'
   isPaid: boolean
+  paidPlan: 'basic' | 'pro' | null
   tenantId: string | null
   usageDaysConsumed: number
   usageDaysRemaining: number | null
@@ -119,6 +140,8 @@ interface CollectionOverrideApiResponse {
   ok?: boolean
   code?: string
   entitlement?: ActionsEntitlement
+  currencyContext?: CollectionsCurrencyContext
+  currencyAccess?: CollectionsCurrencyAccess
   error?: string
 }
 
@@ -127,6 +150,8 @@ interface CollectionActionMutationApiResponse {
   action_id?: string
   code?: string
   entitlement?: ActionsEntitlement
+  currencyContext?: CollectionsCurrencyContext
+  currencyAccess?: CollectionsCurrencyAccess
   error?: string
 }
 
@@ -208,10 +233,20 @@ function CurrencyHealthDiagnostic({
   )
 }
 
-function formatNativeAmount(amount: string, currencyCode: string) {
+function formatInvoicedAmount(amount: string, currencyCode: string) {
   const numericAmount = Number(amount)
   if (!Number.isFinite(numericAmount)) return `${currencyCode} ${amount}`
-  return formatMoney(numericAmount, currencyCode)
+  return `${formatMoney(numericAmount, currencyCode)} ${currencyCode}`
+}
+
+function formatInvoicedBreakdown(
+  breakdown: CollectionActionRow['native_currency_breakdown'],
+  amountField: 'total_outstanding_native' | 'overdue_outstanding_native'
+) {
+  return breakdown
+    .filter((entry) => Number(entry[amountField]) > 0)
+    .map((entry) => formatInvoicedAmount(entry[amountField], entry.currency_code))
+    .join(' · ')
 }
 
 function ReviewRequiredCustomers({
@@ -246,10 +281,10 @@ function ReviewRequiredCustomers({
               </div>
               {customer.native_currency_breakdown.length > 0 && (
                 <p className="mt-2 text-xs text-gray-600">
-                  Native outstanding:{' '}
+                  Invoiced outstanding:{' '}
                   {customer.native_currency_breakdown
                     .map((entry) =>
-                      formatNativeAmount(entry.total_outstanding_native, entry.currency_code)
+                      formatInvoicedAmount(entry.total_outstanding_native, entry.currency_code)
                     )
                     .join(' · ')}
                 </p>
@@ -501,6 +536,8 @@ export default function CollectionActionsClient({
   const [usageLimitReached, setUsageLimitReached] = useState(false)
   const [queueInfo, setQueueInfo] = useState<CollectionQueueInfo | null>(null)
   const [organisationBaseCurrency, setOrganisationBaseCurrency] = useState<string | null>(null)
+  const [currencyContext, setCurrencyContext] = useState<CollectionsCurrencyContext | null>(null)
+  const [currencyAccess, setCurrencyAccess] = useState<CollectionsCurrencyAccess | null>(null)
   const [currencyHealth, setCurrencyHealth] = useState<CollectionsCurrencyHealth | null>(null)
   const [reviewRequiredCustomers, setReviewRequiredCustomers] = useState<
     CurrencyReviewRequiredCustomer[]
@@ -515,6 +552,12 @@ export default function CollectionActionsClient({
   const showHeaderSection = showHeader ?? !embedded
   const showFiltersSection = showFilters ?? !embedded
   const showQueueSection = showQueue ?? embedded
+  const multiCurrencyPlanRequired = Boolean(
+    currencyAccess?.requiresPro && !currencyAccess.allowed
+  )
+  const showMultiCurrencyAmounts = Boolean(
+    currencyAccess?.allowed && currencyContext?.mode === 'multi_currency'
+  )
 
   const resetActionPanel = useCallback(() => {
     setDetailPanel('none')
@@ -557,11 +600,26 @@ export default function CollectionActionsClient({
           setEntitlement(payload.entitlement)
         }
 
+        if (payload?.code === 'MULTI_CURRENCY_REQUIRES_PRO') {
+          setRows([])
+          setActionsTakenByCustomerId({})
+          setQueueInfo(null)
+          setOrganisationBaseCurrency(null)
+          setCurrencyContext(payload.currencyContext ?? null)
+          setCurrencyAccess(payload.currencyAccess ?? null)
+          setCurrencyHealth(null)
+          setReviewRequiredCustomers([])
+          setUsageLimitReached(false)
+          return
+        }
+
         if (payload?.code === 'ACTION_USAGE_LIMIT_REACHED') {
           setRows([])
           setActionsTakenByCustomerId({})
           setQueueInfo(null)
           setOrganisationBaseCurrency(null)
+          setCurrencyContext(null)
+          setCurrencyAccess(null)
           setCurrencyHealth(null)
           setReviewRequiredCustomers([])
           setUsageLimitReached(true)
@@ -574,6 +632,8 @@ export default function CollectionActionsClient({
 
         setUsageLimitReached(false)
         setOrganisationBaseCurrency(payload.organisationBaseCurrency ?? null)
+        setCurrencyContext(payload.currencyContext ?? null)
+        setCurrencyAccess(payload.currencyAccess ?? null)
         setCurrencyHealth(payload.currencyHealth ?? null)
         setReviewRequiredCustomers(payload.reviewRequiredCustomers ?? [])
         const nextRows = payload.rows ?? []
@@ -793,6 +853,15 @@ export default function CollectionActionsClient({
         throw new Error('Free usage allowance exhausted')
       }
 
+      if (response.status === 402 && payload?.code === 'MULTI_CURRENCY_REQUIRES_PRO') {
+        if (payload.entitlement) setEntitlement(payload.entitlement)
+        setRows([])
+        setCurrencyContext(payload.currencyContext ?? null)
+        setCurrencyAccess(payload.currencyAccess ?? null)
+        setUsageLimitReached(false)
+        return null
+      }
+
       if (!response.ok || !payload?.ok) {
         throw new Error(payload?.error || 'Failed to log action.')
       }
@@ -880,6 +949,7 @@ export default function CollectionActionsClient({
           nextActionDate: null,
           useOutcomeRoute: false,
         })
+        if (!actionId) return
 
         applyLoggedAction({
           customerSourceId: currentQueueRow.customer_source_id,
@@ -913,6 +983,7 @@ export default function CollectionActionsClient({
           nextActionDate,
           useOutcomeRoute: false,
         })
+        if (!actionId) return
 
         applyLoggedAction({
           customerSourceId: currentQueueRow.customer_source_id,
@@ -962,6 +1033,7 @@ export default function CollectionActionsClient({
         nextActionDate,
         useOutcomeRoute: true,
       })
+      if (!actionId) return
 
       applyLoggedAction({
         customerSourceId: currentQueueRow.customer_source_id,
@@ -1016,6 +1088,14 @@ export default function CollectionActionsClient({
         if (payload.entitlement) setEntitlement(payload.entitlement)
         setRows([])
         setUsageLimitReached(true)
+        return
+      }
+      if (response.status === 402 && payload?.code === 'MULTI_CURRENCY_REQUIRES_PRO') {
+        if (payload.entitlement) setEntitlement(payload.entitlement)
+        setRows([])
+        setCurrencyContext(payload.currencyContext ?? null)
+        setCurrencyAccess(payload.currencyAccess ?? null)
+        setUsageLimitReached(false)
         return
       }
 
@@ -1104,6 +1184,14 @@ export default function CollectionActionsClient({
           if (payload.entitlement) setEntitlement(payload.entitlement)
           setRows([])
           setUsageLimitReached(true)
+          return
+        }
+        if (response.status === 402 && payload?.code === 'MULTI_CURRENCY_REQUIRES_PRO') {
+          if (payload.entitlement) setEntitlement(payload.entitlement)
+          setRows([])
+          setCurrencyContext(payload.currencyContext ?? null)
+          setCurrencyAccess(payload.currencyAccess ?? null)
+          setUsageLimitReached(false)
           return
         }
 
@@ -1200,7 +1288,9 @@ export default function CollectionActionsClient({
         </Card>
       )}
 
-      {showFiltersSection && !usageLimitReached && (
+      {multiCurrencyPlanRequired && <MultiCurrencyPlanGate />}
+
+      {showFiltersSection && !usageLimitReached && !multiCurrencyPlanRequired && (
         <Card>
           <div className="flex flex-wrap items-end gap-4">
             <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-700">
@@ -1221,6 +1311,7 @@ export default function CollectionActionsClient({
 
       {!showQueueSection &&
         !usageLimitReached &&
+        !multiCurrencyPlanRequired &&
         !loading &&
         currencyHealth?.status === 'unavailable' && (
           <Card>
@@ -1228,17 +1319,20 @@ export default function CollectionActionsClient({
           </Card>
         )}
 
-      {!usageLimitReached && !loading && currencyHealth?.status === 'degraded' && (
+      {!usageLimitReached &&
+        !multiCurrencyPlanRequired &&
+        !loading &&
+        currencyHealth?.status === 'degraded' && (
         <Card>
           <CurrencyHealthDiagnostic currencyHealth={currencyHealth} />
         </Card>
       )}
 
-      {!usageLimitReached && !loading && (
+      {!usageLimitReached && !multiCurrencyPlanRequired && !loading && (
         <ReviewRequiredCustomers customers={reviewRequiredCustomers} />
       )}
 
-      {showQueueSection && !usageLimitReached && (
+      {showQueueSection && !usageLimitReached && !multiCurrencyPlanRequired && (
         <Card>
           <div className="space-y-4">
             {!loading && queueRows.length > 0 ? (
@@ -1432,15 +1526,30 @@ export default function CollectionActionsClient({
                 </div>
 
                 <div className="flex w-full items-center text-sm text-gray-600">
-                  <p className="flex-1">
-                    <span className="font-medium text-gray-900">
-                      {formatMoney(
-                        currentQueueRow.overdue_outstanding_base,
-                        organisationBaseCurrency
+                  <div className="flex-1">
+                    <p>
+                      <span className="font-medium text-gray-900">
+                        {formatMoney(
+                          currentQueueRow.overdue_outstanding_base,
+                          organisationBaseCurrency
+                        )}
+                      </span>{' '}
+                      {showMultiCurrencyAmounts ? 'equivalent overdue' : 'overdue'}
+                    </p>
+                    {showMultiCurrencyAmounts &&
+                      formatInvoicedBreakdown(
+                        currentQueueRow.native_currency_breakdown,
+                        'overdue_outstanding_native'
+                      ) && (
+                        <p className="mt-0.5 text-xs text-gray-500">
+                          {formatInvoicedBreakdown(
+                            currentQueueRow.native_currency_breakdown,
+                            'overdue_outstanding_native'
+                          )}{' '}
+                          invoiced
+                        </p>
                       )}
-                    </span>{' '}
-                    overdue
-                  </p>
+                  </div>
                   <p className="flex-1 text-center">
                     <span className="font-medium text-gray-900">
                       {formatWeightedDays(currentQueueRow.weighted_avg_overdue_days)}
@@ -1684,7 +1793,12 @@ export default function CollectionActionsClient({
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      {showTable && !usageLimitReached && !error && !loading && rows.length > 0 && (
+      {showTable &&
+        !usageLimitReached &&
+        !multiCurrencyPlanRequired &&
+        !error &&
+        !loading &&
+        rows.length > 0 && (
         <div className="overflow-x-auto rounded-md border border-gray-200 bg-white">
           <table className="min-w-full divide-y divide-gray-200 text-sm">
             <thead className="bg-gray-50 text-left text-gray-700">
@@ -1709,7 +1823,23 @@ export default function CollectionActionsClient({
                       <p className="text-xs text-gray-600">{row.customer_email || '—'}</p>
                     </td>
                     <td className="px-4 py-3">
-                      {formatMoney(row.overdue_outstanding_base, organisationBaseCurrency)}
+                      <p>
+                        {formatMoney(row.overdue_outstanding_base, organisationBaseCurrency)}
+                        {showMultiCurrencyAmounts ? ' equivalent' : ''}
+                      </p>
+                      {showMultiCurrencyAmounts &&
+                        formatInvoicedBreakdown(
+                          row.native_currency_breakdown,
+                          'overdue_outstanding_native'
+                        ) && (
+                          <p className="mt-0.5 text-xs text-gray-500">
+                            {formatInvoicedBreakdown(
+                              row.native_currency_breakdown,
+                              'overdue_outstanding_native'
+                            )}{' '}
+                            invoiced
+                          </p>
+                        )}
                     </td>
                     <td className="px-4 py-3">{row.overdue_invoices_count}</td>
                     <td className="px-4 py-3">{formatWeightedDays(row.weighted_avg_overdue_days)}</td>

@@ -6,6 +6,10 @@ import {
   loadCustomerCollectionsSummaryWithMetadata,
 } from '@/lib/collections/customer-summary'
 import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
+import {
+  MULTI_CURRENCY_REQUIRES_PRO_CODE,
+  resolveCollectionsCurrencyAccess,
+} from '@/lib/billing/collections-access'
 import { logCollectionsCurrencyHealth } from '@/lib/collections/currency-health'
 import { compareDecimalValues } from '@/lib/money/currency'
 
@@ -136,8 +140,23 @@ export async function GET(request: NextRequest) {
       organisationBaseCurrency,
       currencyHealth,
       currencyEvaluation,
+      currencyContext,
       reviewRequiredCustomers,
     } = await loadCustomerCollectionsSummaryWithMetadata(supabaseAdmin, user.id, tenantId)
+    const currencyAccess = resolveCollectionsCurrencyAccess({ entitlement, currencyContext })
+
+    if (!currencyAccess.allowed) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: MULTI_CURRENCY_REQUIRES_PRO_CODE,
+          entitlement,
+          currencyContext,
+          currencyAccess,
+        },
+        { status: 402 }
+      )
+    }
 
     logCollectionsCurrencyHealth({
       route: 'collections.customers.get',
@@ -150,6 +169,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         ok: true,
         tenantId,
+        currencyContext,
+        currencyAccess,
         organisationBaseCurrency,
         currencyHealth,
         reviewRequiredCustomers,
@@ -166,6 +187,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       tenantId,
+      currencyContext,
+      currencyAccess,
       organisationBaseCurrency,
       currencyHealth,
       reviewRequiredCustomers,

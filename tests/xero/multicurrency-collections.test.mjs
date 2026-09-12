@@ -161,6 +161,9 @@ async function requestCustomerApi(summary) {
       '@/lib/billing/entitlements': {
         async claimActionsEntitlementStatus() {
           return {
+            plan: 'free',
+            isPaid: false,
+            paidPlan: null,
             tenantId: TENANT_ID,
             hasActionsAccess: true,
           }
@@ -355,6 +358,10 @@ test('one broken foreign invoice degrades aggregation while safe customers remai
   assert.equal(payload.reviewRequiredCustomers.length, 1)
   assert.equal(payload.organisationBaseCurrency, 'GBP')
   assert.equal(payload.currencyHealth.status, 'degraded')
+  assert.equal(payload.currencyContext.mode, 'multi_currency')
+  assert.deepEqual(payload.currencyContext.invoicedCurrencies, ['GBP', 'USD'])
+  assert.equal(payload.currencyAccess.allowed, true)
+  assert.equal(payload.currencyAccess.requiresPro, false)
 })
 
 test('a customer with both valid and broken invoices is entirely review-required', async () => {
@@ -570,6 +577,10 @@ test('customer collections UI presents degraded warnings and review-required cus
   assert.match(source, /currencyHealth\?\.status === 'unavailable'/)
   assert.match(source, /Ranking uses available currency data/)
   assert.match(source, /Needs review/)
-  assert.match(source, /Native outstanding/)
+  assert.match(source, /Invoiced outstanding/)
   assert.match(source, /reviewRequiredCustomers\.map/)
+  assert.match(source, /MultiCurrencyPlanGate/)
+  assert.match(source, /Equivalent overdue total/)
+  assert.match(source, /invoiced/)
+  assert.doesNotMatch(source, /CurrencyRate/)
 })

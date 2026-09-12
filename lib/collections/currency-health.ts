@@ -6,6 +6,7 @@ import {
   type CurrencyConversionStatus,
   type DecimalInput,
 } from '@/lib/money/currency'
+import { isPotentialCollectionsReceivable } from '@/lib/collections/currency-context'
 
 export type CollectionsCurrencyHealthStatus = 'healthy' | 'degraded' | 'unavailable'
 export type CollectionsRankingStatus = 'complete' | 'provisional' | 'unavailable'
@@ -61,14 +62,6 @@ export interface CollectionsCurrencyEvaluation {
   currencyIssues: CollectionsCurrencyIssue[]
 }
 
-const RECEIVABLE_INVOICE_TYPE = 'ACCREC'
-const OPEN_INVOICE_STATUS = 'AUTHORISED'
-
-function normalizeAccountingValue(value: string | null) {
-  const normalized = value?.trim().toUpperCase()
-  return normalized || null
-}
-
 function addReason(
   reasons: Partial<Record<CollectionsCurrencyFailureReason, number>>,
   reason: CollectionsCurrencyFailureReason
@@ -91,11 +84,7 @@ function canonicalFailureReason(value: string | null): CollectionsCurrencyFailur
 }
 
 function isPotentiallyRelevantInvoice(invoice: CollectionsInvoiceCurrencyRow) {
-  return (
-    normalizeAccountingValue(invoice.type) === RECEIVABLE_INVOICE_TYPE &&
-    normalizeAccountingValue(invoice.status) === OPEN_INVOICE_STATUS &&
-    !!invoice.customer_source_id?.trim()
-  )
+  return isPotentialCollectionsReceivable(invoice)
 }
 
 /**

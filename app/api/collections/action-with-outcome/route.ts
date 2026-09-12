@@ -3,6 +3,11 @@ import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import { isMissingRelationError } from '@/lib/collections/tenant-context'
 import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
+import {
+  MULTI_CURRENCY_REQUIRES_PRO_CODE,
+  resolveCollectionsCurrencyAccess,
+} from '@/lib/billing/collections-access'
+import { loadCollectionsCurrencyContext } from '@/lib/collections/currency-context-server'
 
 type CollectionActionType = 'called' | 'emailed' | 'postponed'
 type CollectionActionOutcome =
@@ -143,6 +148,25 @@ export async function POST(request: Request) {
     }
 
     const supabaseAdmin = createSupabaseAdminClient()
+    const currencyContext = await loadCollectionsCurrencyContext({
+      supabaseAdmin,
+      userId: user.id,
+      tenantId,
+    })
+    const currencyAccess = resolveCollectionsCurrencyAccess({ entitlement, currencyContext })
+    if (!currencyAccess.allowed) {
+      return NextResponse.json(
+        {
+          error: 'Multi-currency collections require Pro',
+          code: MULTI_CURRENCY_REQUIRES_PRO_CODE,
+          entitlement,
+          currencyContext,
+          currencyAccess,
+        },
+        { status: 402 }
+      )
+    }
+
     const { data, error: insertError } = await supabaseAdmin
       .from('collection_actions')
       .insert({

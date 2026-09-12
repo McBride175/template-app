@@ -84,6 +84,25 @@ function buildReviewRequiredCustomer(overrides = {}) {
   }
 }
 
+function buildCurrencyContext(summaryRows) {
+  const invoicedCurrencies = Array.from(
+    new Set(
+      summaryRows.flatMap((row) =>
+        row.native_currency_breakdown.map((breakdown) => breakdown.currency_code)
+      )
+    )
+  ).sort()
+
+  return {
+    mode: invoicedCurrencies.length > 1 ? 'multi_currency' : 'single_currency',
+    invoicedCurrencies,
+    relevantInvoiceCount: summaryRows.reduce(
+      (total, row) => total + row.open_invoices_count,
+      0
+    ),
+  }
+}
+
 function createQuery(rows) {
   const filters = []
   const query = {
@@ -121,6 +140,7 @@ function loadActionsRoute({
   },
   reviewRequiredCustomers = [],
   currencyIssues = [],
+  currencyContext = buildCurrencyContext(summaryRows),
   onCurrencyLog = () => {},
 }) {
   const tables = {
@@ -164,6 +184,7 @@ function loadActionsRoute({
             sourceCounts,
             organisationBaseCurrency,
             currencyHealth,
+            currencyContext,
             reviewRequiredCustomers,
             currencyEvaluation: {
               organisationBaseCurrency,
@@ -191,6 +212,7 @@ function loadActionsRoute({
           return {
             plan: 'paid',
             isPaid: true,
+            paidPlan: 'pro',
             tenantId: 'queue-tenant',
             usageDaysConsumed: 0,
             usageDaysRemaining: null,
@@ -243,6 +265,8 @@ test('mapped overdue data returns an eligible collections customer', async () =>
   assert.equal(payload.organisationBaseCurrency, 'GBP')
   assert.equal(payload.currencyHealth.status, 'healthy')
   assert.equal(payload.currencyHealth.rankingStatus, 'complete')
+  assert.equal(payload.currencyContext.mode, 'single_currency')
+  assert.equal(payload.currencyAccess.allowed, true)
   assert.deepEqual(payload.reviewRequiredCustomers, [])
   assert.equal(payload.portfolio.totalOverdueBase, 500)
 })
@@ -715,6 +739,10 @@ test('queue UI renders degraded review and unavailable states without hiding saf
   assert.match(source, /Ranking uses available currency data/)
   assert.match(source, /Needs review/)
   assert.match(source, /ReviewRequiredCustomers/)
+  assert.match(source, /MultiCurrencyPlanGate/)
+  assert.match(source, /equivalent overdue/)
+  assert.match(source, /invoiced/)
+  assert.doesNotMatch(source, /CurrencyRate/)
   assert.match(source, /queueInfo\?\.status === 'no_overdue_customers'/)
   assert.match(source, /No overdue customers/)
   assert.match(source, /queueInfo\?\.status === 'complete_today'/)

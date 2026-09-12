@@ -15,6 +15,10 @@ import {
   type CollectionsInvoiceCurrencyRow,
 } from '@/lib/collections/currency-health'
 import {
+  deriveCollectionsCurrencyContext,
+  type CollectionsCurrencyContext,
+} from '@/lib/collections/currency-context'
+import {
   compareDecimalValues,
   decimalValueToFiniteNumber,
   multiplyDecimalByInteger,
@@ -90,6 +94,7 @@ export interface CustomerCollectionsSummaryResult {
   organisationBaseCurrency: string | null
   currencyHealth: CollectionsCurrencyHealth
   currencyEvaluation: CollectionsCurrencyEvaluation
+  currencyContext: CollectionsCurrencyContext
   sourceCounts: {
     customers: number
     invoices: number
@@ -531,6 +536,7 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
   ])
 
   const currencyEvaluation = evaluateCollectionsCurrencyHealth({ organisations, invoices })
+  const currencyContext = deriveCollectionsCurrencyContext(invoices)
   const {
     organisationBaseCurrency,
     currencyHealth,
@@ -576,6 +582,7 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
       organisationBaseCurrency,
       currencyHealth,
       currencyEvaluation,
+      currencyContext,
       sourceCounts,
     }
   }
@@ -854,6 +861,7 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
     organisationBaseCurrency,
     currencyHealth,
     currencyEvaluation,
+    currencyContext,
     sourceCounts,
   }
 }

@@ -118,6 +118,7 @@ test('claim records first dashboard use before granting free access', async () =
   assert.equal(result.usageDaysRemaining, 4)
   assert.equal(result.usageDate, '2026-09-01')
   assert.equal(result.hasActionsAccess, true)
+  assert.equal(result.paidPlan, null)
 })
 
 test('claim blocks the first attempt on a sixth distinct date', async () => {
@@ -186,6 +187,7 @@ test('valid paid entitlement bypasses free-day recording', async () => {
     })
 
     assert.equal(result.isPaid, true)
+    assert.equal(result.paidPlan, 'basic')
     assert.equal(result.hasActionsAccess, true)
     assert.equal(result.usageDaysRemaining, null)
     assert.equal(admin.rpcCalls, 0)
@@ -196,8 +198,8 @@ test('valid paid entitlement bypasses free-day recording', async () => {
 })
 
 test('trustworthy paid-through cache does not depend on the free-usage ledger', async () => {
-  const previousPrice = process.env.STRIPE_PRICE_ID_BASIC
-  process.env.STRIPE_PRICE_ID_BASIC = 'price_basic'
+  const previousPrice = process.env.STRIPE_PRICE_ID_PRO
+  process.env.STRIPE_PRICE_ID_PRO = 'price_pro'
   try {
     const { claimActionsEntitlementStatus } = loadEntitlements()
     const admin = {
@@ -213,7 +215,7 @@ test('trustworthy paid-through cache does not depend on the free-usage ledger', 
       userId: 'user_test',
       supabase: createSessionClient({
         status: 'active',
-        stripe_price_id: 'price_basic',
+        stripe_price_id: 'price_pro',
         current_period_end: '2026-10-01T00:00:00Z',
       }),
       supabaseAdmin: admin,
@@ -221,10 +223,11 @@ test('trustworthy paid-through cache does not depend on the free-usage ledger', 
     })
 
     assert.equal(result.isPaid, true)
+    assert.equal(result.paidPlan, 'pro')
     assert.equal(result.hasActionsAccess, true)
   } finally {
-    if (previousPrice === undefined) delete process.env.STRIPE_PRICE_ID_BASIC
-    else process.env.STRIPE_PRICE_ID_BASIC = previousPrice
+    if (previousPrice === undefined) delete process.env.STRIPE_PRICE_ID_PRO
+    else process.env.STRIPE_PRICE_ID_PRO = previousPrice
   }
 })
 
@@ -248,6 +251,7 @@ test('an exhausted user gains access after a valid paid cache update', async () 
     })
 
     assert.equal(result.isPaid, true)
+    assert.equal(result.paidPlan, 'basic')
     assert.equal(result.hasActionsAccess, true)
     assert.equal(admin.rpcCalls, 0)
   } finally {

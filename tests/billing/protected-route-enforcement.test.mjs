@@ -8,6 +8,7 @@ const projectFile = (path) => new URL(`../../${path}`, import.meta.url)
 const exhaustedEntitlement = {
   plan: 'free',
   isPaid: false,
+  paidPlan: null,
   tenantId: 'tenant_test',
   usageDaysConsumed: 5,
   usageDaysRemaining: 0,

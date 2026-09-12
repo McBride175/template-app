@@ -6,6 +6,8 @@ export interface SubscriptionEntitlementInput {
   stripe_price_id: string | null
 }
 
+export type PaidPlan = 'basic' | 'pro'
+
 export interface FreeUsageDecision {
   usageDate: string
   usageDateConsumed: boolean
@@ -30,6 +32,25 @@ export function getConfiguredPaidPriceIds(
       .map((value) => value?.trim() ?? '')
       .filter((value) => value.length > 0)
   )
+}
+
+export function resolveConfiguredPaidPlan(
+  priceId: string | null | undefined,
+  environment: Record<string, string | undefined> = process.env
+): PaidPlan | null {
+  const normalizedPriceId = priceId?.trim() ?? ''
+  if (!normalizedPriceId) return null
+
+  const basicPriceId = environment.STRIPE_PRICE_ID_BASIC?.trim() ?? ''
+  const proPriceId = environment.STRIPE_PRICE_ID_PRO?.trim() ?? ''
+
+  if (proPriceId && normalizedPriceId === proPriceId && normalizedPriceId !== basicPriceId) {
+    return 'pro'
+  }
+  if (basicPriceId && normalizedPriceId === basicPriceId && normalizedPriceId !== proPriceId) {
+    return 'basic'
+  }
+  return null
 }
 
 export function isSubscriptionPaid(params: {

@@ -8,6 +8,14 @@ const ACTIONS_CLIENT_PATH = new URL(
   '../../app/collections/actions/CollectionActionsClient.tsx',
   import.meta.url
 )
+const MULTI_CURRENCY_GATE_PATH = new URL(
+  '../../app/collections/MultiCurrencyPlanGate.tsx',
+  import.meta.url
+)
+const CANONICAL_INVOICES_PATH = new URL(
+  '../../app/xero/canonical/invoices/page.tsx',
+  import.meta.url
+)
 const SEO_CONTENT_PATH = new URL('../../content/seo-pages.ts', import.meta.url)
 
 test('homepage positioning promises prioritisation rather than expected cash return', async () => {
@@ -26,6 +34,15 @@ test('pricing advertises only product capabilities evidenced in the released app
   assert.match(source, /Overdue action queue with priority scoring/)
   assert.match(source, /Score-based priority prompts and reason visibility/)
   assert.match(source, /Xero sync and canonical data mapping/)
+  assert.match(source, /Single-currency collections/)
+  assert.match(source, /Multi-currency collections/)
+  assert.match(
+    source,
+    /Basic supports single-currency\s+collections; Pro supports multi-currency collections/
+  )
+  assert.doesNotMatch(source, /FX analytics/i)
+  assert.doesNotMatch(source, /currency concentration/i)
+  assert.doesNotMatch(source, /exchange-rate visibility/i)
   assert.doesNotMatch(source, /Collections performance trend reports/)
   assert.doesNotMatch(source, /Team workflows and role-based access/)
   assert.doesNotMatch(source, /Advanced exports and API access/)
@@ -40,6 +57,26 @@ test('scoring UI presents threshold outputs as prompts and keeps treatment with 
   assert.match(source, />Score-based prompt</)
   assert.doesNotMatch(source, /Call immediately/)
   assert.doesNotMatch(source, /Email reminder/)
+})
+
+test('multi-currency product copy is minimal and does not expose exchange-rate internals', async () => {
+  const [gateSource, actionsSource, invoicesSource] = await Promise.all([
+    readFile(MULTI_CURRENCY_GATE_PATH, 'utf8'),
+    readFile(ACTIONS_CLIENT_PATH, 'utf8'),
+    readFile(CANONICAL_INVOICES_PATH, 'utf8'),
+  ])
+
+  assert.match(gateSource, /Multi-currency collections require Pro/)
+  assert.match(gateSource, /more than one invoiced currency/)
+  assert.match(gateSource, /Upgrade to Pro/)
+  assert.match(gateSource, /\/pricing\?reason=multi-currency/)
+  assert.match(actionsSource, /equivalent overdue/)
+  assert.match(actionsSource, /invoiced/)
+  assert.match(invoicesSource, /invoiced/)
+  assert.match(invoicesSource, /equivalent/)
+  assert.doesNotMatch(gateSource, /CurrencyRate|exchange rate|FX/i)
+  assert.doesNotMatch(actionsSource, /CurrencyRate|xero_currency_rate/)
+  assert.doesNotMatch(invoicesSource, /CurrencyRate|xero_currency_rate/)
 })
 
 test('targeted SEO product bridges do not claim prediction or free-text interpretation', async () => {

@@ -7,7 +7,8 @@ import {
   type DecimalInput,
 } from '@/lib/money/currency'
 
-export type CollectionsCurrencyHealthStatus = 'complete' | 'incomplete'
+export type CollectionsCurrencyHealthStatus = 'healthy' | 'degraded' | 'unavailable'
+export type CollectionsRankingStatus = 'complete' | 'provisional' | 'unavailable'
 
 export type CollectionsCurrencyFailureReason =
   | CurrencyConversionFailureReason
@@ -21,9 +22,19 @@ export type CollectionsCurrencyFailureReason =
 
 export interface CollectionsCurrencyHealth {
   status: CollectionsCurrencyHealthStatus
+  rankingStatus: CollectionsRankingStatus
   affectedInvoiceCount: number
   affectedCustomerCount: number
   failureReasons: Partial<Record<CollectionsCurrencyFailureReason, number>>
+}
+
+export interface CollectionsCurrencyIssue {
+  invoiceSourceId: string
+  customerSourceId: string
+  transactionCurrencyCode: string | null
+  organisationBaseCurrencyCode: string | null
+  conversionStatus: string | null
+  failureReason: CollectionsCurrencyFailureReason
 }
 
 export interface CollectionsOrganisationCurrencyRow {
@@ -46,6 +57,8 @@ export interface CollectionsInvoiceCurrencyRow {
 export interface CollectionsCurrencyEvaluation {
   organisationBaseCurrency: string | null
   currencyHealth: CollectionsCurrencyHealth
+  affectedCustomerSourceIds: string[]
+  currencyIssues: CollectionsCurrencyIssue[]
 }
 
 const RECEIVABLE_INVOICE_TYPE = 'ACCREC'
@@ -86,9 +99,11 @@ function isPotentiallyRelevantInvoice(invoice: CollectionsInvoiceCurrencyRow) {
 }
 
 /**
- * Currency correctness gate for the collections domain. Historical paid
- * invoices are deliberately outside this monetary gate because the current
- * historical model uses dates, not cross-invoice monetary weighting.
+ * Currency correctness classifier for the collections domain. Systemic
+ * organisation-currency failures make ranking unavailable; isolated invoice
+ * failures identify customers that must be removed from normal scoring.
+ * Historical paid invoices are deliberately outside this monetary gate because
+ * the current historical model uses dates, not cross-invoice monetary weighting.
  */
 export function evaluateCollectionsCurrencyHealth(params: {
   organisations: readonly CollectionsOrganisationCurrencyRow[]
@@ -117,16 +132,23 @@ export function evaluateCollectionsCurrencyHealth(params: {
         : null
 
   const failureReasons: Partial<Record<CollectionsCurrencyFailureReason, number>> = {}
-  const affectedInvoiceIds = new Set<string>()
   const affectedCustomerIds = new Set<string>()
+  const currencyIssues: CollectionsCurrencyIssue[] = []
 
   const failInvoice = (
     invoice: CollectionsInvoiceCurrencyRow,
     reason: CollectionsCurrencyFailureReason
   ) => {
-    affectedInvoiceIds.add(invoice.source_id)
-    const customerSourceId = invoice.customer_source_id?.trim()
+    const customerSourceId = invoice.customer_source_id?.trim() ?? ''
     if (customerSourceId) affectedCustomerIds.add(customerSourceId)
+    currencyIssues.push({
+      invoiceSourceId: invoice.source_id,
+      customerSourceId,
+      transactionCurrencyCode: normalizeCurrencyCode(invoice.transaction_currency_code),
+      organisationBaseCurrencyCode: organisationBaseCurrency,
+      conversionStatus: invoice.currency_conversion_status,
+      failureReason: reason,
+    })
     addReason(failureReasons, reason)
   }
 
@@ -200,20 +222,59 @@ export function evaluateCollectionsCurrencyHealth(params: {
     }
   }
 
-  if (globalReason && affectedInvoiceIds.size === 0) {
+  if (globalReason && currencyIssues.length === 0) {
     addReason(failureReasons, globalReason)
   }
 
   const status: CollectionsCurrencyHealthStatus =
-    globalReason || affectedInvoiceIds.size > 0 ? 'incomplete' : 'complete'
+    globalReason ? 'unavailable' : currencyIssues.length > 0 ? 'degraded' : 'healthy'
+  const rankingStatus: CollectionsRankingStatus =
+    status === 'healthy' ? 'complete' : status === 'degraded' ? 'provisional' : 'unavailable'
 
   return {
     organisationBaseCurrency,
     currencyHealth: {
       status,
-      affectedInvoiceCount: affectedInvoiceIds.size,
+      rankingStatus,
+      affectedInvoiceCount: currencyIssues.length,
       affectedCustomerCount: affectedCustomerIds.size,
       failureReasons,
     },
+    affectedCustomerSourceIds: Array.from(affectedCustomerIds).sort(),
+    currencyIssues,
   }
+}
+
+/**
+ * Emits identifiers and conversion state needed to diagnose degraded collections
+ * data without logging customer names, raw Xero payloads, credentials, or tokens.
+ */
+export function logCollectionsCurrencyHealth(params: {
+  route: string
+  accountId: string
+  tenantId: string
+  evaluation: CollectionsCurrencyEvaluation
+}) {
+  const { currencyHealth, currencyIssues } = params.evaluation
+  if (currencyHealth.status === 'healthy') return
+
+  console.warn('[collections.currency_health] Currency data requires attention', {
+    route: params.route,
+    timestamp: new Date().toISOString(),
+    account_id: params.accountId,
+    tenant_id: params.tenantId,
+    status: currencyHealth.status,
+    ranking_status: currencyHealth.rankingStatus,
+    affected_invoice_count: currencyHealth.affectedInvoiceCount,
+    affected_customer_count: currencyHealth.affectedCustomerCount,
+    failure_reasons: currencyHealth.failureReasons,
+    issues: currencyIssues.map((issue) => ({
+      invoice_source_id: issue.invoiceSourceId,
+      customer_source_id: issue.customerSourceId,
+      transaction_currency_code: issue.transactionCurrencyCode,
+      organisation_base_currency_code: issue.organisationBaseCurrencyCode,
+      conversion_status: issue.conversionStatus,
+      failure_reason: issue.failureReason,
+    })),
+  })
 }

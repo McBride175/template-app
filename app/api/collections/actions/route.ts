@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import { loadCustomerCollectionsSummaryWithMetadata } from '@/lib/collections/customer-summary'
+import { logCollectionsCurrencyHealth } from '@/lib/collections/currency-health'
 import {
   type CustomerOverrideLevel,
   prioritiseCustomer,
@@ -36,7 +37,8 @@ type CollectionActionType = (typeof COLLECTION_ACTION_TYPES)[number]
 type CollectionActionOutcome = (typeof COLLECTION_ACTION_OUTCOMES)[number]
 type CollectionQueueStatus =
   | 'ready'
-  | 'currency_data_incomplete'
+  | 'currency_data_degraded'
+  | 'currency_data_unavailable'
   | 'no_mapped_data'
   | 'no_overdue_customers'
   | 'no_eligible_customers'
@@ -238,21 +240,32 @@ export async function GET(request: NextRequest) {
       sourceCounts,
       organisationBaseCurrency,
       currencyHealth,
+      currencyEvaluation,
+      reviewRequiredCustomers,
     } =
       await loadCustomerCollectionsSummaryWithMetadata(supabaseAdmin, user.id, tenantId)
 
-    if (currencyHealth.status === 'incomplete' || !organisationBaseCurrency) {
+    logCollectionsCurrencyHealth({
+      route: 'collections.actions.get',
+      accountId: user.id,
+      tenantId,
+      evaluation: currencyEvaluation,
+    })
+
+    if (currencyHealth.status === 'unavailable' || !organisationBaseCurrency) {
       return NextResponse.json({
         ok: true,
         tenantId,
         entitlement,
         organisationBaseCurrency,
         currencyHealth,
+        reviewRequiredCustomers,
         rows: [],
         actionsTakenByCustomerId: {},
         portfolio: null,
         queue: {
-          status: 'currency_data_incomplete' satisfies CollectionQueueStatus,
+          status: 'currency_data_unavailable' satisfies CollectionQueueStatus,
+          rankingStatus: currencyHealth.rankingStatus,
           mappedCustomerCount: sourceCounts.customers,
           mappedInvoiceCount: sourceCounts.invoices,
           mappedPaymentCount: sourceCounts.payments,
@@ -261,6 +274,7 @@ export async function GET(request: NextRequest) {
           actionedTodayCount: 0,
           remainingCustomerCount: 0,
           returnedCustomerCount: 0,
+          reviewRequiredCustomerCount: reviewRequiredCustomers.length,
           relativeLateness: buildRelativeLatenessContext([]),
         },
       })
@@ -293,6 +307,9 @@ export async function GET(request: NextRequest) {
       queueStatus = overdueOnly ? 'no_overdue_customers' : 'no_eligible_customers'
     } else if (remainingCustomerCount === 0) {
       queueStatus = 'complete_today'
+    }
+    if (currencyHealth.status === 'degraded') {
+      queueStatus = 'currency_data_degraded'
     }
 
     const overdueRows = filteredRows.filter((row) => row.overdue_outstanding_base > 0)
@@ -436,17 +453,23 @@ export async function GET(request: NextRequest) {
       entitlement,
       organisationBaseCurrency,
       currencyHealth,
+      reviewRequiredCustomers,
       rows: prioritizedRows,
       actionsTakenByCustomerId,
-      portfolio: {
-        totalOverdueBase: totalOverdueOutstandingBase,
-        totalOverdueBaseDecimal: totalOverdueOutstandingBaseDecimal,
-        largestCustomerOverdueBase: maxOverdueOutstandingBase,
-        largestCustomerOverdueBaseDecimal: maxOverdueOutstandingBaseDecimal,
-        weightedAverageOverdueDays: overallWeightedAvgOverdueDays,
-      },
+      portfolio:
+        currencyHealth.status === 'degraded' && filteredRows.length === 0
+          ? null
+          : {
+              totalOverdueBase: totalOverdueOutstandingBase,
+              totalOverdueBaseDecimal: totalOverdueOutstandingBaseDecimal,
+              largestCustomerOverdueBase: maxOverdueOutstandingBase,
+              largestCustomerOverdueBaseDecimal: maxOverdueOutstandingBaseDecimal,
+              weightedAverageOverdueDays: overallWeightedAvgOverdueDays,
+              rankingStatus: currencyHealth.rankingStatus,
+            },
       queue: {
         status: queueStatus,
+        rankingStatus: currencyHealth.rankingStatus,
         mappedCustomerCount: sourceCounts.customers,
         mappedInvoiceCount: sourceCounts.invoices,
         mappedPaymentCount: sourceCounts.payments,
@@ -455,6 +478,7 @@ export async function GET(request: NextRequest) {
         actionedTodayCount,
         remainingCustomerCount,
         returnedCustomerCount: prioritizedRows.length,
+        reviewRequiredCustomerCount: reviewRequiredCustomers.length,
         relativeLateness: relativeLatenessContext,
       },
     })

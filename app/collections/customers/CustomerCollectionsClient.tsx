@@ -46,10 +46,27 @@ interface CustomerCollectionsSummaryRow {
 }
 
 interface CollectionsCurrencyHealth {
-  status: 'complete' | 'incomplete'
+  status: 'healthy' | 'degraded' | 'unavailable'
+  rankingStatus: 'complete' | 'provisional' | 'unavailable'
   affectedInvoiceCount: number
   affectedCustomerCount: number
   failureReasons: Record<string, number>
+}
+
+interface CurrencyReviewRequiredCustomer {
+  customer_source_id: string
+  customer_name: string
+  customer_email: string | null
+  review_status: 'unscored_due_to_currency'
+  affected_invoice_count: number
+  open_invoices_count: number
+  overdue_invoices_count: number
+  failure_reasons: Record<string, number>
+  native_currency_breakdown: Array<{
+    currency_code: string
+    total_outstanding_native: string
+    overdue_outstanding_native: string
+  }>
 }
 
 interface CollectionsApiResponse {
@@ -58,6 +75,7 @@ interface CollectionsApiResponse {
   tenantId?: string | null
   organisationBaseCurrency?: string | null
   currencyHealth?: CollectionsCurrencyHealth
+  reviewRequiredCustomers?: CurrencyReviewRequiredCustomer[]
   error?: string
 }
 
@@ -108,6 +126,16 @@ function formatMoney(amount: number, currencyCode: string | null) {
   }).format(amount)
 }
 
+function formatNativeAmount(amount: string, currencyCode: string) {
+  const numericAmount = Number(amount)
+  if (!Number.isFinite(numericAmount)) return `${currencyCode} ${amount}`
+  return formatMoney(numericAmount, currencyCode)
+}
+
+function formatCurrencyFailureReason(reason: string) {
+  return reason.replaceAll('_', ' ')
+}
+
 function getStatusLabel(row: CustomerCollectionsSummaryRow) {
   if (row.status?.trim()) return row.status
   if (row.is_customer === true) return 'customer'
@@ -136,6 +164,9 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
   const [error, setError] = useState<string | null>(null)
   const [organisationBaseCurrency, setOrganisationBaseCurrency] = useState<string | null>(null)
   const [currencyHealth, setCurrencyHealth] = useState<CollectionsCurrencyHealth | null>(null)
+  const [reviewRequiredCustomers, setReviewRequiredCustomers] = useState<
+    CurrencyReviewRequiredCustomer[]
+  >([])
 
   const loadRows = useCallback(
     async (manualRefresh: boolean) => {
@@ -181,6 +212,7 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
         setRows(payload.rows ?? [])
         setOrganisationBaseCurrency(payload.organisationBaseCurrency ?? null)
         setCurrencyHealth(payload.currencyHealth ?? null)
+        setReviewRequiredCustomers(payload.reviewRequiredCustomers ?? [])
       } catch (fetchError) {
         setError(
           fetchError instanceof Error
@@ -201,10 +233,15 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
 
   const description = useMemo(() => {
     if (loading) return 'Loading customer aggregation…'
-    if (currencyHealth?.status === 'incomplete') return 'Collections ranking is unavailable.'
+    if (currencyHealth?.status === 'unavailable') return 'Collections ranking is unavailable.'
+    if (currencyHealth?.status === 'degraded' && rows.length === 0) {
+      return `No safely valued customers shown · ${reviewRequiredCustomers.length} need review`
+    }
     if (rows.length === 0) return 'No customer rows matched the current filters.'
-    return `${rows.length} customer${rows.length === 1 ? '' : 's'} shown`
-  }, [currencyHealth?.status, loading, rows.length])
+    const rankedDescription = `${rows.length} customer${rows.length === 1 ? '' : 's'} shown`
+    if (currencyHealth?.status !== 'degraded') return rankedDescription
+    return `${rankedDescription} · ${reviewRequiredCustomers.length} need review`
+  }, [currencyHealth?.status, loading, reviewRequiredCustomers.length, rows.length])
 
   const totals = useMemo(() => {
     let outstandingBase = 0
@@ -274,12 +311,12 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
       {error && <p className="text-sm text-red-600">{error}</p>}
       {!error && <p className="text-sm text-gray-600">{description}</p>}
 
-      {!error && !loading && currencyHealth?.status === 'incomplete' && (
+      {!error && !loading && currencyHealth?.status === 'unavailable' && (
         <Card>
           <h2 className="text-lg font-semibold text-gray-900">Currency data needs refreshing</h2>
           <p className="mt-1 text-sm text-gray-600">
-            A safe collections summary cannot be calculated until the incomplete Xero currency
-            data is refreshed or inspected.
+            A reliable collections summary cannot be calculated until the Xero organisation
+            currency data is refreshed or inspected.
           </p>
           <p className="mt-2 text-sm text-gray-700">
             Affected invoices: {currencyHealth.affectedInvoiceCount} · Affected customers:{' '}
@@ -296,9 +333,83 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
         </Card>
       )}
 
+      {!error && !loading && currencyHealth?.status === 'degraded' && (
+        <Card>
+          <h2 className="text-lg font-semibold text-gray-900">Ranking uses available currency data</h2>
+          <p className="mt-1 text-sm text-gray-600">
+            Some invoice currency data could not be converted. We have ranked the remaining
+            customers using safely valued data, and marked affected customers for review. The
+            displayed totals exclude those affected customers and are provisional.
+          </p>
+          <p className="mt-2 text-sm text-gray-700">
+            Affected invoices: {currencyHealth.affectedInvoiceCount} · Affected customers:{' '}
+            {currencyHealth.affectedCustomerCount}
+          </p>
+          <p className="mt-1 text-xs text-gray-500">
+            Refresh Xero data or contact support if the issue remains.
+          </p>
+        </Card>
+      )}
+
+      {!error && !loading && reviewRequiredCustomers.length > 0 && (
+        <Card>
+          <div className="space-y-3">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Needs review</h2>
+              <p className="mt-1 text-sm text-gray-600">
+                These customers are not scored because at least one open invoice cannot be valued
+                reliably in the organisation base currency.
+              </p>
+            </div>
+            <div className="divide-y divide-gray-200 rounded-md border border-gray-200 bg-white">
+              {reviewRequiredCustomers.map((customer) => (
+                <div key={customer.customer_source_id} className="px-4 py-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium text-gray-900">{customer.customer_name}</p>
+                      <p className="text-xs text-gray-600">
+                        {customer.customer_email || 'No email recorded'}
+                      </p>
+                    </div>
+                    <p className="text-xs font-medium text-amber-800">
+                      {customer.affected_invoice_count} affected invoice
+                      {customer.affected_invoice_count === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                  {customer.native_currency_breakdown.length > 0 && (
+                    <p className="mt-2 text-xs text-gray-600">
+                      Native outstanding:{' '}
+                      {customer.native_currency_breakdown
+                        .map((entry) =>
+                          formatNativeAmount(entry.total_outstanding_native, entry.currency_code)
+                        )
+                        .join(' · ')}
+                    </p>
+                  )}
+                  {Object.keys(customer.failure_reasons).length > 0 && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Reasons:{' '}
+                      {Object.entries(customer.failure_reasons)
+                        .map(
+                          ([reason, count]) =>
+                            `${formatCurrencyFailureReason(reason)} (${count})`
+                        )
+                        .join(', ')}
+                    </p>
+                  )}
+                  <p className="mt-1 text-xs text-gray-500">
+                    Refresh Xero data or contact support before deciding priority.
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+      )}
+
       {!error &&
         !loading &&
-        currencyHealth?.status !== 'incomplete' &&
+        currencyHealth?.status !== 'unavailable' &&
         rows.length > 0 && (
         <div className="space-y-3">
           <div className="grid gap-3 rounded-md border border-gray-200 bg-gray-50 p-3 text-sm text-gray-800 sm:grid-cols-2 lg:grid-cols-4">

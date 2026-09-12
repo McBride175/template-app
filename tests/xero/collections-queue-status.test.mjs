@@ -63,6 +63,27 @@ function buildSummaryRow(overrides = {}) {
   return row
 }
 
+function buildReviewRequiredCustomer(overrides = {}) {
+  return {
+    customer_source_id: 'currency-review-customer',
+    customer_name: 'Currency Review Customer',
+    customer_email: null,
+    review_status: 'unscored_due_to_currency',
+    affected_invoice_count: 1,
+    open_invoices_count: 1,
+    overdue_invoices_count: 1,
+    failure_reasons: { missing_rate: 1 },
+    native_currency_breakdown: [
+      {
+        currency_code: 'USD',
+        total_outstanding_native: '20000',
+        overdue_outstanding_native: '20000',
+      },
+    ],
+    ...overrides,
+  }
+}
+
 function createQuery(rows) {
   const filters = []
   const query = {
@@ -92,11 +113,15 @@ function loadActionsRoute({
   actionRows = [],
   organisationBaseCurrency = 'GBP',
   currencyHealth = {
-    status: 'complete',
+    status: 'healthy',
+    rankingStatus: 'complete',
     affectedInvoiceCount: 0,
     affectedCustomerCount: 0,
     failureReasons: {},
   },
+  reviewRequiredCustomers = [],
+  currencyIssues = [],
+  onCurrencyLog = () => {},
 }) {
   const tables = {
     customer_overrides: [],
@@ -139,7 +164,21 @@ function loadActionsRoute({
             sourceCounts,
             organisationBaseCurrency,
             currencyHealth,
+            reviewRequiredCustomers,
+            currencyEvaluation: {
+              organisationBaseCurrency,
+              currencyHealth,
+              affectedCustomerSourceIds: reviewRequiredCustomers.map(
+                (customer) => customer.customer_source_id
+              ),
+              currencyIssues,
+            },
           }
+        },
+      },
+      '@/lib/collections/currency-health': {
+        logCollectionsCurrencyHealth(params) {
+          onCurrencyLog(params)
         },
       },
       '@/lib/collections/tenant-context': {
@@ -202,7 +241,9 @@ test('mapped overdue data returns an eligible collections customer', async () =>
   assert.equal(payload.queue.eligibleCustomerCount, 1)
   assert.equal(payload.queue.remainingCustomerCount, 1)
   assert.equal(payload.organisationBaseCurrency, 'GBP')
-  assert.equal(payload.currencyHealth.status, 'complete')
+  assert.equal(payload.currencyHealth.status, 'healthy')
+  assert.equal(payload.currencyHealth.rankingStatus, 'complete')
+  assert.deepEqual(payload.reviewRequiredCustomers, [])
   assert.equal(payload.portfolio.totalOverdueBase, 500)
 })
 
@@ -329,31 +370,74 @@ test('base-currency conversion reverses a ranking that raw native numbers would 
   assert.ok(payload.rows[1].exposure_score < 100)
 })
 
-test('incomplete relevant conversion fails the ranked queue closed', async () => {
+test('isolated conversion failure returns a provisional queue from safely valued customers', async () => {
+  const logged = []
   const { payload } = await requestActions({
-    summaryRows: [buildSummaryRow()],
-    sourceCounts: { customers: 1, invoices: 1, payments: 0 },
+    summaryRows: [
+      buildSummaryRow({
+        customer_source_id: 'customer-a',
+        customer_name: 'Customer A',
+        total_outstanding_base: 10000,
+        overdue_outstanding_base: 10000,
+      }),
+      buildSummaryRow({
+        customer_source_id: 'customer-b',
+        customer_name: 'Customer B',
+        total_outstanding_base: 5000,
+        overdue_outstanding_base: 5000,
+      }),
+    ],
+    sourceCounts: { customers: 3, invoices: 3, payments: 0 },
     currencyHealth: {
-      status: 'incomplete',
+      status: 'degraded',
+      rankingStatus: 'provisional',
       affectedInvoiceCount: 1,
       affectedCustomerCount: 1,
       failureReasons: { missing_rate: 1 },
     },
+    reviewRequiredCustomers: [buildReviewRequiredCustomer()],
+    currencyIssues: [
+      {
+        invoiceSourceId: 'broken-usd-invoice',
+        customerSourceId: 'currency-review-customer',
+        transactionCurrencyCode: 'USD',
+        organisationBaseCurrencyCode: 'GBP',
+        conversionStatus: 'incomplete',
+        failureReason: 'missing_rate',
+      },
+    ],
+    onCurrencyLog(params) {
+      logged.push(params)
+    },
   })
 
-  assert.deepEqual(payload.rows, [])
-  assert.equal(payload.queue.status, 'currency_data_incomplete')
+  assert.deepEqual(payload.rows.map((row) => row.customer_source_id), [
+    'customer-a',
+    'customer-b',
+  ])
+  assert.equal(payload.rows[0].exposure_score, 100)
+  assert.equal(payload.rows[1].exposure_score, 50)
+  assert.equal(payload.portfolio.totalOverdueBase, 15000)
+  assert.equal(payload.portfolio.largestCustomerOverdueBase, 10000)
+  assert.equal(payload.portfolio.rankingStatus, 'provisional')
+  assert.equal(payload.queue.status, 'currency_data_degraded')
+  assert.equal(payload.queue.rankingStatus, 'provisional')
+  assert.equal(payload.queue.reviewRequiredCustomerCount, 1)
   assert.equal(payload.currencyHealth.failureReasons.missing_rate, 1)
-  assert.equal(payload.portfolio, null)
+  assert.equal(payload.reviewRequiredCustomers[0].customer_source_id, 'currency-review-customer')
+  assert.equal(logged.length, 1)
+  assert.equal(logged[0].route, 'collections.actions.get')
+  assert.equal(logged[0].tenantId, 'queue-tenant')
 })
 
-test('missing organisation base currency fails closed instead of assuming GBP', async () => {
+test('missing organisation base currency makes the queue unavailable instead of assuming GBP', async () => {
   const { payload } = await requestActions({
     summaryRows: [],
     sourceCounts: { customers: 1, invoices: 1, payments: 0 },
     organisationBaseCurrency: null,
     currencyHealth: {
-      status: 'incomplete',
+      status: 'unavailable',
+      rankingStatus: 'unavailable',
       affectedInvoiceCount: 1,
       affectedCustomerCount: 1,
       failureReasons: { missing_organisation_base_currency: 1 },
@@ -362,7 +446,9 @@ test('missing organisation base currency fails closed instead of assuming GBP', 
 
   assert.deepEqual(payload.rows, [])
   assert.equal(payload.organisationBaseCurrency, null)
-  assert.equal(payload.queue.status, 'currency_data_incomplete')
+  assert.equal(payload.queue.status, 'currency_data_unavailable')
+  assert.equal(payload.queue.rankingStatus, 'unavailable')
+  assert.equal(payload.portfolio, null)
   assert.equal(payload.currencyHealth.failureReasons.missing_organisation_base_currency, 1)
 })
 
@@ -618,13 +704,17 @@ test('future postpone and promise dates still suppress customers without becomin
   assert.equal(payload.queue.status, 'ready')
 })
 
-test('empty queue UI renders reason-specific states and gates the completion summary', async () => {
+test('queue UI renders degraded review and unavailable states without hiding safe rows', async () => {
   const source = await readFile(COLLECTION_ACTIONS_CLIENT_PATH, 'utf8')
 
   assert.match(source, /queueInfo\?\.status === 'no_mapped_data'/)
   assert.match(source, /Collections data not ready/)
-  assert.match(source, /queueInfo\?\.status === 'currency_data_incomplete'/)
+  assert.match(source, /queueInfo\?\.status === 'currency_data_unavailable'/)
+  assert.match(source, /queueInfo\?\.status === 'currency_data_degraded'/)
   assert.match(source, /Currency data needs refreshing/)
+  assert.match(source, /Ranking uses available currency data/)
+  assert.match(source, /Needs review/)
+  assert.match(source, /ReviewRequiredCustomers/)
   assert.match(source, /queueInfo\?\.status === 'no_overdue_customers'/)
   assert.match(source, /No overdue customers/)
   assert.match(source, /queueInfo\?\.status === 'complete_today'/)

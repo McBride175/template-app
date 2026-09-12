@@ -6,6 +6,7 @@ import {
   loadCustomerCollectionsSummaryWithMetadata,
 } from '@/lib/collections/customer-summary'
 import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
+import { logCollectionsCurrencyHealth } from '@/lib/collections/currency-health'
 import { compareDecimalValues } from '@/lib/money/currency'
 
 const DEFAULT_LIMIT = 50
@@ -134,14 +135,24 @@ export async function GET(request: NextRequest) {
       rows,
       organisationBaseCurrency,
       currencyHealth,
+      currencyEvaluation,
+      reviewRequiredCustomers,
     } = await loadCustomerCollectionsSummaryWithMetadata(supabaseAdmin, user.id, tenantId)
 
-    if (currencyHealth.status === 'incomplete' || !organisationBaseCurrency) {
+    logCollectionsCurrencyHealth({
+      route: 'collections.customers.get',
+      accountId: user.id,
+      tenantId,
+      evaluation: currencyEvaluation,
+    })
+
+    if (currencyHealth.status === 'unavailable' || !organisationBaseCurrency) {
       return NextResponse.json({
         ok: true,
         tenantId,
         organisationBaseCurrency,
         currencyHealth,
+        reviewRequiredCustomers,
         rows: [],
       })
     }
@@ -157,6 +168,7 @@ export async function GET(request: NextRequest) {
       tenantId,
       organisationBaseCurrency,
       currencyHealth,
+      reviewRequiredCustomers,
       rows: filteredRows.slice(0, limit),
     })
   } catch (error) {

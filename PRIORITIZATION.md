@@ -12,10 +12,14 @@ The engine groups canonical Xero receivables at customer level. All monetary
 aggregation, comparison, weighting, denominators and monetary tie-breaks use the
 authoritative Xero organisation base currency. Native invoice currency is retained
 as source/accounting context and is never summed directly with another currency.
-An open positive receivable with incomplete conversion data fails the ranking
-closed; the API returns currency-health diagnostics rather than omitting the
-invoice or guessing a value. For each eligible customer the engine calculates
-four 0–100 components:
+An isolated open positive receivable with incomplete conversion data produces a
+degraded best-effort ranking. The affected customer is excluded in full from
+normal scoring and surfaced separately for review; portfolio metrics and
+denominators are provisional and include only customers whose relevant balances
+are safely valued. A missing or conflicting authoritative organisation base
+currency makes the ranking unavailable because no common monetary unit exists.
+The API never omits a broken invoice silently or guesses its value. For each
+eligible, safely valued customer the engine calculates four 0–100 components:
 
 1. **Overdue exposure.** `100 × customer overdue outstanding in base currency /
    largest eligible customer overdue outstanding in base currency`, clamped to

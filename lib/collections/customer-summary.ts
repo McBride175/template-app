@@ -8,7 +8,10 @@ import {
 } from '@/lib/collections/payment-behavior'
 import {
   evaluateCollectionsCurrencyHealth,
+  type CollectionsCurrencyEvaluation,
   type CollectionsCurrencyHealth,
+  type CollectionsCurrencyFailureReason,
+  type CollectionsCurrencyIssue,
   type CollectionsInvoiceCurrencyRow,
 } from '@/lib/collections/currency-health'
 import {
@@ -69,10 +72,24 @@ export interface NativeCurrencyBreakdown {
   overdue_outstanding_native: string
 }
 
+export interface CurrencyReviewRequiredCustomer {
+  customer_source_id: string
+  customer_name: string
+  customer_email: string | null
+  review_status: 'unscored_due_to_currency'
+  affected_invoice_count: number
+  open_invoices_count: number
+  overdue_invoices_count: number
+  failure_reasons: Partial<Record<CollectionsCurrencyFailureReason, number>>
+  native_currency_breakdown: NativeCurrencyBreakdown[]
+}
+
 export interface CustomerCollectionsSummaryResult {
   rows: CustomerCollectionsSummaryRow[]
+  reviewRequiredCustomers: CurrencyReviewRequiredCustomer[]
   organisationBaseCurrency: string | null
   currencyHealth: CollectionsCurrencyHealth
+  currencyEvaluation: CollectionsCurrencyEvaluation
   sourceCounts: {
     customers: number
     invoices: number
@@ -118,6 +135,11 @@ interface MutableCustomerSummaryRow extends CustomerCollectionsSummaryRow {
   total_outstanding_base_amounts: string[]
   overdue_outstanding_base_amounts: string[]
   overdue_weighted_days_numerator_amounts: string[]
+  native_total_amounts_by_currency: Map<string, string[]>
+  native_overdue_amounts_by_currency: Map<string, string[]>
+}
+
+interface MutableCurrencyReviewRequiredCustomer extends CurrencyReviewRequiredCustomer {
   native_total_amounts_by_currency: Map<string, string[]>
   native_overdue_amounts_by_currency: Map<string, string[]>
 }
@@ -207,6 +229,139 @@ function appendDecimalAmount(
   const amounts = amountsByCurrency.get(currencyCode) ?? []
   amounts.push(amount)
   amountsByCurrency.set(currencyCode, amounts)
+}
+
+function incrementFailureReason(
+  reasons: Partial<Record<CollectionsCurrencyFailureReason, number>>,
+  reason: CollectionsCurrencyFailureReason
+) {
+  reasons[reason] = (reasons[reason] ?? 0) + 1
+}
+
+function buildReviewRequiredCustomers(params: {
+  customerBySourceId: ReadonlyMap<string, CanonicalCustomerRow>
+  invoices: readonly CanonicalInvoiceRow[]
+  currencyIssues: readonly CollectionsCurrencyIssue[]
+  affectedCustomerSourceIds: readonly string[]
+  todayIso: string
+}): CurrencyReviewRequiredCustomer[] {
+  const reviewByCustomerSourceId = new Map<
+    string,
+    MutableCurrencyReviewRequiredCustomer
+  >()
+  const affectedInvoiceSourceIds = new Set(
+    params.currencyIssues.map((issue) => normalizeSourceId(issue.invoiceSourceId)).filter(
+      (sourceId): sourceId is string => sourceId !== null
+    )
+  )
+
+  for (const customerSourceId of params.affectedCustomerSourceIds) {
+    const customer = params.customerBySourceId.get(customerSourceId)
+    reviewByCustomerSourceId.set(customerSourceId, {
+      customer_source_id: customerSourceId,
+      customer_name: customer?.name.trim() || customerSourceId,
+      customer_email: customer?.email ?? null,
+      review_status: 'unscored_due_to_currency',
+      affected_invoice_count: 0,
+      open_invoices_count: 0,
+      overdue_invoices_count: 0,
+      failure_reasons: {},
+      native_currency_breakdown: [],
+      native_total_amounts_by_currency: new Map<string, string[]>(),
+      native_overdue_amounts_by_currency: new Map<string, string[]>(),
+    })
+  }
+
+  for (const issue of params.currencyIssues) {
+    const customerSourceId = normalizeSourceId(issue.customerSourceId)
+    if (!customerSourceId) continue
+    const review = reviewByCustomerSourceId.get(customerSourceId)
+    if (!review) continue
+    review.affected_invoice_count += 1
+    incrementFailureReason(review.failure_reasons, issue.failureReason)
+  }
+
+  for (const invoice of params.invoices) {
+    if (
+      normalizeInvoiceType(invoice.type) !== COLLECTIBLE_INVOICE_TYPE ||
+      normalizeInvoiceStatus(invoice.status) !== COLLECTIBLE_INVOICE_STATUS
+    ) {
+      continue
+    }
+
+    const customerSourceId = normalizeSourceId(invoice.customer_source_id)
+    if (!customerSourceId) continue
+    const review = reviewByCustomerSourceId.get(customerSourceId)
+    if (!review) continue
+
+    const invoiceSourceId = normalizeSourceId(invoice.source_id)
+    const amountDueNative = normalizeDecimalValue(invoice.amount_due_native)
+    const nativeAmountComparison =
+      amountDueNative === null ? null : compareDecimalValues(amountDueNative, '0')
+    if (
+      nativeAmountComparison !== 1 &&
+      !(invoiceSourceId && affectedInvoiceSourceIds.has(invoiceSourceId))
+    ) {
+      continue
+    }
+
+    review.open_invoices_count += 1
+    const transactionCurrencyCode = normalizeCurrencyCode(invoice.transaction_currency_code)
+    if (amountDueNative && nativeAmountComparison === 1 && transactionCurrencyCode) {
+      appendDecimalAmount(
+        review.native_total_amounts_by_currency,
+        transactionCurrencyCode,
+        amountDueNative
+      )
+    }
+
+    const dueDate = isIsoDate(invoice.due_date) ? invoice.due_date : null
+    if (dueDate && dueDate < params.todayIso) {
+      review.overdue_invoices_count += 1
+      if (amountDueNative && nativeAmountComparison === 1 && transactionCurrencyCode) {
+        appendDecimalAmount(
+          review.native_overdue_amounts_by_currency,
+          transactionCurrencyCode,
+          amountDueNative
+        )
+      }
+    }
+  }
+
+  return Array.from(reviewByCustomerSourceId.values())
+    .map((review) => {
+      const nativeCurrencyCodes = new Set([
+        ...review.native_total_amounts_by_currency.keys(),
+        ...review.native_overdue_amounts_by_currency.keys(),
+      ])
+
+      return {
+        customer_source_id: review.customer_source_id,
+        customer_name: review.customer_name,
+        customer_email: review.customer_email,
+        review_status: review.review_status,
+        affected_invoice_count: review.affected_invoice_count,
+        open_invoices_count: review.open_invoices_count,
+        overdue_invoices_count: review.overdue_invoices_count,
+        failure_reasons: review.failure_reasons,
+        native_currency_breakdown: Array.from(nativeCurrencyCodes)
+          .sort()
+          .map((currencyCode) => ({
+            currency_code: currencyCode,
+            total_outstanding_native:
+              sumDecimalValues(
+                review.native_total_amounts_by_currency.get(currencyCode) ?? []
+              ) ?? '0',
+            overdue_outstanding_native:
+              sumDecimalValues(
+                review.native_overdue_amounts_by_currency.get(currencyCode) ?? []
+              ) ?? '0',
+          })),
+      }
+    })
+    .sort((a, b) =>
+      a.customer_name.localeCompare(b.customer_name, undefined, { sensitivity: 'base' })
+    )
 }
 
 function createMutableSummary(
@@ -375,36 +530,19 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
     fetchCanonicalPayments(supabase, userId, tenantId),
   ])
 
-  const { organisationBaseCurrency, currencyHealth } =
-    evaluateCollectionsCurrencyHealth({ organisations, invoices })
+  const currencyEvaluation = evaluateCollectionsCurrencyHealth({ organisations, invoices })
+  const {
+    organisationBaseCurrency,
+    currencyHealth,
+    affectedCustomerSourceIds,
+    currencyIssues,
+  } = currencyEvaluation
   const sourceCounts = {
     customers: customers.length,
     invoices: invoices.length,
     payments: payments.length,
   }
-
-  if (currencyHealth.status === 'incomplete' || !organisationBaseCurrency) {
-    return {
-      rows: [],
-      organisationBaseCurrency,
-      currencyHealth,
-      sourceCounts,
-    }
-  }
-
-  const rowsByCustomerSourceId = new Map<string, MutableCustomerSummaryRow>()
   const customerBySourceId = new Map<string, CanonicalCustomerRow>()
-  const customerSourceIdByCollectibleInvoiceSourceId = new Map<string, string>()
-  const historicalInvoicesByCustomerSourceId = new Map<string, HistoricalPaymentInvoice[]>()
-
-  const ensureSummary = (sourceId: string) => {
-    const existing = rowsByCustomerSourceId.get(sourceId)
-    if (existing) return existing
-
-    const created = createMutableSummary(sourceId, organisationBaseCurrency)
-    rowsByCustomerSourceId.set(sourceId, created)
-    return created
-  }
 
   for (const customer of customers) {
     const sourceId = normalizeSourceId(customer.source_id)
@@ -429,6 +567,39 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
       is_supplier: mergeBoolean(existing.is_supplier, customer.is_supplier),
       status: existing.status ?? customer.status ?? null,
     })
+  }
+
+  if (currencyHealth.status === 'unavailable' || !organisationBaseCurrency) {
+    return {
+      rows: [],
+      reviewRequiredCustomers: [],
+      organisationBaseCurrency,
+      currencyHealth,
+      currencyEvaluation,
+      sourceCounts,
+    }
+  }
+
+  const reviewRequiredCustomers = buildReviewRequiredCustomers({
+    customerBySourceId,
+    invoices,
+    currencyIssues,
+    affectedCustomerSourceIds,
+    todayIso,
+  })
+  const affectedCustomerSourceIdSet = new Set(affectedCustomerSourceIds)
+
+  const rowsByCustomerSourceId = new Map<string, MutableCustomerSummaryRow>()
+  const customerSourceIdByCollectibleInvoiceSourceId = new Map<string, string>()
+  const historicalInvoicesByCustomerSourceId = new Map<string, HistoricalPaymentInvoice[]>()
+
+  const ensureSummary = (sourceId: string) => {
+    const existing = rowsByCustomerSourceId.get(sourceId)
+    if (existing) return existing
+
+    const created = createMutableSummary(sourceId, organisationBaseCurrency)
+    rowsByCustomerSourceId.set(sourceId, created)
+    return created
   }
 
   for (const invoice of invoices) {
@@ -463,6 +634,7 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
     }
 
     if (!customerSourceId) continue
+    if (affectedCustomerSourceIdSet.has(customerSourceId)) continue
 
     const summary = ensureSummary(customerSourceId)
     summary.has_receivable_invoice_activity = true
@@ -521,6 +693,7 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
   }
 
   for (const [sourceId, customer] of customerBySourceId.entries()) {
+    if (affectedCustomerSourceIdSet.has(sourceId)) continue
     const summary = rowsByCustomerSourceId.get(sourceId)
 
     if (!summary) {
@@ -677,8 +850,10 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
 
   return {
     rows,
+    reviewRequiredCustomers,
     organisationBaseCurrency,
     currencyHealth,
+    currencyEvaluation,
     sourceCounts,
   }
 }

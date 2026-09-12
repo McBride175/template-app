@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { readFile } from 'node:fs/promises'
 import { loadTypeScriptModule } from './test-helpers/ts-module-loader.mjs'
 
 const { loadCustomerCollectionsSummaryWithMetadata } = loadTypeScriptModule(
@@ -10,9 +11,16 @@ const { loadCustomerCollectionsSummaryWithMetadata } = loadTypeScriptModule(
     },
   }
 )
+const { logCollectionsCurrencyHealth } = loadTypeScriptModule(
+  'lib/collections/currency-health.ts'
+)
 
 const USER_ID = 'currency-user'
 const TENANT_ID = 'currency-tenant'
+const CUSTOMER_COLLECTIONS_CLIENT_PATH = new URL(
+  '../../app/collections/customers/CustomerCollectionsClient.tsx',
+  import.meta.url
+)
 
 function daysAgoIso(days) {
   const date = new Date()
@@ -163,6 +171,9 @@ async function requestCustomerApi(summary) {
           return summary
         },
       },
+      '@/lib/collections/currency-health': {
+        logCollectionsCurrencyHealth() {},
+      },
     },
   })
 
@@ -191,7 +202,9 @@ for (const baseCurrency of ['GBP', 'USD', 'AUD']) {
       ],
     })
 
-    assert.equal(result.currencyHealth.status, 'complete')
+    assert.equal(result.currencyHealth.status, 'healthy')
+    assert.equal(result.currencyHealth.rankingStatus, 'complete')
+    assert.deepEqual(result.reviewRequiredCustomers, [])
     assert.equal(result.organisationBaseCurrency, baseCurrency)
     assert.equal(result.rows[0].total_outstanding_base, 250)
     assert.equal(result.rows[0].overdue_outstanding_base, 250)
@@ -227,6 +240,7 @@ test('same-customer mixed currencies use base amounts for weighted overdue age',
   })
 
   const row = result.rows[0]
+  assert.equal(result.currencyHealth.status, 'healthy')
   assert.equal(row.overdue_outstanding_base, 18_000)
   assert.ok(Math.abs(row.weighted_avg_overdue_days - 45.55555555555556) < 1e-10)
   assert.notEqual(row.weighted_avg_overdue_days, 50)
@@ -272,17 +286,33 @@ test('decimal-string base amounts are summed exactly before the scoring boundary
   assert.equal(result.rows[0].weighted_avg_overdue_days, 30)
 })
 
-test('incomplete open foreign conversion fails aggregation closed', async () => {
+test('one broken foreign invoice degrades aggregation while safe customers remain rankable', async () => {
   const result = await loadSummary({
     baseCurrency: 'GBP',
-    customers: [customer('unsafe-customer')],
+    customers: [customer('customer-a'), customer('customer-b'), customer('customer-c')],
     invoices: [
       invoice({
+        sourceId: 'valid-a',
+        customerSourceId: 'customer-a',
+        transactionCurrency: 'GBP',
+        baseCurrency: 'GBP',
+        amountDueNative: '10000',
+        amountDueBase: '10000',
+      }),
+      invoice({
+        sourceId: 'valid-b',
+        customerSourceId: 'customer-b',
+        transactionCurrency: 'GBP',
+        baseCurrency: 'GBP',
+        amountDueNative: '5000',
+        amountDueBase: '5000',
+      }),
+      invoice({
         sourceId: 'unsafe-invoice',
-        customerSourceId: 'unsafe-customer',
+        customerSourceId: 'customer-c',
         transactionCurrency: 'USD',
         baseCurrency: 'GBP',
-        amountDueNative: '500',
+        amountDueNative: '20000',
         amountDueBase: null,
         conversionStatus: 'incomplete',
         failureReason: 'missing_rate',
@@ -290,20 +320,139 @@ test('incomplete open foreign conversion fails aggregation closed', async () => 
     ],
   })
 
-  assert.deepEqual(result.rows, [])
-  assert.equal(result.currencyHealth.status, 'incomplete')
+  assert.deepEqual(
+    result.rows.map((row) => row.customer_source_id).sort(),
+    ['customer-a', 'customer-b']
+  )
+  assert.equal(result.currencyHealth.status, 'degraded')
+  assert.equal(result.currencyHealth.rankingStatus, 'provisional')
   assert.equal(result.currencyHealth.affectedInvoiceCount, 1)
   assert.equal(result.currencyHealth.affectedCustomerCount, 1)
   assert.equal(result.currencyHealth.failureReasons.missing_rate, 1)
+  assert.deepEqual(result.reviewRequiredCustomers, [
+    {
+      customer_source_id: 'customer-c',
+      customer_name: 'customer-c',
+      customer_email: null,
+      review_status: 'unscored_due_to_currency',
+      affected_invoice_count: 1,
+      open_invoices_count: 1,
+      overdue_invoices_count: 1,
+      failure_reasons: { missing_rate: 1 },
+      native_currency_breakdown: [
+        {
+          currency_code: 'USD',
+          total_outstanding_native: '20000',
+          overdue_outstanding_native: '20000',
+        },
+      ],
+    },
+  ])
 
   const { response, payload } = await requestCustomerApi(result)
   assert.equal(response.status, 200)
-  assert.deepEqual(payload.rows, [])
+  assert.equal(payload.rows.length, 2)
+  assert.equal(payload.reviewRequiredCustomers.length, 1)
   assert.equal(payload.organisationBaseCurrency, 'GBP')
-  assert.equal(payload.currencyHealth.status, 'incomplete')
+  assert.equal(payload.currencyHealth.status, 'degraded')
 })
 
-test('missing authoritative organisation base currency fails aggregation closed', async () => {
+test('a customer with both valid and broken invoices is entirely review-required', async () => {
+  const result = await loadSummary({
+    baseCurrency: 'GBP',
+    customers: [customer('mixed-validity'), customer('safe-customer')],
+    invoices: [
+      invoice({
+        sourceId: 'valid-small',
+        customerSourceId: 'mixed-validity',
+        transactionCurrency: 'GBP',
+        baseCurrency: 'GBP',
+        amountDueNative: '500',
+        amountDueBase: '500',
+      }),
+      invoice({
+        sourceId: 'invalid-large',
+        customerSourceId: 'mixed-validity',
+        transactionCurrency: 'USD',
+        baseCurrency: 'GBP',
+        amountDueNative: '100000',
+        amountDueBase: null,
+        conversionStatus: 'incomplete',
+        failureReason: 'missing_rate',
+      }),
+      invoice({
+        sourceId: 'valid-safe',
+        customerSourceId: 'safe-customer',
+        transactionCurrency: 'GBP',
+        baseCurrency: 'GBP',
+        amountDueNative: '10000',
+        amountDueBase: '10000',
+      }),
+    ],
+  })
+
+  assert.deepEqual(result.rows.map((row) => row.customer_source_id), ['safe-customer'])
+  assert.equal(result.reviewRequiredCustomers[0].customer_source_id, 'mixed-validity')
+  assert.deepEqual(result.reviewRequiredCustomers[0].native_currency_breakdown, [
+    {
+      currency_code: 'GBP',
+      total_outstanding_native: '500',
+      overdue_outstanding_native: '500',
+    },
+    {
+      currency_code: 'USD',
+      total_outstanding_native: '100000',
+      overdue_outstanding_native: '100000',
+    },
+  ])
+})
+
+test('several affected customers remain visible while valid customers aggregate', async () => {
+  const result = await loadSummary({
+    baseCurrency: 'GBP',
+    customers: [customer('safe'), customer('broken-a'), customer('broken-b')],
+    invoices: [
+      invoice({
+        sourceId: 'safe-gbp',
+        customerSourceId: 'safe',
+        transactionCurrency: 'GBP',
+        baseCurrency: 'GBP',
+        amountDueNative: '7500',
+        amountDueBase: '7500',
+      }),
+      invoice({
+        sourceId: 'broken-usd',
+        customerSourceId: 'broken-a',
+        transactionCurrency: 'USD',
+        baseCurrency: 'GBP',
+        amountDueNative: '1000',
+        amountDueBase: null,
+        conversionStatus: 'incomplete',
+        failureReason: 'missing_rate',
+      }),
+      invoice({
+        sourceId: 'broken-eur',
+        customerSourceId: 'broken-b',
+        transactionCurrency: 'EUR',
+        baseCurrency: 'GBP',
+        amountDueNative: '2000',
+        amountDueBase: null,
+        conversionStatus: 'incomplete',
+        failureReason: 'invalid_rate',
+      }),
+    ],
+  })
+
+  assert.deepEqual(result.rows.map((row) => row.customer_source_id), ['safe'])
+  assert.deepEqual(
+    result.reviewRequiredCustomers.map((row) => row.customer_source_id),
+    ['broken-a', 'broken-b']
+  )
+  assert.equal(result.currencyHealth.affectedInvoiceCount, 2)
+  assert.equal(result.currencyHealth.affectedCustomerCount, 2)
+})
+
+test('missing authoritative organisation base currency makes aggregation unavailable', async () => {
   const result = await loadSummary({
     baseCurrency: null,
     customers: [customer('customer-without-base')],
@@ -323,7 +472,8 @@ test('missing authoritative organisation base currency fails aggregation closed'
 
   assert.deepEqual(result.rows, [])
   assert.equal(result.organisationBaseCurrency, null)
-  assert.equal(result.currencyHealth.status, 'incomplete')
+  assert.equal(result.currencyHealth.status, 'unavailable')
+  assert.equal(result.currencyHealth.rankingStatus, 'unavailable')
   assert.equal(result.currencyHealth.failureReasons.missing_organisation_base_currency, 1)
 })
 
@@ -362,9 +512,64 @@ test('paid foreign history with incomplete conversion remains usable for date-on
     ],
   })
 
-  assert.equal(result.currencyHealth.status, 'complete')
+  assert.equal(result.currencyHealth.status, 'healthy')
   assert.equal(result.rows.length, 1)
   assert.equal(result.rows[0].historical_paid_invoice_count, 3)
   assert.equal(result.rows[0].historical_normal_days_late, 10)
   assert.equal(result.rows[0].relative_lateness_days, 20)
+})
+
+test('structured currency-health logging includes diagnostic identifiers but no raw data', () => {
+  const logged = []
+  const originalWarn = console.warn
+  console.warn = (...args) => logged.push(args)
+
+  try {
+    logCollectionsCurrencyHealth({
+      route: 'collections.actions.get',
+      accountId: USER_ID,
+      tenantId: TENANT_ID,
+      evaluation: {
+        organisationBaseCurrency: 'GBP',
+        currencyHealth: {
+          status: 'degraded',
+          rankingStatus: 'provisional',
+          affectedInvoiceCount: 1,
+          affectedCustomerCount: 1,
+          failureReasons: { missing_rate: 1 },
+        },
+        affectedCustomerSourceIds: ['customer-log'],
+        currencyIssues: [
+          {
+            invoiceSourceId: 'invoice-log',
+            customerSourceId: 'customer-log',
+            transactionCurrencyCode: 'USD',
+            organisationBaseCurrencyCode: 'GBP',
+            conversionStatus: 'incomplete',
+            failureReason: 'missing_rate',
+          },
+        ],
+      },
+    })
+  } finally {
+    console.warn = originalWarn
+  }
+
+  assert.equal(logged.length, 1)
+  assert.equal(logged[0][0], '[collections.currency_health] Currency data requires attention')
+  assert.equal(logged[0][1].tenant_id, TENANT_ID)
+  assert.equal(logged[0][1].issues[0].invoice_source_id, 'invoice-log')
+  assert.equal(Object.hasOwn(logged[0][1], 'raw_json'), false)
+  assert.equal(Object.hasOwn(logged[0][1], 'token'), false)
+})
+
+test('customer collections UI presents degraded warnings and review-required customers', async () => {
+  const source = await readFile(CUSTOMER_COLLECTIONS_CLIENT_PATH, 'utf8')
+
+  assert.match(source, /currencyHealth\?\.status === 'degraded'/)
+  assert.match(source, /currencyHealth\?\.status === 'unavailable'/)
+  assert.match(source, /Ranking uses available currency data/)
+  assert.match(source, /Needs review/)
+  assert.match(source, /Native outstanding/)
+  assert.match(source, /reviewRequiredCustomers\.map/)
 })

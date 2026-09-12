@@ -46,12 +46,14 @@ interface CollectionActionsApiResponse {
   queue?: CollectionQueueInfo
   organisationBaseCurrency?: string | null
   currencyHealth?: CollectionsCurrencyHealth
+  reviewRequiredCustomers?: CurrencyReviewRequiredCustomer[]
   error?: string
 }
 
 type CollectionQueueStatus =
   | 'ready'
-  | 'currency_data_incomplete'
+  | 'currency_data_degraded'
+  | 'currency_data_unavailable'
   | 'no_mapped_data'
   | 'no_overdue_customers'
   | 'no_eligible_customers'
@@ -59,6 +61,7 @@ type CollectionQueueStatus =
 
 interface CollectionQueueInfo {
   status: CollectionQueueStatus
+  rankingStatus: 'complete' | 'provisional' | 'unavailable'
   mappedCustomerCount: number
   mappedInvoiceCount: number
   mappedPaymentCount: number
@@ -67,6 +70,7 @@ interface CollectionQueueInfo {
   actionedTodayCount: number
   remainingCustomerCount: number
   returnedCustomerCount: number
+  reviewRequiredCustomerCount: number
   relativeLateness: {
     mode: 'absolute-fallback' | 'portfolio-relative'
     materialObservationCount: number
@@ -78,10 +82,27 @@ interface CollectionQueueInfo {
 }
 
 interface CollectionsCurrencyHealth {
-  status: 'complete' | 'incomplete'
+  status: 'healthy' | 'degraded' | 'unavailable'
+  rankingStatus: 'complete' | 'provisional' | 'unavailable'
   affectedInvoiceCount: number
   affectedCustomerCount: number
   failureReasons: Record<string, number>
+}
+
+interface CurrencyReviewRequiredCustomer {
+  customer_source_id: string
+  customer_name: string
+  customer_email: string | null
+  review_status: 'unscored_due_to_currency'
+  affected_invoice_count: number
+  open_invoices_count: number
+  overdue_invoices_count: number
+  failure_reasons: Record<string, number>
+  native_currency_breakdown: Array<{
+    currency_code: string
+    total_outstanding_native: string
+    overdue_outstanding_native: string
+  }>
 }
 
 interface ActionsEntitlement {
@@ -156,13 +177,17 @@ function CurrencyHealthDiagnostic({
   currencyHealth: CollectionsCurrencyHealth
 }) {
   const failureReasons = Object.entries(currencyHealth.failureReasons)
+  const unavailable = currencyHealth.status === 'unavailable'
 
   return (
     <div>
-      <h3 className="text-lg font-semibold text-gray-900">Currency data needs refreshing</h3>
+      <h3 className="text-lg font-semibold text-gray-900">
+        {unavailable ? 'Currency data needs refreshing' : 'Ranking uses available currency data'}
+      </h3>
       <p className="mt-1 text-sm text-gray-600">
-        A safe collections ranking cannot be calculated until the incomplete Xero currency data is
-        refreshed or inspected.
+        {unavailable
+          ? 'A reliable collections ranking cannot be calculated until the Xero organisation currency data is refreshed or inspected.'
+          : 'Some invoice currency data could not be converted. We have ranked the remaining customers using safely valued data, and marked affected customers for review. Portfolio values are provisional and exclude those affected customers.'}
       </p>
       <p className="mt-2 text-sm text-gray-700">
         Affected invoices: {currencyHealth.affectedInvoiceCount} · Affected customers:{' '}
@@ -176,7 +201,78 @@ function CurrencyHealthDiagnostic({
             .join(', ')}
         </p>
       )}
+      <p className="mt-2 text-xs text-gray-500">
+        Refresh Xero data or contact support if the issue remains.
+      </p>
     </div>
+  )
+}
+
+function formatNativeAmount(amount: string, currencyCode: string) {
+  const numericAmount = Number(amount)
+  if (!Number.isFinite(numericAmount)) return `${currencyCode} ${amount}`
+  return formatMoney(numericAmount, currencyCode)
+}
+
+function ReviewRequiredCustomers({
+  customers,
+}: {
+  customers: CurrencyReviewRequiredCustomer[]
+}) {
+  if (customers.length === 0) return null
+
+  return (
+    <Card>
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900">Needs review</h3>
+          <p className="mt-1 text-sm text-gray-600">
+            These customers are not scored because at least one open invoice cannot be valued
+            reliably in the organisation base currency.
+          </p>
+        </div>
+        <div className="divide-y divide-gray-200 rounded-md border border-gray-200 bg-white">
+          {customers.map((customer) => (
+            <div key={customer.customer_source_id} className="px-4 py-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="font-medium text-gray-900">{customer.customer_name}</p>
+                  <p className="text-xs text-gray-600">{customer.customer_email || 'No email recorded'}</p>
+                </div>
+                <p className="text-xs font-medium text-amber-800">
+                  {customer.affected_invoice_count} affected invoice
+                  {customer.affected_invoice_count === 1 ? '' : 's'}
+                </p>
+              </div>
+              {customer.native_currency_breakdown.length > 0 && (
+                <p className="mt-2 text-xs text-gray-600">
+                  Native outstanding:{' '}
+                  {customer.native_currency_breakdown
+                    .map((entry) =>
+                      formatNativeAmount(entry.total_outstanding_native, entry.currency_code)
+                    )
+                    .join(' · ')}
+                </p>
+              )}
+              {Object.keys(customer.failure_reasons).length > 0 && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Reasons:{' '}
+                  {Object.entries(customer.failure_reasons)
+                    .map(
+                      ([reason, count]) =>
+                        `${formatCurrencyFailureReason(reason)} (${count})`
+                    )
+                    .join(', ')}
+                </p>
+              )}
+              <p className="mt-1 text-xs text-gray-500">
+                Refresh Xero data or contact support before deciding priority.
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Card>
   )
 }
 
@@ -406,6 +502,9 @@ export default function CollectionActionsClient({
   const [queueInfo, setQueueInfo] = useState<CollectionQueueInfo | null>(null)
   const [organisationBaseCurrency, setOrganisationBaseCurrency] = useState<string | null>(null)
   const [currencyHealth, setCurrencyHealth] = useState<CollectionsCurrencyHealth | null>(null)
+  const [reviewRequiredCustomers, setReviewRequiredCustomers] = useState<
+    CurrencyReviewRequiredCustomer[]
+  >([])
   const defaultLoginNextPath = embedded ? '/dashboard' : '/collections/actions'
   const effectiveLoginNextPath =
     loginNextPath ??
@@ -464,6 +563,7 @@ export default function CollectionActionsClient({
           setQueueInfo(null)
           setOrganisationBaseCurrency(null)
           setCurrencyHealth(null)
+          setReviewRequiredCustomers([])
           setUsageLimitReached(true)
           return
         }
@@ -475,6 +575,7 @@ export default function CollectionActionsClient({
         setUsageLimitReached(false)
         setOrganisationBaseCurrency(payload.organisationBaseCurrency ?? null)
         setCurrencyHealth(payload.currencyHealth ?? null)
+        setReviewRequiredCustomers(payload.reviewRequiredCustomers ?? [])
         const nextRows = payload.rows ?? []
         setRows(
           effectiveOverdueOnly
@@ -1121,11 +1222,21 @@ export default function CollectionActionsClient({
       {!showQueueSection &&
         !usageLimitReached &&
         !loading &&
-        currencyHealth?.status === 'incomplete' && (
+        currencyHealth?.status === 'unavailable' && (
           <Card>
             <CurrencyHealthDiagnostic currencyHealth={currencyHealth} />
           </Card>
         )}
+
+      {!usageLimitReached && !loading && currencyHealth?.status === 'degraded' && (
+        <Card>
+          <CurrencyHealthDiagnostic currencyHealth={currencyHealth} />
+        </Card>
+      )}
+
+      {!usageLimitReached && !loading && (
+        <ReviewRequiredCustomers customers={reviewRequiredCustomers} />
+      )}
 
       {showQueueSection && !usageLimitReached && (
         <Card>
@@ -1185,10 +1296,20 @@ export default function CollectionActionsClient({
                   )}
                 </div>
               </div>
-            ) : !loading && queueInfo?.status === 'currency_data_incomplete' ? (
+            ) : !loading && queueInfo?.status === 'currency_data_unavailable' ? (
               currencyHealth ? (
                 <CurrencyHealthDiagnostic currencyHealth={currencyHealth} />
               ) : null
+            ) : !loading && queueInfo?.status === 'currency_data_degraded' ? (
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  No provisional queue customers remaining
+                </h3>
+                <p className="text-sm text-gray-600">
+                  Review the affected customers above, then refresh Xero data to rebuild the full
+                  queue.
+                </p>
+              </div>
             ) : !loading && queueInfo?.status === 'complete_today' ? (
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">Queue complete</h3>

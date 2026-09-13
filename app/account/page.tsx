@@ -595,15 +595,15 @@ export default function AccountPage() {
       </Card>
 
       <Card>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="mb-2">Signed in</h2>
-            <p className="text-sm text-gray-700">{email}</p>
+            <p className="break-all text-sm text-gray-700">{email}</p>
             {!subscription?.hasCustomer && (
               <p className="mt-1 text-sm text-gray-500">Not subscribed yet</p>
             )}
           </div>
-          <div className="flex flex-col items-end gap-2">
+          <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:items-end">
             {subscription?.hasCustomer ? (
               <ManageSubscriptionButton />
             ) : (

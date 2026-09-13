@@ -23,6 +23,13 @@ type AuthErrorLike = {
 
 export type AuthAction = 'password-login' | 'signup' | 'email-link' | 'password-update' | 'google'
 
+export type AuthOperationalFailure =
+  | 'captcha_failed'
+  | 'auth_email_rate_limited'
+  | 'auth_request_rate_limited'
+  | 'auth_email_delivery_failed'
+  | 'auth_service_failed'
+
 function firstString(value: string | string[] | null | undefined) {
   if (Array.isArray(value)) return value[0] ?? null
   return value ?? null
@@ -99,6 +106,30 @@ export function getAuthErrorCode(error: unknown) {
   return typeof code === 'string' ? code : null
 }
 
+function getAuthErrorStatus(error: unknown) {
+  if (!error || typeof error !== 'object') return null
+  const status = (error as AuthErrorLike).status
+  return typeof status === 'number' ? status : null
+}
+
+export function classifyAuthOperationalFailure(
+  error: unknown,
+  action: AuthAction
+): AuthOperationalFailure | null {
+  const code = getAuthErrorCode(error)
+  if (code === 'captcha_failed') return 'captcha_failed'
+  if (code === 'over_email_send_rate_limit') return 'auth_email_rate_limited'
+  if (code === 'over_request_rate_limit') return 'auth_request_rate_limited'
+  if (code === 'email_address_not_authorized') return 'auth_email_delivery_failed'
+
+  const status = getAuthErrorStatus(error)
+  if ((action === 'signup' || action === 'email-link') && status !== null && status >= 500) {
+    return 'auth_service_failed'
+  }
+
+  return null
+}
+
 export function getAuthActionErrorMessage(error: unknown, action: AuthAction) {
   const code = getAuthErrorCode(error)
 
@@ -122,6 +153,9 @@ export function getAuthActionErrorMessage(error: unknown, action: AuthAction) {
   }
   if (code === 'email_address_not_authorized') {
     return 'We could not send an email to that address. Contact support if the address is correct.'
+  }
+  if (code === 'captcha_failed') {
+    return 'We could not verify the security check. Complete it again and retry.'
   }
   if (code === 'over_email_send_rate_limit' || code === 'over_request_rate_limit') {
     return 'Too many attempts were made in a short time. Wait a few minutes, then try again.'

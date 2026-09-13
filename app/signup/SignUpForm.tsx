@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import AuthScaffold from '@/app/components/AuthScaffold'
 import AuthLegalNotice from '@/app/components/AuthLegalNotice'
@@ -10,12 +10,20 @@ import Button from '@/app/components/Button'
 import GoogleIcon from '@/app/components/GoogleIcon'
 import Input from '@/app/components/Input'
 import PasswordToggleButton from '@/app/components/PasswordToggleButton'
+import TurnstileCaptcha, {
+  type TurnstileCaptchaHandle,
+} from '@/app/components/TurnstileCaptcha'
 import { signInWithGoogle, signUpWithPassword } from '@/lib/auth'
 import {
   buildAuthCallbackPath,
   buildAuthSwitchPath,
   getAuthActionErrorMessage,
 } from '@/lib/auth-flow'
+import { reportAuthOperationalFailure } from '@/lib/auth-observability'
+import {
+  getAuthCaptchaValidationError,
+  getTurnstileSiteKey,
+} from '@/lib/auth-captcha'
 import { getPasswordRequirements, validatePassword } from '@/lib/password'
 
 type SignUpFormProps = {
@@ -37,6 +45,9 @@ export default function SignUpForm({ nextPath, initialEmail, loginHref }: SignUp
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [confirmationPending, setConfirmationPending] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  const captchaRef = useRef<TurnstileCaptchaHandle>(null)
+  const turnstileSiteKey = getTurnstileSiteKey()
   const busy = activeAction !== null
   const passwordRequirements = getPasswordRequirements(password)
 
@@ -65,14 +76,25 @@ export default function SignUpForm({ nextPath, initialEmail, loginHref }: SignUp
       return
     }
 
+    const captchaValidationError = getAuthCaptchaValidationError(
+      turnstileSiteKey,
+      captchaToken
+    )
+    if (captchaValidationError) {
+      setError(captchaValidationError)
+      return
+    }
+
     setActiveAction('email')
     try {
       const { data, error: signUpError } = await signUpWithPassword(
         trimmedEmail,
         password,
-        absoluteAuthUrl(buildAuthCallbackPath(nextPath))
+        absoluteAuthUrl(buildAuthCallbackPath(nextPath)),
+        captchaToken ?? undefined
       )
       if (signUpError) {
+        reportAuthOperationalFailure(signUpError, 'signup')
         setError(getAuthActionErrorMessage(signUpError, 'signup'))
         return
       }
@@ -86,8 +108,10 @@ export default function SignUpForm({ nextPath, initialEmail, loginHref }: SignUp
         'Check your inbox to confirm your email. If no message arrives, you may already have an account—sign in or continue with Google.'
       )
     } catch (signUpError) {
+      reportAuthOperationalFailure(signUpError, 'signup')
       setError(getAuthActionErrorMessage(signUpError, 'signup'))
     } finally {
+      captchaRef.current?.reset()
       setActiveAction(null)
     }
   }
@@ -190,6 +214,16 @@ export default function SignUpForm({ nextPath, initialEmail, loginHref }: SignUp
             {passwordRequirements}
           </p>
         </div>
+
+        {turnstileSiteKey && (
+          <TurnstileCaptcha
+            ref={captchaRef}
+            action="signup"
+            siteKey={turnstileSiteKey}
+            onTokenChange={setCaptchaToken}
+            disabled={busy}
+          />
+        )}
 
         <Button
           type="submit"

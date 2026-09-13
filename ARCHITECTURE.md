@@ -124,6 +124,17 @@ Application code controls the application callback and post-login redirect. Supa
 
 Preview and Production may use the same Google OAuth client if every required Supabase callback URI and origin is configured. Because Test and Production are separate Supabase projects, both project callback URLs must be accounted for even when the Google client is shared.
 
+Public email/password sign-in and signup, magic links, and password recovery support Cloudflare
+Turnstile through `NEXT_PUBLIC_TURNSTILE_SITE_KEY`. The browser passes the completed challenge as
+Supabase Auth's `captchaToken`; Supabase validates it with the environment's Turnstile secret.
+That secret belongs only in the Supabase Auth dashboard, never in this repository or Vercel.
+Google OAuth and authenticated direct password updates do not use the CAPTCHA token.
+
+Supabase Auth email transport is configured in Supabase rather than application code. Production
+must use reviewed custom SMTP and an authenticated Auth sending domain; the built-in sender is
+Test-only. Operational ownership and the hosted-testing guard are in
+`AUTH_EMAIL_OPERATIONS.md`.
+
 ## Stripe
 
 Stripe is authoritative for customers and subscriptions.
@@ -161,6 +172,7 @@ Environment values—not variable names—must differ where required. In particu
 
 - Application URL and Vercel-provided runtime metadata
 - Supabase public/session and server-only service credentials
+- Cloudflare Turnstile public site key (the secret is held by Supabase Auth)
 - Stripe keys, Price IDs, and webhook secret
 - Resend/support sender and inbox
 - Xero OAuth, token encryption, internal access, and sync tuning

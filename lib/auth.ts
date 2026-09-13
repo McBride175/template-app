@@ -5,24 +5,38 @@
  */
 import { supabase } from '@/lib/supabase'
 
-export function signInWithPassword(email: string, password: string) {
-  return supabase.auth.signInWithPassword({ email, password })
-}
-
-export function signUpWithPassword(email: string, password: string, emailRedirectTo: string) {
-  return supabase.auth.signUp({
+export function signInWithPassword(email: string, password: string, captchaToken?: string) {
+  return supabase.auth.signInWithPassword({
     email,
     password,
-    options: { emailRedirectTo },
+    options: { captchaToken },
   })
 }
 
-export function signInWithEmailOtp(email: string, emailRedirectTo: string) {
+export function signUpWithPassword(
+  email: string,
+  password: string,
+  emailRedirectTo: string,
+  captchaToken?: string
+) {
+  return supabase.auth.signUp({
+    email,
+    password,
+    options: { emailRedirectTo, captchaToken },
+  })
+}
+
+export function signInWithEmailOtp(
+  email: string,
+  emailRedirectTo: string,
+  captchaToken?: string
+) {
   return supabase.auth.signInWithOtp({
     email,
     options: {
       emailRedirectTo,
       shouldCreateUser: false,
+      captchaToken,
     },
   })
 }
@@ -38,6 +52,6 @@ export function signOut() {
   return supabase.auth.signOut()
 }
 
-export function sendPasswordRecovery(email: string, redirectTo: string) {
-  return supabase.auth.resetPasswordForEmail(email, { redirectTo })
+export function sendPasswordRecovery(email: string, redirectTo: string, captchaToken?: string) {
+  return supabase.auth.resetPasswordForEmail(email, { redirectTo, captchaToken })
 }

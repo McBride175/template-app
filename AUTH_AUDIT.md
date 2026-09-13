@@ -7,7 +7,9 @@ This audit covers the application authentication experience on the active pre-la
 `rbmxegyiwntomhpbepnu`. Production (`main`, Supabase project
 `sswyxbugbdoadktyaows`) intentionally may lag behind and is not part of this rollout.
 
-No database migration or new environment variable is required by these changes.
+The original UX changes required no migration or new environment variable. The later Auth-email
+hardening phase adds the public `NEXT_PUBLIC_TURNSTILE_SITE_KEY`; CAPTCHA remains disabled until
+the matching environment is configured deliberately in both Turnstile and Supabase Auth.
 
 ## Pre-change journey map
 
@@ -158,6 +160,17 @@ After the changes are deployed from `develop`, verify against the stable Preview
    Google-created user, expired link, protected destination return, mobile layout, and logout.
 7. Confirm `main`, Production Vercel, Supabase Production `sswyxbugbdoadktyaows`, and Stripe Live
    remain unchanged.
+
+### Auth email testing rule
+
+Normal automated tests must remain fully mocked/local and must never consume a hosted Supabase
+Auth email allowance. Real signup-confirmation, recovery, and magic-link delivery tests are
+exceptional because they consume the Test project's shared email quota. Use only the guarded
+`scripts/auth-email-e2e.mjs` diagnostic (or an equally explicit browser action), coordinate the
+quota first, and require the explicit `--allow-auth-email-send` flag. The harness is locked to
+Test project `rbmxegyiwntomhpbepnu`; Production must never be used for routine Auth email E2E.
+
+CAPTCHA and custom-SMTP rollout ownership is documented in `AUTH_EMAIL_OPERATIONS.md`.
 
 ## Final hosted E2E verification — 13 September 2026
 

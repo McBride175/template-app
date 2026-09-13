@@ -1,15 +1,21 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import Button from './Button'
 import Input from './Input'
 import PasswordToggleButton from './PasswordToggleButton'
+import TurnstileCaptcha, { type TurnstileCaptchaHandle } from './TurnstileCaptcha'
 import { sendPasswordRecovery } from '@/lib/auth'
 import {
   buildPasswordRecoveryCallbackPath,
   getAuthActionErrorMessage,
   getAuthErrorCode,
 } from '@/lib/auth-flow'
+import { reportAuthOperationalFailure } from '@/lib/auth-observability'
+import {
+  getAuthCaptchaValidationError,
+  getTurnstileSiteKey,
+} from '@/lib/auth-captcha'
 import { getPasswordRequirements, validatePassword } from '@/lib/password'
 import { supabase } from '@/lib/supabase'
 
@@ -23,6 +29,9 @@ export default function ChangePasswordButton({ email }: { email: string }) {
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [reauthenticationNeeded, setReauthenticationNeeded] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  const captchaRef = useRef<TurnstileCaptchaHandle>(null)
+  const turnstileSiteKey = getTurnstileSiteKey()
   const busy = saving || sendingLink
 
   const resetForm = () => {
@@ -77,6 +86,14 @@ export default function ChangePasswordButton({ email }: { email: string }) {
       setError('We could not find an email address for this account. Contact support for help.')
       return
     }
+    const captchaValidationError = getAuthCaptchaValidationError(
+      turnstileSiteKey,
+      captchaToken
+    )
+    if (captchaValidationError) {
+      setError(captchaValidationError)
+      return
+    }
 
     setSendingLink(true)
     try {
@@ -84,16 +101,23 @@ export default function ChangePasswordButton({ email }: { email: string }) {
         buildPasswordRecoveryCallbackPath('/account'),
         window.location.origin
       ).toString()
-      const { error: resetError } = await sendPasswordRecovery(email, redirectTo)
+      const { error: resetError } = await sendPasswordRecovery(
+        email,
+        redirectTo,
+        captchaToken ?? undefined
+      )
       if (resetError) {
+        reportAuthOperationalFailure(resetError, 'email-link')
         setError(getAuthActionErrorMessage(resetError, 'email-link'))
         return
       }
       setStatus('A secure password link is on its way. Check your inbox and spam folder.')
       setReauthenticationNeeded(false)
     } catch (resetError) {
+      reportAuthOperationalFailure(resetError, 'email-link')
       setError(getAuthActionErrorMessage(resetError, 'email-link'))
     } finally {
+      captchaRef.current?.reset()
       setSendingLink(false)
     }
   }
@@ -190,18 +214,32 @@ export default function ChangePasswordButton({ email }: { email: string }) {
             </Button>
           </div>
 
-          <button
-            type="button"
-            onClick={() => void handlePasswordLink()}
-            disabled={busy}
-            className="text-sm font-medium text-gray-700 underline underline-offset-4 disabled:opacity-50"
-          >
-            {sendingLink
-              ? 'Sending secure link…'
-              : reauthenticationNeeded
-                ? 'Send the required secure link'
-                : 'Send a secure password link instead'}
-          </button>
+          <div className="space-y-2 border-t border-gray-200 pt-3">
+            <p className="text-xs text-gray-600">
+              Emailed-link alternative
+            </p>
+            {turnstileSiteKey && (
+              <TurnstileCaptcha
+                ref={captchaRef}
+                action="password_recovery"
+                siteKey={turnstileSiteKey}
+                onTokenChange={setCaptchaToken}
+                disabled={busy}
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => void handlePasswordLink()}
+              disabled={busy}
+              className="text-sm font-medium text-gray-700 underline underline-offset-4 disabled:opacity-50"
+            >
+              {sendingLink
+                ? 'Sending secure link…'
+                : reauthenticationNeeded
+                  ? 'Send the required secure link'
+                  : 'Send a secure password link instead'}
+            </button>
+          </div>
         </form>
       )}
 

@@ -4,6 +4,7 @@ import { loadTypeScriptModule } from '../xero/test-helpers/ts-module-loader.mjs'
 
 const projectFile = (path) => new URL(`../../${path}`, import.meta.url)
 const authFlow = loadTypeScriptModule(projectFile('lib/auth-flow.ts'))
+const authCaptcha = loadTypeScriptModule(projectFile('lib/auth-captcha.ts'))
 const passwords = loadTypeScriptModule(projectFile('lib/password.ts'))
 
 test('safe internal destinations preserve paths, queries, and fragments', () => {
@@ -54,6 +55,43 @@ test('known callback failures produce plain-English guidance', () => {
   assert.match(authFlow.getAuthPageErrorMessage('oauth_cancelled'), /cancelled/i)
   assert.match(authFlow.getAuthPageErrorMessage('auth_link_expired'), /expired/i)
   assert.equal(authFlow.getAuthPageErrorMessage('attacker-controlled-code'), null)
+})
+
+test('configured CAPTCHA blocks a missing token and accepts a completed challenge', () => {
+  assert.match(authCaptcha.getAuthCaptchaValidationError('turnstile-site-key', null), /security check/i)
+  assert.equal(
+    authCaptcha.getAuthCaptchaValidationError('turnstile-site-key', 'captcha-token'),
+    null
+  )
+  assert.equal(authCaptcha.getAuthCaptchaValidationError('', null), null)
+})
+
+test('CAPTCHA and Auth-email operational failures have stable classifications', () => {
+  const captchaError = { code: 'captcha_failed', status: 400 }
+
+  assert.match(authFlow.getAuthActionErrorMessage(captchaError, 'signup'), /security check/i)
+  assert.equal(
+    authFlow.classifyAuthOperationalFailure(captchaError, 'signup'),
+    'captcha_failed'
+  )
+  assert.equal(
+    authFlow.classifyAuthOperationalFailure(
+      { code: 'over_email_send_rate_limit', status: 429 },
+      'email-link'
+    ),
+    'auth_email_rate_limited'
+  )
+  assert.equal(
+    authFlow.classifyAuthOperationalFailure({ code: 'unexpected_failure', status: 500 }, 'signup'),
+    'auth_service_failed'
+  )
+  assert.equal(
+    authFlow.classifyAuthOperationalFailure(
+      { code: 'invalid_credentials', status: 400 },
+      'password-login'
+    ),
+    null
+  )
 })
 
 test('password validation matches the UI contract', () => {

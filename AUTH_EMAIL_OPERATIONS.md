@@ -1,0 +1,95 @@
+# Auth email operations
+
+Supabase Auth owns signup confirmation, password recovery, magic-link, invitation, and email
+change delivery. The application supplies redirect URLs and, when configured, a Cloudflare
+Turnstile token. It does not send or queue these messages itself.
+
+## Hosted testing policy
+
+- `pnpm test` and the other normal automated checks must stay local/mocked and email-neutral.
+- A real hosted Auth email is an exceptional, quota-consuming Test operation. Never use
+  Production Supabase for routine Auth email E2E or template verification.
+- The permanent diagnostic is `scripts/auth-email-e2e.mjs`. Starting it without arguments only
+  prints help. A send requires an explicit `signup`, `recovery`, or `magic-link` operation, the
+  `--allow-auth-email-send` flag, a deliberately selected recipient, and the exact Test project.
+- Before a real send, coordinate with any other Auth verification, budget the expected message,
+  and record the operation and timestamp. Test's built-in sender currently permits only two
+  project-wide messages per hour.
+- Prefer the deployed UI when verifying CAPTCHA behavior. The script accepts a fresh
+  `AUTH_EMAIL_E2E_CAPTCHA_TOKEN` only for exceptional direct-API diagnostics after CAPTCHA is
+  enabled; Turnstile tokens are short-lived and single-use.
+
+Example shape (values stay in the shell or `.env.local`, never Git):
+
+```sh
+node --env-file=.env.local scripts/auth-email-e2e.mjs recovery --allow-auth-email-send
+```
+
+Set `AUTH_EMAIL_E2E_TARGET_EMAIL`, `AUTH_EMAIL_E2E_REDIRECT_ORIGIN`, and, for signup only,
+`AUTH_EMAIL_E2E_SIGNUP_PASSWORD`. The harness accepts only Test project
+`rbmxegyiwntomhpbepnu` and either localhost or the stable `develop` Preview origin.
+
+## CAPTCHA ownership and rollout
+
+| Control | Owner/location |
+|---|---|
+| Turnstile widget and token forwarding | Repository (`TurnstileCaptcha` and Auth helpers) |
+| Public Turnstile site key | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` in the deployment environment |
+| Turnstile secret key | Supabase Auth dashboard only; never an application environment variable |
+| CAPTCHA enforcement | Supabase Auth > Authentication > Bot and Abuse Protection |
+| Widget hostname allow-list | Cloudflare Turnstile |
+
+The widget obtains a short-lived, single-use token. The application passes that token through
+Supabase JS as `options.captchaToken`; Supabase Auth validates it server-side with the configured
+Turnstile secret. A visual-only CAPTCHA is not sufficient.
+
+Roll out one environment at a time: create the Turnstile widget and allow its hostnames, set the
+matching public site key on the deployment, deploy the CAPTCHA-capable code, then enable
+Turnstile with the matching secret in that environment's Supabase project. Validate Test before
+any separately reviewed Production work. Local testing needs `localhost` on the Test widget and
+the Test site key in `.env.local`; with no site key and no Supabase CAPTCHA enforcement, the
+component is intentionally absent.
+
+Protected email/password signup, email/password login, password recovery, magic-link sign-in,
+and the signed-in emailed recovery fallback pass a token. Google OAuth and authenticated direct
+password updates do not use CAPTCHA.
+
+## Production custom SMTP checklist
+
+No application code or application secret is required to switch Supabase Auth from its built-in
+sender to standard custom SMTP. Keep Auth email transport credentials out of this repository.
+
+| Setting/control | Supabase | SMTP provider / DNS | Repository |
+|---|:---:|:---:|:---:|
+| SMTP host, port, username, password/API credential | Configure | Issue and document limits | None |
+| Sender email and sender display name | Configure | Authorize sender/domain | Email copy may reference the product name |
+| Sending-domain ownership | Reference verified domain | Verify | Document only |
+| SPF and DKIM | None | Publish provider records in DNS | None |
+| DMARC policy and reporting | None | Publish/monitor in DNS | None |
+| Supabase Auth email rate limit | Set after capacity review | None | Handle stable rate-limit errors |
+| Provider throughput/daily limits | Keep Supabase below them | Select/raise/monitor | None |
+| Bounce and complaint handling | Review Auth logs | Configure provider alerts/suppression | None unless a future integration is justified |
+| Delivery verification | Review Auth logs | Review delivery events/inbox placement | Run minimal Test E2E only |
+
+Before Production launch: choose the transactional provider, authenticate a dedicated Auth
+sending subdomain, configure and verify SPF/DKIM/DMARC, enter SMTP credentials and sender details
+in Production Supabase, set Supabase's Auth email limit within provider capacity, and test signup,
+recovery, magic link, bounce handling, complaints, and monitoring. Keep Auth traffic separate
+from marketing traffic. The provider's own limits remain independent of Supabase's configured
+Auth email rate limit.
+
+## Operational signals
+
+Client Auth failures are classified without logging email addresses or provider error messages:
+
+- `over_email_send_rate_limit` -> `auth_email_rate_limited`
+- `over_request_rate_limit` -> `auth_request_rate_limited`
+- `captcha_failed` -> `captcha_failed`
+- built-in-sender authorization failure -> `auth_email_delivery_failed`
+- a 5xx response during signup or an email-link action -> `auth_service_failed`
+
+These structured warnings are sent to the browser console and the existing Sentry integration
+using only the action, category, stable Auth error code, and HTTP status—never the submitted email
+or Supabase/provider error text. Supabase Auth logs and the eventual SMTP provider remain the
+delivery source of truth; do not build a parallel bespoke monitoring pipeline without evidence
+that one is needed.

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import AuthScaffold from '@/app/components/AuthScaffold'
 import AuthLegalNotice from '@/app/components/AuthLegalNotice'
@@ -9,6 +9,9 @@ import Button from '@/app/components/Button'
 import GoogleIcon from '@/app/components/GoogleIcon'
 import Input from '@/app/components/Input'
 import PasswordToggleButton from '@/app/components/PasswordToggleButton'
+import TurnstileCaptcha, {
+  type TurnstileCaptchaHandle,
+} from '@/app/components/TurnstileCaptcha'
 import {
   sendPasswordRecovery,
   signInWithEmailOtp,
@@ -22,6 +25,11 @@ import {
   getAuthActionErrorMessage,
   getAuthErrorCode,
 } from '@/lib/auth-flow'
+import { reportAuthOperationalFailure } from '@/lib/auth-observability'
+import {
+  getAuthCaptchaValidationError,
+  getTurnstileSiteKey,
+} from '@/lib/auth-captcha'
 
 type LoginFormProps = {
   nextPath: string
@@ -52,6 +60,9 @@ export default function LoginForm({
   const [error, setError] = useState<string | null>(initialError)
   const [status, setStatus] = useState<string | null>(initialStatus)
   const [showCredentialHelp, setShowCredentialHelp] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  const captchaRef = useRef<TurnstileCaptchaHandle>(null)
+  const turnstileSiteKey = getTurnstileSiteKey()
   const busy = activeAction !== null
 
   const clearFeedback = () => {
@@ -65,6 +76,12 @@ export default function LoginForm({
     router.refresh()
   }
 
+  const validateCaptcha = () => {
+    const validationError = getAuthCaptchaValidationError(turnstileSiteKey, captchaToken)
+    if (validationError) setError(validationError)
+    return !validationError
+  }
+
   const handleSignIn = async () => {
     clearFeedback()
     const trimmedEmail = email.trim()
@@ -72,19 +89,27 @@ export default function LoginForm({
       setError('Enter your email and password to continue.')
       return
     }
+    if (!validateCaptcha()) return
 
     setActiveAction('password')
     try {
-      const { error: signInError } = await signInWithPassword(trimmedEmail, password)
+      const { error: signInError } = await signInWithPassword(
+        trimmedEmail,
+        password,
+        captchaToken ?? undefined
+      )
       if (signInError) {
+        reportAuthOperationalFailure(signInError, 'password-login')
         setError(getAuthActionErrorMessage(signInError, 'password-login'))
         setShowCredentialHelp(getAuthErrorCode(signInError) === 'invalid_credentials')
         return
       }
       finishSignIn()
     } catch (signInError) {
+      reportAuthOperationalFailure(signInError, 'password-login')
       setError(getAuthActionErrorMessage(signInError, 'password-login'))
     } finally {
+      captchaRef.current?.reset()
       setActiveAction(null)
     }
   }
@@ -96,14 +121,17 @@ export default function LoginForm({
       setError('Enter your email so we know where to send the sign-in link.')
       return
     }
+    if (!validateCaptcha()) return
 
     setActiveAction('magic-link')
     try {
       const { error: otpError } = await signInWithEmailOtp(
         trimmedEmail,
-        absoluteAuthUrl(buildAuthCallbackPath(nextPath))
+        absoluteAuthUrl(buildAuthCallbackPath(nextPath)),
+        captchaToken ?? undefined
       )
       if (otpError) {
+        reportAuthOperationalFailure(otpError, 'email-link')
         setError(getAuthActionErrorMessage(otpError, 'email-link'))
         return
       }
@@ -111,8 +139,10 @@ export default function LoginForm({
         'If an account exists for that email, a secure sign-in link is on its way. Check your inbox and spam folder.'
       )
     } catch (otpError) {
+      reportAuthOperationalFailure(otpError, 'email-link')
       setError(getAuthActionErrorMessage(otpError, 'email-link'))
     } finally {
+      captchaRef.current?.reset()
       setActiveAction(null)
     }
   }
@@ -124,14 +154,17 @@ export default function LoginForm({
       setError('Enter your email so we know where to send the password link.')
       return
     }
+    if (!validateCaptcha()) return
 
     setActiveAction('password-link')
     try {
       const { error: resetError } = await sendPasswordRecovery(
         trimmedEmail,
-        absoluteAuthUrl(buildPasswordRecoveryCallbackPath(nextPath))
+        absoluteAuthUrl(buildPasswordRecoveryCallbackPath(nextPath)),
+        captchaToken ?? undefined
       )
       if (resetError) {
+        reportAuthOperationalFailure(resetError, 'email-link')
         setError(getAuthActionErrorMessage(resetError, 'email-link'))
         return
       }
@@ -139,8 +172,10 @@ export default function LoginForm({
         'If an account exists for that email, a secure password link is on its way. Check your inbox and spam folder.'
       )
     } catch (resetError) {
+      reportAuthOperationalFailure(resetError, 'email-link')
       setError(getAuthActionErrorMessage(resetError, 'email-link'))
     } finally {
+      captchaRef.current?.reset()
       setActiveAction(null)
     }
   }
@@ -270,6 +305,16 @@ export default function LoginForm({
             />
           </div>
         </div>
+
+        {turnstileSiteKey && (
+          <TurnstileCaptcha
+            ref={captchaRef}
+            action="public_auth"
+            siteKey={turnstileSiteKey}
+            onTokenChange={setCaptchaToken}
+            disabled={busy}
+          />
+        )}
 
         <Button
           type="submit"

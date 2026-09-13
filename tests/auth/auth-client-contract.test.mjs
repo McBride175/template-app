@@ -23,12 +23,26 @@ test('successful and incorrect password login results are passed through', async
     },
   })
 
-  assert.equal(await auth.signInWithPassword('sme@example.test', 'safe-password'), expectedSuccess)
+  assert.equal(
+    await auth.signInWithPassword('sme@example.test', 'safe-password', 'captcha-login-1'),
+    expectedSuccess
+  )
   nextResult = { data: { session: null }, error: invalidError }
-  assert.equal((await auth.signInWithPassword('sme@example.test', 'wrong')).error, invalidError)
+  assert.equal(
+    (await auth.signInWithPassword('sme@example.test', 'wrong', 'captcha-login-2')).error,
+    invalidError
+  )
   assert.deepEqual(calls, [
-    { email: 'sme@example.test', password: 'safe-password' },
-    { email: 'sme@example.test', password: 'wrong' },
+    {
+      email: 'sme@example.test',
+      password: 'safe-password',
+      options: { captchaToken: 'captcha-login-1' },
+    },
+    {
+      email: 'sme@example.test',
+      password: 'wrong',
+      options: { captchaToken: 'captcha-login-2' },
+    },
   ])
 })
 
@@ -41,9 +55,14 @@ test('email sign-in links cannot create accounts accidentally', async () => {
     },
   })
 
-  await auth.signInWithEmailOtp('sme@example.test', 'https://preview.example/auth/callback')
+  await auth.signInWithEmailOtp(
+    'sme@example.test',
+    'https://preview.example/auth/callback',
+    'captcha-magic-link'
+  )
   assert.equal(received.options.shouldCreateUser, false)
   assert.equal(received.options.emailRedirectTo, 'https://preview.example/auth/callback')
+  assert.equal(received.options.captchaToken, 'captcha-magic-link')
 })
 
 test('signup confirmation and password recovery use explicit Preview-aware redirects', async () => {
@@ -62,11 +81,13 @@ test('signup confirmation and password recovery use explicit Preview-aware redir
   await auth.signUpWithPassword(
     'sme@example.test',
     'safe-password',
-    'https://preview.example/auth/callback?next=%2Fcustomers'
+    'https://preview.example/auth/callback?next=%2Fcustomers',
+    'captcha-signup'
   )
   await auth.sendPasswordRecovery(
     'sme@example.test',
-    'https://preview.example/auth/callback?next=%2Freset-password'
+    'https://preview.example/auth/callback?next=%2Freset-password',
+    'captcha-recovery'
   )
 
   assert.equal(
@@ -77,6 +98,24 @@ test('signup confirmation and password recovery use explicit Preview-aware redir
     calls[1][1].options.redirectTo,
     'https://preview.example/auth/callback?next=%2Freset-password'
   )
+  assert.equal(calls[0][1].options.captchaToken, 'captcha-signup')
+  assert.equal(calls[1][1].options.captchaToken, 'captcha-recovery')
+})
+
+test('Google OAuth remains independent of CAPTCHA', async () => {
+  let received
+  const auth = loadAuthWithClient({
+    async signInWithOAuth(input) {
+      received = input
+      return { data: { provider: 'google', url: 'https://accounts.google.test' }, error: null }
+    },
+  })
+
+  await auth.signInWithGoogle('https://preview.example/auth/callback')
+  assert.deepEqual(received, {
+    provider: 'google',
+    options: { redirectTo: 'https://preview.example/auth/callback' },
+  })
 })
 
 test('both signed-in password entry points update the authenticated user directly', async () => {

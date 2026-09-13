@@ -26,6 +26,37 @@ Copy `.env.example` to `.env.local` and populate only the values needed for loca
 
 Never commit `.env.local` or put a server secret in a `NEXT_PUBLIC_*` variable. Preview and Production use the same variable names with environment-scoped values in Vercel. See `ARCHITECTURE.md` for the confirmed Supabase and deployment mapping.
 
+### Sentry error monitoring
+
+Sentry provides application error monitoring and low-volume performance tracing for the browser, Next.js server, and Edge runtimes. Session Replay, Sentry Logs, profiling, product analytics, and custom dashboards are intentionally not enabled in this baseline.
+
+Configuration lives in:
+
+- `instrumentation-client.ts` for browser initialization and App Router navigation tracing
+- `instrumentation.ts` for Node/Edge registration and unhandled Next.js request errors
+- `sentry.server.config.ts` and `sentry.edge.config.ts` for server runtimes
+- `app/global-error.tsx` for root React render failures
+- `lib/sentry-config.ts` for environment behavior and shared privacy filtering
+- `next.config.ts` for supported Sentry build instrumentation and source-map upload
+
+Required Vercel variables:
+
+| Variable | Preview/Test value | Production readiness |
+| --- | --- | --- |
+| `NEXT_PUBLIC_SENTRY_DSN` | DSN for the existing Sentry project | Add only during a controlled Production rollout; a DSN is a public routing identifier, not an auth token |
+| `NEXT_PUBLIC_SENTRY_ENVIRONMENT` | `test-preview` | Set to `production` only during a controlled Production rollout |
+| `SENTRY_ORG` | Sentry organization slug | Use the same slug when Production is enabled |
+| `SENTRY_PROJECT` | Sentry project slug | Use the reviewed Production project choice |
+| `SENTRY_AUTH_TOKEN` | Organization token used only at build time for source maps/releases | Add as a Vercel Secret only during a controlled Production rollout |
+
+Keep all Sentry variables unset in local development unless intentionally testing telemetry. With no explicit non-local `NEXT_PUBLIC_SENTRY_ENVIRONMENT`, the SDK initializes disabled and does not send events. Preview and Production builds must use environment-scoped Vercel values; never commit a token or put `SENTRY_AUTH_TOKEN` in a `NEXT_PUBLIC_*` variable.
+
+When all three build credentials are present, the Sentry Next.js build integration uploads widened client and server source maps, removes the generated maps after upload, and associates events/releases with the detected Git/Vercel commit. A missing build credential disables source-map upload so local builds remain quiet; the Preview deployment log should therefore be checked for a successful upload.
+
+The privacy baseline disables automatic user identity, cookies, request/response headers, request/response bodies, URL query parameters, GraphQL documents/variables, generative-AI inputs/outputs, database query values, stack-frame locals, console breadcrumbs, and UI-click breadcrumbs. A final SDK-side hook also removes request data and user context, strips URL queries, and redacts common credential formats and sensitive key names. Sentry's server-side data scrubbing should remain enabled as a second layer. Error messages and manually supplied custom context can still contain customer/accounting data, so application code must not place sensitive payloads or credentials in exception messages or future `captureException` context.
+
+To verify after future SDK/config changes, add a clearly temporary Preview-only client throw and server route throw, deploy from `develop`, and confirm new events in Sentry show `environment=test-preview`, the expected commit release, readable original-source frames, and no headers, cookies, bodies, query values, user data, or credentials. Remove the triggers immediately after verification. Do not use Production as the test environment.
+
 ### Setting up Stripe
 
 1. Create a Stripe account and get your API keys

@@ -55,8 +55,8 @@ References:
 
 The September 2026 breaking-change index was also checked. Its Auth-relevant entries concern
 self-hosted endpoint configuration and hosted default-email template restrictions, not the
-client methods used here. Test still needs dashboard verification for provider, SMTP, Site URL,
-and allowed redirect settings.
+client methods used here. The final hosted verification below records the actual Test provider,
+SMTP, Site URL, and redirect settings.
 
 ## Findings and decisions
 
@@ -158,3 +158,72 @@ After the changes are deployed from `develop`, verify against the stable Preview
    Google-created user, expired link, protected destination return, mobile layout, and logout.
 7. Confirm `main`, Production Vercel, Supabase Production `sswyxbugbdoadktyaows`, and Stripe Live
    remain unchanged.
+
+## Final hosted E2E verification — 13 September 2026
+
+The final pass used only `develop`, the stable `develop` Preview, and Test Supabase project
+`rbmxegyiwntomhpbepnu`. The stable Test origin is:
+
+`https://template-app-git-develop-james-mcbrides-projects.vercel.app`
+
+### Verified hosted configuration
+
+- Test Site URL is the stable `develop` Preview origin above.
+- Test redirect allow-list contains only the stable Preview and intentional localhost versions
+  of `/auth/callback` and `/reset-password`. It contains no Production or retired Preview URL.
+- Vercel Preview public and service-role Supabase variables resolve to Test project
+  `rbmxegyiwntomhpbepnu`; no branch-specific override supersedes them.
+- Google is enabled with configured Test credentials. The live OAuth request uses
+  `https://rbmxegyiwntomhpbepnu.supabase.co/auth/v1/callback`, and Google accepted the request
+  without a redirect-URI or blocked-application error.
+- Email/password signup is enabled, confirmation is required, unverified password sign-in is
+  disabled, and recovery tokens expire after 3,600 seconds.
+- Test uses Supabase's built-in SMTP sender (`Supabase Auth <noreply@mail.app.supabase.io>`), not
+  custom SMTP. The built-in sender delivered a real recovery email successfully. Its Test quota
+  is two messages per hour.
+
+### Observed hosted journeys
+
+| Journey | Result | Actual observation |
+|---|---|---|
+| Returning Google login | Pass | A real cached Google grant completed the Test OAuth round-trip and returned to the full requested customer path and query. |
+| Google signup with a brand-new identity | Not exercised | No disposable Google identity was available; the existing Test Google account was not mutated. |
+| Google-only account attempts password login | Not exercised as Google | A disposable passwordless Test user received the expected `invalid_credentials` result; the hosted UI showed non-enumerating copy plus immediate Google and password-link actions. |
+| Add password to passwordless account | Pass | Authenticated password creation retained the same Supabase user and the same single identity record; password login then succeeded for that user. This proves the credential-add path, but the disposable identity provider was email rather than Google. |
+| Email/password signup and confirmation | Pass with delivery limitation | A disposable unconfirmed Test user was confirmed through the real hosted token-hash callback; the callback set a valid session and preserved the full destination. Confirmation-email delivery itself was not exercised. |
+| Returning password login and logout | Pass | Hosted login reached the requested nested route directly, repeated login returned the same user, and the deployed logout fix reached the signed-out login state. |
+| Wrong password | Pass | Test Auth returned `invalid_credentials`; the hosted UI displayed plain-English non-enumerating guidance with Google and password-link recovery actions. |
+| Password recovery | Pass with post-fix delivery limitation | A disposable recovery token opened the hosted reset route, changed the password on the same user, invalidated the old password, and accepted the new password. A real email delivered, but exposed the legacy fragment-link defect described below; the corrected template could not be redelivered in the same pass because the built-in hourly quota was exhausted. |
+| Reused, malformed, or invalid link | Pass | Hosted callbacks returned plain-English expired/invalid guidance and a direct route to request another link; no raw Supabase error was shown. |
+| Magic link | Pass with delivery limitation | A Test magic-link token created a hosted session for the same user and restored the full destination. Mail delivery was not separately exercised. |
+| Password account uses Google with the same email | Not exercised | This requires a disposable Google identity whose verified email matches a disposable password user. |
+| Protected route/session expiry | Pass | Both missing and invalid sessions preserved `/customers?tenantId=e2e&view=overdue`; the invalid-session case explained that the session ended, with no redirect loop. |
+| OAuth cancellation/failure | Pass with limitation | The hosted callback mapped `access_denied` to understandable recovery UI while preserving both sign-in methods. Interactive cancellation was unavailable because Google completed silently from its cached grant. |
+
+### Actual identity state
+
+- The real Test Google account has one `google` identity, a password credential, one Stripe
+  customer row, and one subscription row. The real OAuth login left this as one Supabase user;
+  no duplicate application/customer state was present.
+- Adding a password to the disposable passwordless user returned the same user ID, subsequent
+  password login returned that same ID, and the identity count stayed at one.
+- The two disposable users created for this pass had no Stripe customer or subscription rows and
+  were deleted after testing.
+- Provider authority was read from `auth.identities` and `app_metadata`; no decision relied on
+  user-editable `user_metadata`.
+
+### Defects found and corrected
+
+1. Logout from the dashboard cleared Auth state but competing client redirects could leave the
+   dashboard shell at the old URL until refresh. `app/components/Nav.tsx` now uses a hard
+   `window.location.replace` after successful Supabase sign-out. A contract regression test was
+   added and the fixed `develop` Preview was retested successfully.
+2. Test confirmation, recovery, and magic-link templates used Supabase `.ConfirmationURL`, which
+   delivered legacy implicit tokens in a URL fragment. The server callback cannot read fragments,
+   so a real recovery email ended at `auth_missing_params`. Test-only template configuration now
+   uses `.RedirectTo`, `.TokenHash`, and the explicit `signup`, `recovery`, or `magiclink` type.
+   The setting reads back correctly and its token-hash callback contract passed; a post-change
+   delivered-email rerun remains outstanding because Test's two-email hourly quota was exhausted.
+
+No Site URL, allow-list, Google credential, SMTP, Vercel environment, database schema, migration,
+Production, or Stripe configuration was changed during this pass.

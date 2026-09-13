@@ -9,6 +9,7 @@ import Button from '@/app/components/Button'
 import Input from '@/app/components/Input'
 import Card from '@/app/components/Card'
 import CollectionActionsClient from '@/app/collections/actions/CollectionActionsClient'
+import { buildLoginPath } from '@/lib/auth-flow'
 
 export default function AdminPage() {
   const router = useRouter()
@@ -21,14 +22,14 @@ export default function AdminPage() {
 
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) router.replace('/login')
+      if (!session) router.replace(buildLoginPath('/admin', 'session_expired'))
     })
 
     const run = async () => {
       const { data } = await supabase.auth.getUser()
 
       if (!data.user) {
-        router.replace('/login')
+        router.replace(buildLoginPath('/admin', 'session_expired'))
         return
       }
 

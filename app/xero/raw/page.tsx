@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Card from '@/app/components/Card'
+import { buildLoginPath } from '@/lib/auth-flow'
 import { supabase } from '@/lib/supabase'
 
 type ResourceType = 'accounts' | 'contacts' | 'invoices'
@@ -59,9 +60,9 @@ export default function XeroRawPage() {
 
   useEffect(() => {
     const loadStatus = async () => {
-      const { data } = await supabase.auth.getSession()
-      if (!data.session?.user) {
-        router.replace('/login?next=/xero/raw')
+      const { data } = await supabase.auth.getUser()
+      if (!data.user) {
+        router.replace(buildLoginPath('/xero/raw', 'session_expired'))
         return
       }
 
@@ -105,9 +106,9 @@ export default function XeroRawPage() {
         return
       }
 
-      const { data } = await supabase.auth.getSession()
-      if (!data.session?.user) {
-        router.replace('/login?next=/xero/raw')
+      const { data } = await supabase.auth.getUser()
+      if (!data.user) {
+        router.replace(buildLoginPath('/xero/raw', 'session_expired'))
         return
       }
 

@@ -10,6 +10,12 @@
 import { createServerClient } from '@supabase/ssr'
 import type { EmailOtpType } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import {
+  buildLoginPath,
+  getAuthErrorCode,
+  mapCallbackQueryError,
+  sanitizeAuthRedirectPath,
+} from '@/lib/auth-flow'
 
 const EMAIL_OTP_TYPES = new Set<string>([
   'signup',
@@ -30,14 +36,24 @@ export async function GET(request: NextRequest) {
   const tokenHash = searchParams.get('token_hash')
   const type = searchParams.get('type')
   const rawNext = searchParams.get('next')
-  // Prevent open redirects: only allow same-origin relative paths.
-  const next =
-    rawNext && rawNext.startsWith('/') && !rawNext.startsWith('//')
-      ? rawNext
-      : '/dashboard'
+  const providerError = searchParams.get('error')
+  const providerErrorCode = searchParams.get('error_code')
+  const defaultNext = type === 'recovery' ? '/reset-password' : undefined
+  const next = sanitizeAuthRedirectPath(rawNext, defaultNext)
+
+  const loginRedirect = (errorCode: string) =>
+    NextResponse.redirect(new URL(buildLoginPath(next, errorCode), origin))
+
+  if (providerError || providerErrorCode) {
+    return loginRedirect(mapCallbackQueryError(providerError, providerErrorCode))
+  }
+
+  if (!code && !(tokenHash && type)) {
+    return loginRedirect('auth_missing_params')
+  }
 
   // Create Supabase client with request/response cookies
-  const response = NextResponse.redirect(`${origin}${next}`)
+  const response = NextResponse.redirect(new URL(next, origin))
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -62,12 +78,12 @@ export async function GET(request: NextRequest) {
     // Exchange code for session - this sets cookies via setAll callback
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (!error) return response
-    return NextResponse.redirect(`${origin}/login?error=auth_callback_error`)
+    return loginRedirect(mapCallbackQueryError(null, getAuthErrorCode(error)))
   }
 
   if (tokenHash && type) {
     if (!isEmailOtpType(type)) {
-      return NextResponse.redirect(`${origin}/login?error=auth_otp_error`)
+      return loginRedirect('auth_otp_error')
     }
 
     const { error } = await supabase.auth.verifyOtp({
@@ -75,9 +91,8 @@ export async function GET(request: NextRequest) {
       token_hash: tokenHash,
     })
     if (!error) return response
-    return NextResponse.redirect(`${origin}/login?error=auth_otp_error`)
+    return loginRedirect(getAuthErrorCode(error) === 'otp_expired' ? 'auth_link_expired' : 'auth_otp_error')
   }
 
-  // No code parameter - redirect to login
-  return NextResponse.redirect(`${origin}/login?error=auth_missing_params`)
+  return loginRedirect('auth_missing_params')
 }

@@ -6,6 +6,23 @@
  */
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import {
+  buildLoginPath,
+  isAuthEntryPath,
+  isProtectedPagePath,
+  sanitizeAuthRedirectPath,
+} from '@/lib/auth-flow'
+
+function copyCookies(source: NextResponse, destination: NextResponse) {
+  source.cookies.getAll().forEach((cookie) => destination.cookies.set(cookie))
+  return destination
+}
+
+function hasSupabaseAuthCookie(request: NextRequest) {
+  return request.cookies
+    .getAll()
+    .some(({ name }) => name.startsWith('sb-') && name.includes('-auth-token'))
+}
 
 export async function proxy(request: NextRequest) {
   // Create a response object we can modify
@@ -35,8 +52,26 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  // Refresh session by calling getUser() - this updates cookies if needed
-  await supabase.auth.getUser()
+  // Refresh and validate the session before protected content is rendered.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  const { pathname, search, searchParams } = request.nextUrl
+
+  if (!user && isProtectedPagePath(pathname)) {
+    const requestedPath = sanitizeAuthRedirectPath(`${pathname}${search}`)
+    const loginPath = buildLoginPath(
+      requestedPath,
+      hasSupabaseAuthCookie(request) ? 'session_expired' : null
+    )
+    return copyCookies(response, NextResponse.redirect(new URL(loginPath, request.url)))
+  }
+
+  if (user && isAuthEntryPath(pathname)) {
+    const destination = sanitizeAuthRedirectPath(searchParams.get('next'))
+    return copyCookies(response, NextResponse.redirect(new URL(destination, request.url)))
+  }
 
   return response
 }

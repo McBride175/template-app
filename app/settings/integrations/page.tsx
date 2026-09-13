@@ -25,7 +25,7 @@ export default async function IntegrationsPage() {
           <h2 className="text-base font-medium text-gray-900">Xero connection status</h2>
           <p className="mt-2 text-sm text-gray-700">You need to sign in to manage integrations.</p>
           <Link
-            href="/login"
+            href="/login?next=/settings/integrations"
             className="mt-4 inline-flex items-center justify-center rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
           >
             Sign in

@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Card from './Card'
 import SubscribeButton from './SubscribeButton'
+import { buildLoginPath } from '@/lib/auth-flow'
 
 export interface SubscriptionData {
   hasActive: boolean
@@ -49,7 +50,7 @@ function SubscriptionStatusContent({ onStatusChange }: SubscriptionStatusProps) 
       if (!response.ok) {
         if (response.status === 401) {
           // User is not authenticated, redirect to login
-          window.location.href = '/login'
+          window.location.href = buildLoginPath('/account', 'session_expired')
           return
         }
         throw new Error('Failed to fetch subscription')

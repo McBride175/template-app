@@ -1,17 +1,20 @@
 interface PasswordToggleButtonProps {
   showPassword: boolean
   onToggle: () => void
+  disabled?: boolean
 }
 
 export default function PasswordToggleButton({
   showPassword,
   onToggle,
+  disabled = false,
 }: PasswordToggleButtonProps) {
   return (
     <button
       type="button"
       onClick={onToggle}
-      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 transition-colors hover:text-gray-700"
+      disabled={disabled}
+      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 transition-colors hover:text-gray-700 disabled:opacity-50"
       aria-label={showPassword ? 'Hide password' : 'Show password'}
     >
       {showPassword ? (

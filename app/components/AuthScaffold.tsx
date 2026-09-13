@@ -11,8 +11,9 @@ interface AuthScaffoldProps {
   socialActions: ReactNode
   children: ReactNode
   helperText: ReactNode
-  error?: string | null
-  status?: string | null
+  error?: ReactNode
+  status?: ReactNode
+  feedbackActions?: ReactNode
 }
 
 export default function AuthScaffold({
@@ -25,6 +26,7 @@ export default function AuthScaffold({
   helperText,
   error,
   status,
+  feedbackActions,
 }: AuthScaffoldProps) {
   return (
     <div className="min-h-[calc(100vh-10rem)] py-8 sm:py-12">
@@ -41,6 +43,21 @@ export default function AuthScaffold({
           </p>
         </header>
 
+        {(error || status) && (
+          <div
+            className={`mt-6 rounded-2xl border px-4 py-3 text-sm ${
+              error
+                ? 'border-red-200 bg-red-50 text-red-800'
+                : 'border-green-200 bg-green-50 text-green-800'
+            }`}
+            role={error ? 'alert' : 'status'}
+            aria-live="polite"
+          >
+            <p className="text-sm text-inherit">{error ?? status}</p>
+            {feedbackActions && <div className="mt-3 flex flex-wrap gap-3">{feedbackActions}</div>}
+          </div>
+        )}
+
         <div className="mt-8 grid gap-3 sm:grid-cols-2">{socialActions}</div>
 
         <div className="my-8 flex items-center gap-4">
@@ -50,12 +67,6 @@ export default function AuthScaffold({
         </div>
 
         <div className="space-y-6">{children}</div>
-
-        {(error || status) && (
-          <p className={`mt-5 text-sm ${error ? 'text-red-600' : 'text-green-700'}`}>
-            {error ?? status}
-          </p>
-        )}
 
         <div className="mt-8 text-center text-sm text-gray-600">{helperText}</div>
       </section>

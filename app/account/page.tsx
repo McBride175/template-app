@@ -10,6 +10,7 @@ import SubscriptionStatus from '@/app/components/SubscriptionStatus'
 import Button from '@/app/components/Button'
 import Input from '@/app/components/Input'
 import { supabase } from '@/lib/supabase'
+import { buildLoginPath } from '@/lib/auth-flow'
 import {
   fetchXeroConnectionStatus,
   resolveXeroAccountStatusView,
@@ -115,7 +116,7 @@ export default function AccountPage() {
       })
 
       if (response.status === 401) {
-        router.replace('/login')
+        router.replace(buildLoginPath('/account', 'session_expired'))
         return
       }
 
@@ -151,12 +152,12 @@ export default function AccountPage() {
 
   useEffect(() => {
     const load = async () => {
-      const { data } = await supabase.auth.getSession()
-      if (!data.session?.user) {
-        router.replace('/login')
+      const { data } = await supabase.auth.getUser()
+      if (!data.user) {
+        router.replace(buildLoginPath('/account', 'session_expired'))
         return
       }
-      setEmail(data.session.user.email ?? null)
+      setEmail(data.user.email ?? null)
 
       try {
         const response = await fetch('/api/subscription', {

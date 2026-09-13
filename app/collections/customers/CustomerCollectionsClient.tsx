@@ -10,6 +10,7 @@ import {
   formatHistoricalPaymentTiming,
   formatRelativeLateness,
 } from '@/lib/collections/payment-behavior-copy'
+import { buildLoginPath } from '@/lib/auth-flow'
 
 type SortBy =
   | 'overdue_outstanding'
@@ -228,7 +229,7 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
         })
 
         if (response.status === 401) {
-          router.replace(`/login?next=${encodeURIComponent(loginNextPath)}`)
+          router.replace(buildLoginPath(loginNextPath, 'session_expired'))
           return
         }
 

@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { useRouter, useSearchParams } from 'next/navigation'
 import CollectionActionsClient from '@/app/collections/actions/CollectionActionsClient'
 import { triggerXeroAutoSyncOnEntry } from '@/lib/xero/auto-sync-client'
+import { buildLoginPath } from '@/lib/auth-flow'
 
 function DashboardPageContent() {
   const router = useRouter()
@@ -14,7 +15,7 @@ function DashboardPageContent() {
   useEffect(() => {
     // If user signs out while on dashboard, kick them to login
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) router.replace('/login')
+      if (!session) router.replace(buildLoginPath('/dashboard', 'session_expired'))
     })
 
     // Initial check and load user data
@@ -22,7 +23,7 @@ function DashboardPageContent() {
       const { data } = await supabase.auth.getUser()
 
       if (!data.user) {
-        router.replace('/login')
+        router.replace(buildLoginPath('/dashboard', 'session_expired'))
         return
       }
 

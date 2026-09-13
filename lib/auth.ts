@@ -9,14 +9,21 @@ export function signInWithPassword(email: string, password: string) {
   return supabase.auth.signInWithPassword({ email, password })
 }
 
-export function signUpWithPassword(email: string, password: string) {
-  return supabase.auth.signUp({ email, password })
+export function signUpWithPassword(email: string, password: string, emailRedirectTo: string) {
+  return supabase.auth.signUp({
+    email,
+    password,
+    options: { emailRedirectTo },
+  })
 }
 
 export function signInWithEmailOtp(email: string, emailRedirectTo: string) {
   return supabase.auth.signInWithOtp({
     email,
-    options: { emailRedirectTo },
+    options: {
+      emailRedirectTo,
+      shouldCreateUser: false,
+    },
   })
 }
 
@@ -29,4 +36,8 @@ export function signInWithGoogle(redirectTo: string) {
 
 export function signOut() {
   return supabase.auth.signOut()
+}
+
+export function sendPasswordRecovery(email: string, redirectTo: string) {
+  return supabase.auth.resetPasswordForEmail(email, { redirectTo })
 }

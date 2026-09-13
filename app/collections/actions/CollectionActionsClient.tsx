@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import Card from '@/app/components/Card'
 import Button from '@/app/components/Button'
 import MultiCurrencyPlanGate from '@/app/collections/MultiCurrencyPlanGate'
+import { buildLoginPath } from '@/lib/auth-flow'
 
 interface CollectionActionRow {
   customer_source_id: string
@@ -591,7 +592,7 @@ export default function CollectionActionsClient({
         })
 
         if (response.status === 401) {
-          router.replace(`/login?next=${encodeURIComponent(effectiveLoginNextPath)}`)
+          router.replace(buildLoginPath(effectiveLoginNextPath, 'session_expired'))
           return
         }
 
@@ -839,7 +840,7 @@ export default function CollectionActionsClient({
       )
 
       if (response.status === 401) {
-        router.replace(`/login?next=${encodeURIComponent(effectiveLoginNextPath)}`)
+        router.replace(buildLoginPath(effectiveLoginNextPath, 'session_expired'))
         throw new Error('Unauthorized')
       }
 
@@ -1078,7 +1079,7 @@ export default function CollectionActionsClient({
       })
 
       if (response.status === 401) {
-        router.replace(`/login?next=${encodeURIComponent(effectiveLoginNextPath)}`)
+        router.replace(buildLoginPath(effectiveLoginNextPath, 'session_expired'))
         return
       }
 
@@ -1174,7 +1175,7 @@ export default function CollectionActionsClient({
         })
 
         if (response.status === 401) {
-          router.replace(`/login?next=${encodeURIComponent(effectiveLoginNextPath)}`)
+          router.replace(buildLoginPath(effectiveLoginNextPath, 'session_expired'))
           return
         }
 

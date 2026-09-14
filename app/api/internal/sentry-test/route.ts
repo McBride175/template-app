@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto'
+import * as Sentry from '@sentry/nextjs'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -27,5 +28,8 @@ export async function GET(request: Request) {
     return new Response('Not found', { status: 404 })
   }
 
-  throw new Error('Sentry server verification 2026-09-13')
+  const verificationError = new Error('Sentry server verification 2026-09-14')
+  Sentry.captureException(verificationError)
+  await Sentry.flush(2_000)
+  throw verificationError
 }

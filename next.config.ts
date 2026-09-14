@@ -22,7 +22,12 @@ const productionNoIndexRoutes = [
   '/xero/:path*',
 ]
 
+const hasSentryBuildCredentials = Boolean(
+  process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT
+)
+
 const nextConfig: NextConfig = {
+  productionBrowserSourceMaps: hasSentryBuildCredentials,
   async headers() {
     if (process.env.VERCEL_ENV !== 'production') {
       return [
@@ -39,10 +44,6 @@ const nextConfig: NextConfig = {
     }))
   },
 };
-
-const hasSentryBuildCredentials = Boolean(
-  process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT
-)
 
 export default withSentryConfig(nextConfig, {
   org: process.env.SENTRY_ORG,

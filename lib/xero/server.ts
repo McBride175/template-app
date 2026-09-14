@@ -7,6 +7,7 @@ const XERO_CONNECTIONS_URL = 'https://api.xero.com/connections'
 
 export const XERO_STATE_COOKIE_NAME = 'xero_oauth_state'
 export const XERO_STATE_USER_COOKIE_NAME = 'xero_oauth_state_user'
+export const XERO_RETURN_COOKIE_NAME = 'xero_oauth_return_to'
 export const XERO_SCOPES = [
   'offline_access',
   'accounting.settings.read',

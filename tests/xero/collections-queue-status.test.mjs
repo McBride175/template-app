@@ -732,7 +732,7 @@ test('queue UI renders degraded review and unavailable states without hiding saf
   const source = await readFile(COLLECTION_ACTIONS_CLIENT_PATH, 'utf8')
 
   assert.match(source, /queueInfo\?\.status === 'no_mapped_data'/)
-  assert.match(source, /Collections data not ready/)
+  assert.match(source, /Preparing your collection priorities/)
   assert.match(source, /queueInfo\?\.status === 'currency_data_unavailable'/)
   assert.match(source, /queueInfo\?\.status === 'currency_data_degraded'/)
   assert.match(source, /Currency data needs refreshing/)

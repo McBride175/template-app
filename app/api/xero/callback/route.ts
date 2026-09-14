@@ -7,18 +7,22 @@ import {
   getXeroConfig,
   getXeroTokenUrl,
   safeEqualStrings,
+  XERO_RETURN_COOKIE_NAME,
   XERO_STATE_COOKIE_NAME,
   XERO_STATE_USER_COOKIE_NAME,
   type XeroConnection,
   type XeroTokenResponse,
 } from '@/lib/xero/server'
+import { buildXeroCallbackDestination } from '@/lib/xero/oauth-return'
 
 const REQUIRED_OFFLINE_SCOPE = 'offline_access'
 
 function redirectWithError(request: NextRequest, reason: string, status = 302) {
-  const url = new URL('/account', request.url)
-  url.searchParams.set('xero', 'error')
-  url.searchParams.set('reason', reason)
+  const returnTo = request.cookies.get(XERO_RETURN_COOKIE_NAME)?.value
+  const url = new URL(
+    buildXeroCallbackDestination({ returnTo, result: 'error', reason }),
+    request.url
+  )
   return NextResponse.redirect(url, status)
 }
 
@@ -35,6 +39,12 @@ function clearStateCookies(response: NextResponse) {
     maxAge: 0,
     path: '/api/xero',
   })
+  response.cookies.set({
+    name: XERO_RETURN_COOKIE_NAME,
+    value: '',
+    maxAge: 0,
+    path: '/api/xero',
+  })
 }
 
 function redirectWithErrorAndClear(request: NextRequest, reason: string, status = 302) {
@@ -46,16 +56,24 @@ function redirectWithErrorAndClear(request: NextRequest, reason: string, status 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const code = searchParams.get('code')
+  const providerError = searchParams.get('error')
   const returnedState = searchParams.get('state')
   const storedState = request.cookies.get(XERO_STATE_COOKIE_NAME)?.value
   const storedStateUserId = request.cookies.get(XERO_STATE_USER_COOKIE_NAME)?.value
 
-  if (!code) {
-    return redirectWithErrorAndClear(request, 'missing_code')
-  }
-
   if (!returnedState || !storedState || !safeEqualStrings(returnedState, storedState)) {
     return redirectWithErrorAndClear(request, 'invalid_state')
+  }
+
+  if (providerError) {
+    return redirectWithErrorAndClear(
+      request,
+      providerError === 'access_denied' ? 'cancelled' : 'provider_error'
+    )
+  }
+
+  if (!code) {
+    return redirectWithErrorAndClear(request, 'missing_code')
   }
 
   try {
@@ -291,9 +309,14 @@ export async function GET(request: NextRequest) {
       return redirectWithErrorAndClear(request, 'no_tenant_found')
     }
 
-    const callbackUrl = new URL('/account', request.url)
-    callbackUrl.searchParams.set('xero', 'connected')
-    callbackUrl.searchParams.set('tenantId', primaryTenantId)
+    const callbackUrl = new URL(
+      buildXeroCallbackDestination({
+        returnTo: request.cookies.get(XERO_RETURN_COOKIE_NAME)?.value,
+        result: 'connected',
+        tenantId: primaryTenantId,
+      }),
+      request.url
+    )
     const response = NextResponse.redirect(callbackUrl)
     clearStateCookies(response)
 

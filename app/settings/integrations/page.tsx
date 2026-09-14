@@ -83,7 +83,7 @@ export default async function IntegrationsPage() {
         <div className="mt-5 flex items-center gap-3">
           {!hasActiveConnection ? (
             <a
-              href="/api/xero/connect"
+              href="/api/xero/connect?returnTo=%2Faccount"
               className="inline-flex items-center justify-center rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
             >
               Connect Xero

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import Card from '@/app/components/Card'
 import Button from '@/app/components/Button'
 import MultiCurrencyPlanGate from '@/app/collections/MultiCurrencyPlanGate'
+import DashboardXeroConnectionCard from '@/app/dashboard/DashboardXeroConnectionCard'
 import { buildLoginPath } from '@/lib/auth-flow'
 
 interface CollectionActionRow {
@@ -535,6 +536,7 @@ export default function CollectionActionsClient({
   const [error, setError] = useState<string | null>(null)
   const [entitlement, setEntitlement] = useState<ActionsEntitlement | null>(null)
   const [usageLimitReached, setUsageLimitReached] = useState(false)
+  const [xeroConnectionMissing, setXeroConnectionMissing] = useState(false)
   const [queueInfo, setQueueInfo] = useState<CollectionQueueInfo | null>(null)
   const [organisationBaseCurrency, setOrganisationBaseCurrency] = useState<string | null>(null)
   const [currencyContext, setCurrencyContext] = useState<CollectionsCurrencyContext | null>(null)
@@ -576,6 +578,7 @@ export default function CollectionActionsClient({
       }
 
       setError(null)
+      setXeroConnectionMissing(false)
 
       try {
         const params = new URLSearchParams({
@@ -624,6 +627,20 @@ export default function CollectionActionsClient({
           setCurrencyHealth(null)
           setReviewRequiredCustomers([])
           setUsageLimitReached(true)
+          return
+        }
+
+        if (payload?.code === 'NO_XERO_TENANT') {
+          setRows([])
+          setActionsTakenByCustomerId({})
+          setQueueInfo(null)
+          setOrganisationBaseCurrency(null)
+          setCurrencyContext(null)
+          setCurrencyAccess(null)
+          setCurrencyHealth(null)
+          setReviewRequiredCustomers([])
+          setUsageLimitReached(false)
+          setXeroConnectionMissing(true)
           return
         }
 
@@ -1232,6 +1249,14 @@ export default function CollectionActionsClient({
 
   const disableQueueActions = submittingAction || undoingAction
 
+  if (xeroConnectionMissing) {
+    return (
+      <section id={embedded ? 'collection-actions' : undefined} className="space-y-6">
+        <DashboardXeroConnectionCard state="disconnected" />
+      </section>
+    )
+  }
+
   return (
     <section id={embedded ? 'collection-actions' : undefined} className="space-y-6">
       {showHeaderSection && (
@@ -1413,10 +1438,30 @@ export default function CollectionActionsClient({
                 </p>
               </div>
             ) : !loading && queueInfo?.status === 'no_mapped_data' ? (
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Collections data not ready</h3>
-                <p className="text-sm text-gray-600">
-                  Sync Xero to load and map customer and invoice data.
+              <div className="space-y-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    Preparing your collection priorities
+                  </h3>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Your Xero connection is ready. We&apos;re preparing the information needed to
+                    show who to chase first. Check again shortly.
+                  </p>
+                </div>
+                <Button
+                  onClick={() => void loadRows(true)}
+                  variant="secondary"
+                  size="sm"
+                  disabled={refreshing}
+                >
+                  {refreshing ? 'Checking…' : 'Check again'}
+                </Button>
+                <p className="text-xs text-gray-500">
+                  If your priorities do not appear after a few minutes, review the connection in{' '}
+                  <Link href={accountHref} className="underline underline-offset-2">
+                    Account
+                  </Link>
+                  .
                 </p>
               </div>
             ) : !loading && queueInfo?.status === 'no_overdue_customers' ? (

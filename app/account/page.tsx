@@ -20,6 +20,7 @@ import {
   type XeroSyncState,
 } from '@/lib/xero/account-status'
 import { triggerXeroAutoSyncOnEntry } from '@/lib/xero/auto-sync-client'
+import { getXeroCallbackNotice } from '@/lib/xero/oauth-return'
 
 interface SubscriptionData {
   hasActive: boolean
@@ -82,6 +83,7 @@ export default function AccountPage() {
   const [xeroStatusError, setXeroStatusError] = useState<string | null>(null)
   const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null)
   const [xeroResult, setXeroResult] = useState<string | null>(null)
+  const [xeroResultReason, setXeroResultReason] = useState<string | null>(null)
   const [xeroLoading, setXeroLoading] = useState(false)
   const [xeroDisconnectLoading, setXeroDisconnectLoading] = useState(false)
   const [xeroSyncLoading, setXeroSyncLoading] = useState(false)
@@ -192,8 +194,9 @@ export default function AccountPage() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const current = new URLSearchParams(window.location.search).get('xero')
-    setXeroResult(current)
+    const params = new URLSearchParams(window.location.search)
+    setXeroResult(params.get('xero'))
+    setXeroResultReason(params.get('reason'))
   }, [])
 
   const handleDeleteAccount = async () => {
@@ -486,8 +489,7 @@ export default function AccountPage() {
 
   if (loading) return null
 
-  const xeroConnectedMessage =
-    xeroResult === 'connected' ? 'Xero organisation connected successfully.' : null
+  const xeroCallbackNotice = getXeroCallbackNotice(xeroResult, xeroResultReason)
   const xeroDisconnectedMessage =
     xeroResult === 'disconnected' ? 'Xero organisation disconnected successfully.' : null
   const xeroStatusView = resolveXeroAccountStatusView({
@@ -624,8 +626,16 @@ export default function AccountPage() {
       <Card>
         <div className="space-y-4">
           <h2 className="mb-1">Xero</h2>
-          {xeroConnectedMessage && (
-            <p className="text-sm text-green-700">{xeroConnectedMessage}</p>
+          {xeroCallbackNotice && (
+            <p
+              className={
+                xeroCallbackNotice.kind === 'success'
+                  ? 'text-sm text-green-700'
+                  : 'text-sm text-amber-700'
+              }
+            >
+              {xeroCallbackNotice.message}
+            </p>
           )}
           {xeroDisconnectedMessage && (
             <p className="text-sm text-green-700">{xeroDisconnectedMessage}</p>
@@ -705,7 +715,7 @@ export default function AccountPage() {
             <div className="space-y-3">
               <p className="text-sm text-gray-700">Connect Xero to start syncing data.</p>
               <a
-                href="/api/xero/connect"
+                href="/api/xero/connect?returnTo=%2Faccount"
                 className="inline-flex items-center justify-center rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-800 active:bg-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
               >
                 Connect Xero
@@ -721,7 +731,7 @@ export default function AccountPage() {
                   : 'Reconnect to restore automatic sync.'}
               </p>
               <a
-                href="/api/xero/connect"
+                href="/api/xero/connect?returnTo=%2Faccount"
                 className="inline-flex items-center justify-center rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-800 active:bg-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
               >
                 Reconnect
@@ -763,7 +773,7 @@ export default function AccountPage() {
                     {xeroSyncLoading ? 'Syncing now…' : 'Sync now'}
                   </Button>
                   <a
-                    href="/api/xero/connect"
+                    href="/api/xero/connect?returnTo=%2Faccount"
                     className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-900 transition-colors hover:bg-gray-50 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
                   >
                     {xeroReconnectLabel}

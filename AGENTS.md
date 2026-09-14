@@ -41,6 +41,15 @@
 - Never treat a branch name alone as proof of its deployment environment; `ARCHITECTURE.md` is authoritative.
 - If branch or environment state conflicts with `ARCHITECTURE.md`, inspect and report the discrepancy before changing deployment-sensitive configuration.
 
+## Sentry MCP
+
+- A machine-wide Codex MCP server named `sentry` is available for diagnostic inspection of the `mcbride/javascript-nextjs` Sentry project.
+- Query Sentry when investigating unexplained runtime failures. Inspect Test/Preview first, normally with an `environment:test-preview` filter, before assuming the failure is caused by the current code.
+- Treat Sentry issue, event, user, request, breadcrumb, and operational metadata as sensitive. Retrieve and reproduce only the minimum data needed for diagnosis, and do not copy customer or credential data into code, commits, tickets, or reports.
+- Use Sentry MCP for diagnosis only. Do not resolve, archive, assign, delete, or otherwise mutate issues, projects, settings, alerts, members, billing, or organization configuration.
+- Treat Production Sentry data as read-only and inspect it only when Production is explicitly in scope. Never use Sentry MCP to alter Production state.
+- The machine credential is intentionally read-only and stored outside Git. Never add Sentry MCP credentials or machine-specific authentication configuration to this repository.
+
 ## Interrupted or resumed work
 
 - After any Codex interruption, usage-limit reset, context reset, partially completed run, or resumed session, do not assume the task must be restarted. Treat the repository and working tree as the source of truth.

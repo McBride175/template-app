@@ -81,6 +81,26 @@ test('Auth forms preserve generic email-link responses and isolate Google from C
   assert.match(signupSource, /signInWithGoogle\(\s*absoluteAuthUrl/)
 })
 
+test('Turnstile stays hidden unless managed risk analysis requires interaction', async () => {
+  const source = await readFile(projectFile('app/components/TurnstileCaptcha.tsx'), 'utf8')
+
+  assert.match(source, /render=explicit/)
+  assert.match(source, /appearance: 'interaction-only'/)
+  assert.match(source, /theme: 'auto'/)
+  assert.match(source, /size: 'flexible'/)
+})
+
+test('protected forms discard consumed CAPTCHA tokens after every Auth attempt', async () => {
+  for (const path of [
+    'app/login/LoginForm.tsx',
+    'app/signup/SignUpForm.tsx',
+    'app/components/ChangePasswordButton.tsx',
+  ]) {
+    const source = await readFile(projectFile(path), 'utf8')
+    assert.match(source, /captchaRef\.current\?\.reset\(\)/, path)
+  }
+})
+
 test('operational reporting emits only stable non-PII Auth fields to Sentry', async () => {
   const source = await readFile(projectFile('lib/auth-observability.ts'), 'utf8')
 

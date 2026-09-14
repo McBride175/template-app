@@ -43,16 +43,40 @@ The widget obtains a short-lived, single-use token. The application passes that 
 Supabase JS as `options.captchaToken`; Supabase Auth validates it server-side with the configured
 Turnstile secret. A visual-only CAPTCHA is not sufficient.
 
-Roll out one environment at a time: create the Turnstile widget and allow its hostnames, set the
+The dedicated Test configuration is:
+
+- widget name: `template-app-test-auth`;
+- Cloudflare widget mode: Managed;
+- application appearance: `interaction-only` (the challenge is hidden unless Cloudflare requires
+  interaction);
+- permitted hostname: `template-app-git-develop-james-mcbrides-projects.vercel.app` only;
+- public site key: Vercel Preview's `NEXT_PUBLIC_TURNSTILE_SITE_KEY` only;
+- private secret: Test Supabase project `rbmxegyiwntomhpbepnu` under Authentication > Bot and
+  Abuse Protection only.
+
+Do not add localhost to the real Test widget. For component tests, mocks, or an isolated local
+Supabase Auth stack, use Cloudflare's official Turnstile testing site key and its matching testing
+secret. A dummy token cannot be validated by hosted Test Supabase once that project holds the real
+Test widget secret, so use the stable Preview for full browser-to-hosted-Test verification. With no
+site key, the component is intentionally absent; this is suitable only where the corresponding
+Supabase Auth environment does not enforce CAPTCHA.
+
+Roll out one environment at a time: create the Turnstile widget and allow its hostname, set the
 matching public site key on the deployment, deploy the CAPTCHA-capable code, then enable
 Turnstile with the matching secret in that environment's Supabase project. Validate Test before
-any separately reviewed Production work. Local testing needs `localhost` on the Test widget and
-the Test site key in `.env.local`; with no site key and no Supabase CAPTCHA enforcement, the
-component is intentionally absent.
+any separately reviewed Production work.
 
 Protected email/password signup, email/password login, password recovery, magic-link sign-in,
 and the signed-in emailed recovery fallback pass a token. Google OAuth and authenticated direct
 password updates do not use CAPTCHA.
+
+To rotate the Test secret, generate a replacement in Cloudflare without immediately invalidating
+the current secret, update only Test Supabase with the replacement, verify an email-neutral login
+through the stable Preview, and then invalidate the old secret in Cloudflare. Never copy either
+secret into Git, Vercel, a `NEXT_PUBLIC_*` variable, or logs.
+
+Production requires a separately reviewed widget, hostname allow-list, public site key, and
+Supabase secret. Never reuse the Test widget or its credentials for Production.
 
 ## Production custom SMTP checklist
 

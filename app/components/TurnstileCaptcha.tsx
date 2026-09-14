@@ -23,6 +23,7 @@ type TurnstileApi = {
       action: string
       theme: 'auto'
       size: 'flexible'
+      appearance: 'interaction-only'
       callback: (token: string) => void
       'error-callback': () => void
       'expired-callback': () => void
@@ -82,6 +83,7 @@ const TurnstileCaptcha = forwardRef<TurnstileCaptchaHandle, TurnstileCaptchaProp
           action,
           theme: 'auto',
           size: 'flexible',
+          appearance: 'interaction-only',
           callback: (token) => {
             setLoadError(false)
             onTokenChangeRef.current(token)

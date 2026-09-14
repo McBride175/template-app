@@ -29,6 +29,56 @@ Set `AUTH_EMAIL_E2E_TARGET_EMAIL`, `AUTH_EMAIL_E2E_REDIRECT_ORIGIN`, and, for si
 `AUTH_EMAIL_E2E_SIGNUP_PASSWORD`. The harness accepts only Test project
 `rbmxegyiwntomhpbepnu` and either localhost or the stable `develop` Preview origin.
 
+## Custom SMTP status and branding dependency
+
+As of 2026-09-14, the authenticated Resend workspace has no verified domains. Its only API key is
+the existing `Onboarding` sending-only key used by the Contact Us integration; it is not dedicated
+to Auth and must not be reused for Supabase SMTP. The current support sender is
+`onboarding@resend.dev`. There is no domain-level SPF, DKIM, DMARC, or click-tracking configuration
+to review because no domain has been added to the workspace.
+
+The final product brand and domain have not been selected. Test custom SMTP is therefore
+deliberately deferred rather than creating a temporary domain, throwaway DNS records, or an Auth
+credential that would soon need replacement. Test Supabase project `rbmxegyiwntomhpbepnu`
+continues to use the built-in sender and its two-email-per-hour project limit. Custom SMTP, a
+dedicated credential, and the three real-email delivery checks remain inactive.
+
+After the final brand and domain are selected:
+
+1. Add the legitimately controlled Auth sending domain to Resend and verify its generated SPF and
+   DKIM records plus an appropriate DMARC policy.
+2. Disable click tracking for the Auth sending domain so authentication links are not rewritten.
+3. Create a sending-only, domain-restricted Resend key named `Supabase Auth - Test` and transfer it
+   directly into Test Supabase's SMTP password field. Do not store it in this repository, Vercel,
+   a client variable, or chat.
+4. Configure only Test Supabase with `smtp.resend.com`, port `465`, username `resend`, the branded
+   sender, and a non-production sender label. Leave the initial custom-SMTP limit at 30 emails per
+   hour unless reviewed Test traffic requires otherwise.
+5. Send exactly one signup confirmation, one password recovery message, and one magic link through
+   the stable `develop` Preview. Confirm Supabase acceptance, Resend delivery, sender identity,
+   redirect target, and successful link completion for each flow.
+6. Treat Production SMTP, its separate Resend credential, and its delivery verification as a later
+   controlled rollout.
+
+### Future domain migration sweep
+
+When the brand/domain decision is complete, review these domain-dependent surfaces together rather
+than changing them piecemeal:
+
+- Resend verified sender/domain, Auth subdomain, DNS authentication, click tracking, and the
+  Contact Us sender;
+- Test and Production Supabase Auth senders, Site URLs, redirect allow-lists, email templates, and
+  any Supabase custom-domain decision;
+- the Production Turnstile widget and hostname allow-list;
+- Google/OAuth callback, authorized-origin, consent-screen, and customer-facing domain settings;
+- the Vercel custom domain and environment-scoped application URLs;
+- canonical URLs, SEO and social metadata, Open Graph assets, sitemap, and robots configuration;
+- legal, privacy, terms, support/contact addresses, and domain-specific cookie/consent settings;
+- hard-coded Preview or `template-app` naming in application copy, configuration, operational
+  documents, and external dashboards;
+- Sentry environment, release, allowed-origin, and domain assumptions; and
+- Stripe customer-facing branding, support details, return URLs, and portal/receipt settings.
+
 ## CAPTCHA ownership and rollout
 
 | Control | Owner/location |

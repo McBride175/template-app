@@ -1,5 +1,9 @@
 # Repository operating rules
 
+- `AGENTS.md` is the authoritative operating instruction file for agent behaviour and repository work.
+- `ARCHITECTURE.md` is the authoritative technical/environment reference.
+- All coding agents, including Codex, Antigravity/Gemini, and future agents, must follow `AGENTS.md`.
+- If `AGENTS.md` and `ARCHITECTURE.md` ever appear to conflict, follow the more restrictive/safe interpretation and stop to flag the conflict rather than guessing.
 - Read `ARCHITECTURE.md` before architecture, deployment, integration, or database work.
 - Test and Vercel Preview use Supabase project `rbmxegyiwntomhpbepnu`; Production uses `sswyxbugbdoadktyaows`.
 - Never change a hosted Supabase schema or migration history without explicit user authorization and an exact project-ref preflight.

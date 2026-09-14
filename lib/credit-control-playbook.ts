@@ -1,3 +1,48 @@
+/**
+ * Credit-Control Prioritisation Playbook — lead-magnet scoring.
+ *
+ * METHODOLOGY PARITY
+ * This module calls the authoritative production prioritisation engine
+ * (prioritiseCustomer, buildRelativeLatenessContext) directly. No scoring
+ * constants or formulas are duplicated here. The weights, component functions,
+ * and founder-adjustment multipliers are exactly those used by the connected
+ * product.
+ *
+ * COMPONENT PARITY CLASSIFICATION
+ *   • Exposure (50%)               — exact parity. Same computeExposureComponents.
+ *   • Urgency (25%)                — exact parity. Same piecewise curve + invoice bonus.
+ *   • Relative deterioration (15%) — derivable parity. The production scorer
+ *       (computeRelativeLatenessScore) is reused. The input, relative_lateness_days,
+ *       is derived from each fictional customer's pre-set normalDaysLate value
+ *       rather than a computed six-month settled-invoice median. See DATA PARITY.
+ *   • Payment recency (10%)        — exact parity. Same computeBehaviourComponents bands.
+ *   • Founder adjustment           — derivable parity. Three of the four production
+ *       multipliers are represented (safe ×0.4, normal ×1.0, priority ×1.6).
+ *       do_not_chase (×0) is intentionally absent: the interactive UI uses
+ *       Low / Medium / High and an educational demo has no need for a "remove
+ *       from list" concept. Multiplier values are not duplicated; they are
+ *       inherited from OVERRIDE_MULTIPLIERS in prioritization.ts.
+ *   • Currency                     — single-currency GBP fixture. Not multi-currency.
+ *       Appropriate for a fictional worked example.
+ *
+ * DATA PARITY
+ * The relative-deterioration component measures how far a customer has moved
+ * from its own historical normal. In the connected product that baseline is
+ * derived automatically from the median days-late across all eligible paid
+ * invoices settled in the preceding six calendar months. In this playbook the
+ * baseline is a pre-set illustrative value (normalDaysLate) that forms part
+ * of each fictional customer's definition. The scoring arithmetic is identical;
+ * the source of the historical baseline differs.
+ *
+ * MISSING HISTORY vs NO DETERIORATION — these are distinct cases:
+ *   • relative_lateness_days = null          — customer does not have sufficient
+ *       settled-invoice history to compute a baseline. Score = 0, 15% weight
+ *       not redistributed. Semantics: "not enough history".
+ *   • relative_lateness_days = 0 (or ≤ 3-day noise floor) — history exists
+ *       and the customer is currently behaving in line with its normal pattern.
+ *       Score = 0, 15% weight not redistributed. Semantics: "behaving normally".
+ *       This is NOT the same as missing history.
+ */
 import {
   prioritiseCustomer,
   type CustomerOverrideLevel,
@@ -15,6 +60,15 @@ export interface PlaybookCustomer {
   name: string
   outstanding: number
   daysOverdue: number
+  /**
+   * Pre-set illustrative historical-normal payment profile for this fictional
+   * customer. Represents the median days late across recent settled invoices.
+   * In the connected product this value is computed automatically from the
+   * actual six-month settled-invoice history for each real customer. Here it
+   * is a fixed part of the fictional scenario definition.
+   *
+   * Used as: relative_lateness_days = daysOverdue − normalDaysLate.
+   */
   normalDaysLate: number
   daysSinceLastPayment: number
   overdueInvoiceCount: number

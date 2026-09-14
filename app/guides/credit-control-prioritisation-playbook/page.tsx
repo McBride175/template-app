@@ -209,16 +209,20 @@ export default function CreditControlPrioritisationPlaybookPage() {
               Six overdue customers. One hour. Where do you start?
             </h2>
             <p className="mt-4 leading-7 text-gray-700">
-              The initial order is calculated by the same ranking function as the product, using
-              customer-level exposure, weighted lateness, deterioration from normal payment
-              behaviour, overdue-invoice count, payment recency and a founder-controlled priority
-              adjustment. Every customer starts at neutral Medium concern. Change a concern level
-              and the full list re-ranks immediately.
+              This worked example uses the same prioritisation engine and weights as the
+              product, using customer-level exposure, weighted lateness, deterioration from normal
+              payment behaviour, overdue-invoice count, payment recency and a founder-controlled
+              priority adjustment. Every customer starts at neutral Medium concern. Change a concern
+              level and the full list re-ranks immediately.
             </p>
             <p className="mt-3 text-sm leading-6 text-gray-600">
               Normal payment behaviour helps the engine distinguish predictable delay from a
-              meaningful deterioration. This is an educational comparison, not a default
-              prediction; it deliberately shows reasons instead of numerical scores.
+              meaningful deterioration. For the fictional customers here, their normal payment patterns
+              are pre-set as part of the example; the connected product calculates those baselines
+              automatically from each customer&apos;s actual recent settled-invoice history. The connected
+              product also supports a fourth adjustment — Do not chase — that removes a customer from active
+              chasing entirely. This is an educational comparison, not a default prediction; it
+              deliberately shows reasons instead of numerical scores.
             </p>
           </div>
 
@@ -309,9 +313,11 @@ export default function CreditControlPrioritisationPlaybookPage() {
           <p className="mt-4 leading-7 text-gray-700">
             The app refreshes the accounting evidence across all customers, compares exposure,
             absolute lateness, changes from each customer&apos;s normal payment pattern and payment
-            recency, and applies the priority adjustment you choose. It does not pretend to predict
-            default or replace your judgement. It keeps both sources of evidence in one current
-            queue so you can decide who deserves attention now.
+            recency, and applies the priority adjustment you choose. The normal payment pattern for
+            each customer is calculated automatically from their actual recent settled-invoice
+            history, rather than using a pre-set value. It does not pretend to predict default or
+            replace your judgement. It keeps both sources of evidence in one current queue so you
+            can decide who deserves attention now.
           </p>
           <div className="mt-7 rounded-2xl bg-gray-900 px-6 py-8 sm:flex sm:items-center sm:justify-between sm:gap-6 sm:px-8">
             <div>

@@ -332,6 +332,7 @@ export function createSyncHarness(options) {
     fetchCalls,
     mappingCalls,
     XeroTokenRefreshError,
+    XeroAccountingApiError,
   }
 }
 

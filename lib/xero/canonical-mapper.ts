@@ -8,10 +8,16 @@ import {
   type CurrencyConversionStatus,
 } from '@/lib/money/currency'
 import { parseXeroDate, parseXeroDateTime, safeNumber } from '@/lib/xero/canonical-mapping'
+import { persistLegacyCanonicalRows } from '@/lib/xero/persistence'
 
-type XeroRawResourceType = 'contacts' | 'invoices' | 'organisations' | 'organisation_actions'
+export type XeroRawResourceType =
+  | 'contacts'
+  | 'invoices'
+  | 'organisations'
+  | 'organisation_actions'
+  | 'payments'
 
-interface XeroRawRow {
+export interface XeroRawRow {
   tenant_id: string
   source_id: string
   raw_json: unknown
@@ -92,6 +98,13 @@ interface CanonicalPaymentUpsert {
   currency_rate: number | null
   reference: string | null
   raw_updated_at: string | null
+}
+
+export interface XeroCanonicalRows {
+  organisations: CanonicalOrganisationUpsert[]
+  customers: CanonicalCustomerUpsert[]
+  invoices: CanonicalInvoiceUpsert[]
+  payments: CanonicalPaymentUpsert[]
 }
 
 export interface CanonicalMappingCounts {
@@ -182,17 +195,24 @@ async function fetchXeroRawRows(
   supabaseAdmin: SupabaseAdminClient,
   userId: string,
   tenantId: string,
-  resourceType: XeroRawResourceType
+  resourceType: XeroRawResourceType,
+  syncRunId: string | null
 ) {
   const rows: XeroRawRow[] = []
 
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('xero_raw')
       .select('tenant_id, source_id, raw_json, fetched_at')
       .eq('user_id', userId)
       .eq('tenant_id', tenantId)
       .eq('resource_type', resourceType)
+
+    query = syncRunId === null
+      ? query.is('sync_run_id', null)
+      : query.eq('sync_run_id', syncRunId)
+
+    const { data, error } = await query
       .order('tenant_id', { ascending: true })
       .order('source_id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
@@ -210,41 +230,26 @@ async function fetchXeroRawRows(
   return rows
 }
 
-async function upsertInChunks<TRow extends object>(
-  supabaseAdmin: SupabaseAdminClient,
-  table:
-    | 'canonical_organisations'
-    | 'canonical_customers'
-    | 'canonical_invoices'
-    | 'canonical_payments',
-  rows: TRow[],
-  onConflict = 'user_id,tenant_id,source_system,source_id'
-) {
-  for (let index = 0; index < rows.length; index += UPSERT_CHUNK_SIZE) {
-    const chunk = rows.slice(index, index + UPSERT_CHUNK_SIZE)
-    const { error } = await supabaseAdmin.from(table).upsert(chunk as object[], {
-      onConflict,
-    })
-
-    if (error) {
-      throw new Error(`Failed to upsert ${table}: ${error.message}`)
-    }
-  }
-}
-
-export async function mapXeroRawToCanonical(params: {
+export function buildXeroCanonicalRows(params: {
   userId: string
   tenantId: string
-  supabaseAdmin?: SupabaseAdminClient
-}): Promise<CanonicalMappingCounts> {
-  const { userId, tenantId } = params
-  const supabaseAdmin = params.supabaseAdmin ?? createSupabaseAdminClient()
-  const [organisationRows, organisationActionRows, contactRows, invoiceRows] = await Promise.all([
-    fetchXeroRawRows(supabaseAdmin, userId, tenantId, 'organisations'),
-    fetchXeroRawRows(supabaseAdmin, userId, tenantId, 'organisation_actions'),
-    fetchXeroRawRows(supabaseAdmin, userId, tenantId, 'contacts'),
-    fetchXeroRawRows(supabaseAdmin, userId, tenantId, 'invoices'),
-  ])
+  organisationRows: XeroRawRow[]
+  organisationActionRows: XeroRawRow[]
+  contactRows: XeroRawRow[]
+  invoiceRows: XeroRawRow[]
+  paymentRows?: XeroRawRow[]
+  paymentSource: 'embedded' | 'resource'
+}): XeroCanonicalRows {
+  const {
+    userId,
+    tenantId,
+    organisationRows,
+    organisationActionRows,
+    contactRows,
+    invoiceRows,
+    paymentRows = [],
+    paymentSource,
+  } = params
 
   const organisationsToUpsert: CanonicalOrganisationUpsert[] = []
   const organisationCurrencyContexts: Array<{
@@ -268,7 +273,7 @@ export async function mapXeroRawToCanonical(params: {
 
     organisationsToUpsert.push({
       user_id: userId,
-      tenant_id: rawRow.tenant_id,
+      tenant_id: tenantId,
       source_system: SOURCE_SYSTEM,
       source_organisation_id: sourceOrganisationId,
       organisation_name: readString(organisation.Name),
@@ -302,7 +307,7 @@ export async function mapXeroRawToCanonical(params: {
 
     customersToUpsert.push({
       user_id: userId,
-      tenant_id: rawRow.tenant_id,
+      tenant_id: tenantId,
       source_system: SOURCE_SYSTEM,
       source_id: sourceId,
       name: readString(contact.Name) ?? sourceId,
@@ -338,7 +343,7 @@ export async function mapXeroRawToCanonical(params: {
 
     invoicesToUpsert.push({
       user_id: userId,
-      tenant_id: rawRow.tenant_id,
+      tenant_id: tenantId,
       source_system: SOURCE_SYSTEM,
       source_id: sourceId,
       customer_source_id: customerSourceId,
@@ -371,7 +376,7 @@ export async function mapXeroRawToCanonical(params: {
       raw_updated_at: rawUpdatedAt,
     })
 
-    if (!Array.isArray(invoice.Payments)) continue
+    if (paymentSource !== 'embedded' || !Array.isArray(invoice.Payments)) continue
 
     for (const paymentRaw of invoice.Payments) {
       const payment = asObject(paymentRaw)
@@ -382,7 +387,7 @@ export async function mapXeroRawToCanonical(params: {
 
       paymentsToUpsert.push({
         user_id: userId,
-        tenant_id: rawRow.tenant_id,
+        tenant_id: tenantId,
         source_system: SOURCE_SYSTEM,
         source_id: paymentSourceId,
         invoice_source_id: sourceId,
@@ -396,25 +401,119 @@ export async function mapXeroRawToCanonical(params: {
     }
   }
 
+  if (paymentSource === 'resource') {
+    const invoiceCustomers = new Map(
+      invoicesToUpsert.map((invoice) => [invoice.source_id, invoice.customer_source_id])
+    )
+
+    for (const rawRow of paymentRows) {
+      const payment = asObject(rawRow.raw_json)
+      if (!payment) continue
+
+      const paymentSourceId = readString(payment.PaymentID) ?? readString(rawRow.source_id)
+      if (!paymentSourceId) continue
+
+      const paymentInvoice = asObject(payment.Invoice)
+      const invoiceSourceId = paymentInvoice ? readString(paymentInvoice.InvoiceID) : null
+      const invoiceContact = paymentInvoice ? asObject(paymentInvoice.Contact) : null
+      const embeddedCustomerSourceId = invoiceContact
+        ? readString(invoiceContact.ContactID)
+        : null
+      const customerSourceId = invoiceSourceId
+        ? invoiceCustomers.get(invoiceSourceId) ?? embeddedCustomerSourceId
+        : embeddedCustomerSourceId
+
+      paymentsToUpsert.push({
+        user_id: userId,
+        tenant_id: tenantId,
+        source_system: SOURCE_SYSTEM,
+        source_id: paymentSourceId,
+        invoice_source_id: invoiceSourceId,
+        customer_source_id: customerSourceId,
+        amount: safeNumber(payment.Amount),
+        payment_date: parseXeroDate(payment.Date),
+        currency_rate: safeNumber(payment.CurrencyRate),
+        reference: readString(payment.Reference),
+        raw_updated_at:
+          parseXeroDateTime(payment.UpdatedDateUTC) ?? parseXeroDateTime(rawRow.fetched_at),
+      })
+    }
+  }
+
   const uniqueOrganisations = dedupeCanonicalOrganisationRows(organisationsToUpsert)
   const uniqueCustomers = dedupeCanonicalRows(customersToUpsert)
   const uniqueInvoices = dedupeCanonicalRows(invoicesToUpsert)
   const uniquePayments = dedupeCanonicalRows(paymentsToUpsert)
 
-  await upsertInChunks(
+  return {
+    organisations: uniqueOrganisations,
+    customers: uniqueCustomers,
+    invoices: uniqueInvoices,
+    payments: uniquePayments,
+  }
+}
+
+export async function mapXeroRawToCanonical(params: {
+  userId: string
+  tenantId: string
+  supabaseAdmin?: SupabaseAdminClient
+}): Promise<CanonicalMappingCounts> {
+  const { userId, tenantId } = params
+  const supabaseAdmin = params.supabaseAdmin ?? createSupabaseAdminClient()
+  const [organisationRows, organisationActionRows, contactRows, invoiceRows] = await Promise.all([
+    fetchXeroRawRows(supabaseAdmin, userId, tenantId, 'organisations', null),
+    fetchXeroRawRows(supabaseAdmin, userId, tenantId, 'organisation_actions', null),
+    fetchXeroRawRows(supabaseAdmin, userId, tenantId, 'contacts', null),
+    fetchXeroRawRows(supabaseAdmin, userId, tenantId, 'invoices', null),
+  ])
+
+  const rows = buildXeroCanonicalRows({
+    userId,
+    tenantId,
+    organisationRows,
+    organisationActionRows,
+    contactRows,
+    invoiceRows,
+    paymentSource: 'embedded',
+  })
+
+  await persistLegacyCanonicalRows({
+    userId,
+    tenantId,
+    resourceType: 'organisations',
+    rows: rows.organisations,
     supabaseAdmin,
-    'canonical_organisations',
-    uniqueOrganisations,
-    'user_id,tenant_id,source_system,source_organisation_id'
-  )
-  await upsertInChunks(supabaseAdmin, 'canonical_customers', uniqueCustomers)
-  await upsertInChunks(supabaseAdmin, 'canonical_invoices', uniqueInvoices)
-  await upsertInChunks(supabaseAdmin, 'canonical_payments', uniquePayments)
+    chunkSize: UPSERT_CHUNK_SIZE,
+  })
+  await persistLegacyCanonicalRows({
+    userId,
+    tenantId,
+    resourceType: 'customers',
+    rows: rows.customers,
+    supabaseAdmin,
+    chunkSize: UPSERT_CHUNK_SIZE,
+  })
+  await persistLegacyCanonicalRows({
+    userId,
+    tenantId,
+    resourceType: 'invoices',
+    rows: rows.invoices,
+    supabaseAdmin,
+    chunkSize: UPSERT_CHUNK_SIZE,
+  })
+  await persistLegacyCanonicalRows({
+    userId,
+    tenantId,
+    resourceType: 'payments',
+    rows: rows.payments,
+    supabaseAdmin,
+    chunkSize: UPSERT_CHUNK_SIZE,
+  })
 
   return {
-    organisations: uniqueOrganisations.length,
-    customers: uniqueCustomers.length,
-    invoices: uniqueInvoices.length,
-    payments: uniquePayments.length,
+    organisations: rows.organisations.length,
+    customers: rows.customers.length,
+    invoices: rows.invoices.length,
+    payments: rows.payments.length,
   }
 }

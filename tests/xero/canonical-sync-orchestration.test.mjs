@@ -261,6 +261,10 @@ function createCanonicalMapperDatabase(rawRows) {
             filters.push((row) => row[column] === value)
             return query
           },
+          is(column, value) {
+            filters.push((row) => (row[column] ?? null) === value)
+            return query
+          },
           order() {
             return query
           },
@@ -303,6 +307,30 @@ function createCanonicalMapperDatabase(rawRows) {
           return { error: null }
         },
       }
+    },
+    async rpc(fn, args) {
+      if (fn !== 'upsert_xero_legacy_canonical_batch') {
+        throw new Error(`Unsupported RPC: ${fn}`)
+      }
+      const table = `canonical_${args.p_resource_type}`
+      for (const row of args.p_rows) {
+        const next = {
+          ...row,
+          user_id: args.p_user_id,
+          tenant_id: args.p_tenant_id,
+          source_system: 'xero',
+        }
+        const key = canonicalKey(next)
+        const existingIndex = canonical[table].findIndex(
+          (candidate) => canonicalKey(candidate) === key && (candidate.sync_run_id ?? null) === null
+        )
+        if (existingIndex >= 0) {
+          canonical[table][existingIndex] = { ...canonical[table][existingIndex], ...next }
+        } else {
+          canonical[table].push(next)
+        }
+      }
+      return { data: args.p_rows.length, error: null }
     },
   }
 }
@@ -424,6 +452,15 @@ test('shared canonical mapping is idempotent on the same raw Xero snapshot', asy
       resource_type: 'contacts',
       source_id: 'contact-out-of-scope',
       raw_json: { ContactID: 'contact-out-of-scope', Name: 'Wrong user' },
+    },
+    {
+      sync_run_id: 'inactive-generation',
+      user_id: userId,
+      tenant_id: tenantId,
+      resource_type: 'contacts',
+      source_id: 'contact-generated-only',
+      fetched_at: '2026-09-11T09:00:00.000Z',
+      raw_json: { ContactID: 'contact-generated-only', Name: 'Inactive generation contact' },
     },
   ]
   const database = createCanonicalMapperDatabase(rawRows)

@@ -225,6 +225,7 @@ export async function GET(request: NextRequest) {
         .select('fetched_at')
         .eq('user_id', user.id)
         .eq('tenant_id', selectedConnection.tenant_id)
+        .is('sync_run_id', null)
         .order('fetched_at', { ascending: false })
         .limit(1)
         .maybeSingle<XeroRawLatestRow>()

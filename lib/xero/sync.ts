@@ -12,6 +12,7 @@ import {
 } from '@/lib/xero/accounting'
 import { decryptXeroToken, encryptXeroToken } from '@/lib/xero/secrets'
 import { mapXeroRawToCanonical } from '@/lib/xero/canonical-mapper'
+import { persistLegacyXeroRawBatch } from '@/lib/xero/persistence'
 import { XERO_REFRESH_ISSUE_CODES } from '@/lib/xero/sync-status'
 
 interface XeroConnectionPublicRow {
@@ -922,28 +923,29 @@ export async function syncXeroTenantForUser(params: { userId: string; tenantId: 
         const sourceId = getXeroSourceId(resourceType, record)
         if (!sourceId) return null
         return {
-          user_id: userId,
-          tenant_id: connection.tenant_id,
-          resource_type: resourceType,
-          source_id: sourceId,
-          raw_json: record,
-          fetched_at: fetchedAt,
+          sourceId,
+          rawJson: record,
         }
       })
       .filter((row): row is NonNullable<typeof row> => Boolean(row))
 
     if (rows.length === 0) continue
 
-    const { error: upsertError } = await supabaseAdmin.from('xero_raw').upsert(rows, {
-      onConflict: 'user_id,tenant_id,resource_type,source_id',
-    })
-
-    if (upsertError) {
+    try {
+      await persistLegacyXeroRawBatch({
+        userId,
+        tenantId: connection.tenant_id,
+        resourceType,
+        fetchedAt,
+        rows,
+        supabaseAdmin,
+      })
+    } catch (error) {
       console.error('[xero.sync] Failed to upsert xero_raw records', {
         user_id: userId,
         tenant_id: connection.tenant_id,
         resource_type: resourceType,
-        message: upsertError.message,
+        message: error instanceof Error ? error.message : 'Unknown error',
       })
       return NextResponse.json({ error: 'Failed to store Xero raw data' }, { status: 500 })
     }

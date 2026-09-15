@@ -72,6 +72,7 @@ export default async function XeroCanonicalPaymentsPage({
     .select('id, invoice_source_id, customer_source_id, amount, payment_date, reference')
     .eq('user_id', user.id)
     .eq('tenant_id', tenantId)
+    .is('sync_run_id', null)
     .order('payment_date', { ascending: false, nullsFirst: false })
     .limit(500)
 

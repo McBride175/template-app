@@ -123,6 +123,10 @@ function createFakeSupabaseAdminClient(state) {
         context.filters.push((row) => row[column] !== value)
         return query
       },
+      is(column, value) {
+        context.filters.push((row) => (row[column] ?? null) === value)
+        return query
+      },
       order(column, options = {}) {
         context.order = {
           column,
@@ -191,6 +195,58 @@ function createFakeSupabaseAdminClient(state) {
       }
     },
     async rpc(fn, args) {
+      if (fn === 'upsert_xero_legacy_raw_batch') {
+        for (const row of args.p_rows) {
+          const existing = state.rawRows.find(
+            (candidate) =>
+              candidate.user_id === args.p_user_id &&
+              candidate.tenant_id === args.p_tenant_id &&
+              candidate.resource_type === args.p_resource_type &&
+              candidate.source_id === row.source_id &&
+              (candidate.sync_run_id ?? null) === null
+          )
+          const next = {
+            user_id: args.p_user_id,
+            tenant_id: args.p_tenant_id,
+            resource_type: args.p_resource_type,
+            source_id: row.source_id,
+            raw_json: row.raw_json,
+            fetched_at: args.p_fetched_at,
+            sync_run_id: null,
+          }
+          if (existing) Object.assign(existing, next)
+          else state.rawRows.push(next)
+        }
+        return { data: args.p_rows.length, error: null }
+      }
+
+      if (fn === 'upsert_xero_legacy_canonical_batch') {
+        const table = `canonical_${args.p_resource_type}`
+        for (const row of args.p_rows) {
+          const sourceKey = args.p_resource_type === 'organisations'
+            ? 'source_organisation_id'
+            : 'source_id'
+          const existing = tableRows(table).find(
+            (candidate) =>
+              candidate.user_id === args.p_user_id &&
+              candidate.tenant_id === args.p_tenant_id &&
+              candidate.source_system === 'xero' &&
+              candidate[sourceKey] === row[sourceKey] &&
+              (candidate.sync_run_id ?? null) === null
+          )
+          const next = {
+            ...row,
+            user_id: args.p_user_id,
+            tenant_id: args.p_tenant_id,
+            source_system: 'xero',
+            sync_run_id: null,
+          }
+          if (existing) Object.assign(existing, next)
+          else tableRows(table).push(next)
+        }
+        return { data: args.p_rows.length, error: null }
+      }
+
       if (fn === 'acquire_xero_grant_refresh_lock') {
         const lock = state.grantLocks.get(args.p_grant_id)
         const now = Date.now()

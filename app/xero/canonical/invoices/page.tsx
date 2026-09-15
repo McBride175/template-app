@@ -119,6 +119,7 @@ export default async function XeroCanonicalInvoicesPage({
     )
     .eq('user_id', user.id)
     .eq('tenant_id', tenantId)
+    .is('sync_run_id', null)
     .order('issue_date', { ascending: false, nullsFirst: false })
     .limit(500)
 

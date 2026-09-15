@@ -6,6 +6,10 @@ const migrationUrl = new URL(
   '../../supabase/migrations/20260915060609_xero_sync_generation_contract.sql',
   import.meta.url
 )
+const persistenceMigrationUrl = new URL(
+  '../../supabase/migrations/20260915064459_xero_generation_persistence_transition.sql',
+  import.meta.url
+)
 const liveSyncUrl = new URL('../../lib/xero/sync.ts', import.meta.url)
 const collectionsSummaryUrl = new URL('../../lib/collections/customer-summary.ts', import.meta.url)
 
@@ -13,9 +17,10 @@ async function readMigration() {
   return (await readFile(migrationUrl, 'utf8')).toLowerCase()
 }
 
-test('generation migration is additive and leaves legacy live conflict targets intact', async () => {
-  const [sql, liveSync] = await Promise.all([
+test('generation foundation remains additive and the later migration owns the scoped cutover', async () => {
+  const [sql, persistenceSql, liveSync] = await Promise.all([
     readMigration(),
+    readFile(persistenceMigrationUrl, 'utf8').then((source) => source.toLowerCase()),
     readFile(liveSyncUrl, 'utf8'),
   ])
 
@@ -36,7 +41,9 @@ test('generation migration is additive and leaves legacy live conflict targets i
   assert.doesNotMatch(sql, /drop constraint/)
   assert.doesNotMatch(sql, /alter column sync_run_id set not null/)
   assert.doesNotMatch(sql, /update public\.(xero_raw|canonical_)/)
-  assert.match(liveSync, /onConflict: 'user_id,tenant_id,resource_type,source_id'/)
+  assert.match(persistenceSql, /create unique index idx_xero_raw_legacy_source/)
+  assert.match(persistenceSql, /drop constraint xero_raw_user_id_tenant_id_resource_type_source_id_key/)
+  assert.match(liveSync, /persistLegacyXeroRawBatch/)
   assert.doesNotMatch(liveSync, /xero_sync_runs|sync_run_id/)
 })
 
@@ -123,12 +130,13 @@ test('promotion validates current ownership and the complete required-step manif
   assert.match(sql, /last_successful_sync_at = v_now/)
 })
 
-test('application readers and unrelated product contracts remain generation-unaware', async () => {
+test('application readers remain pinned to legacy rows until the future active-generation cutover', async () => {
   const [liveSync, collectionsSummary] = await Promise.all([
     readFile(liveSyncUrl, 'utf8'),
     readFile(collectionsSummaryUrl, 'utf8'),
   ])
 
   assert.doesNotMatch(liveSync, /acquire_xero_sync_run|promote_xero_sync_run|sync_run_id/)
-  assert.doesNotMatch(collectionsSummary, /active_sync_run_id|sync_run_id/)
+  assert.doesNotMatch(collectionsSummary, /active_sync_run_id/)
+  assert.match(collectionsSummary, /\.is\('sync_run_id', null\)/)
 })

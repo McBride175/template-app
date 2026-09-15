@@ -132,6 +132,7 @@ export async function POST(request: Request) {
       .select('fetched_at')
       .eq('user_id', user.id)
       .eq('tenant_id', selectedConnection.tenant_id)
+      .is('sync_run_id', null)
       .order('fetched_at', { ascending: false })
       .limit(1)
       .maybeSingle<XeroRawLatestRow>()

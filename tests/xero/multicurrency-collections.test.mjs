@@ -90,6 +90,10 @@ function createQuery(rows) {
       filters.push((row) => row[column] === value)
       return query
     },
+    is(column, value) {
+      filters.push((row) => (row[column] ?? null) === value)
+      return query
+    },
     order() {
       return query
     },

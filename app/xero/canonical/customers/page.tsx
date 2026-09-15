@@ -83,6 +83,7 @@ export default async function XeroCanonicalCustomersPage({
     .select('id, name, email, is_customer, is_supplier, status')
     .eq('user_id', user.id)
     .eq('tenant_id', tenantId)
+    .is('sync_run_id', null)
     .order('name', { ascending: true })
     .limit(500)
 

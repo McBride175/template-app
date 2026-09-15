@@ -59,6 +59,7 @@ export async function GET(request: NextRequest) {
       .select('id, tenant_id, resource_type, source_id, raw_json, fetched_at, updated_at')
       .eq('user_id', user.id)
       .eq('tenant_id', tenantId)
+      .is('sync_run_id', null)
       .order('updated_at', { ascending: false })
       .limit(limit)
 

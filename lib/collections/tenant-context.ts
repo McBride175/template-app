@@ -53,6 +53,7 @@ async function loadLatestCanonicalTenantId(
     .from(tableName)
     .select('tenant_id')
     .eq('user_id', userId)
+    .is('sync_run_id', null)
     .order('updated_at', { ascending: false })
     .limit(1)
     .maybeSingle<CanonicalTenantRow>()

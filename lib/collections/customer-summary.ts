@@ -427,6 +427,7 @@ async function fetchCanonicalCustomers(
       .select('source_id, name, email, is_customer, is_supplier, status')
       .eq('user_id', userId)
       .eq('tenant_id', tenantId)
+      .is('sync_run_id', null)
       .order('source_id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
 
@@ -453,6 +454,7 @@ async function fetchCanonicalOrganisations(
     .select('base_currency_code')
     .eq('user_id', userId)
     .eq('tenant_id', tenantId)
+    .is('sync_run_id', null)
 
   if (error) {
     throw new Error(`Failed to load canonical organisation currency: ${error.message}`)
@@ -476,6 +478,7 @@ async function fetchCanonicalInvoices(
       )
       .eq('user_id', userId)
       .eq('tenant_id', tenantId)
+      .is('sync_run_id', null)
       .order('source_id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
 
@@ -505,6 +508,7 @@ async function fetchCanonicalPayments(
       .select('invoice_source_id, customer_source_id, payment_date')
       .eq('user_id', userId)
       .eq('tenant_id', tenantId)
+      .is('sync_run_id', null)
       .order('source_id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
 

@@ -25,6 +25,7 @@ export async function loadCollectionsCurrencyContext(params: {
       )
       .eq('user_id', params.userId)
       .eq('tenant_id', params.tenantId)
+      .is('sync_run_id', null)
       .order('source_id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
 

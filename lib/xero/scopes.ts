@@ -1,10 +1,9 @@
 import 'server-only'
 
-// Xero granular Accounting API scopes verified against the official scope table:
+// Verified against Xero's official OAuth scope table and granular-scope FAQ:
 // https://developer.xero.com/documentation/guides/oauth2/scopes/
-// These are capability metadata only. lib/xero/server.ts deliberately continues
-// requesting the current broad-scope set until the separately reviewed cutover.
-export const XERO_GENERATION_IMPORT_TARGET_SCOPES = [
+// https://developer.xero.com/faq/granular-scopes
+export const XERO_REQUIRED_OAUTH_SCOPES = [
   'offline_access',
   'accounting.settings.read',
   'accounting.contacts.read',
@@ -12,14 +11,28 @@ export const XERO_GENERATION_IMPORT_TARGET_SCOPES = [
   'accounting.payments.read',
 ] as const
 
-export type XeroGenerationImportCapability =
+// Kept as an explicit alias for the inactive importer contract introduced in Phase 4.
+export const XERO_GENERATION_IMPORT_TARGET_SCOPES = XERO_REQUIRED_OAUTH_SCOPES
+
+export type XeroRequiredCapability =
   | 'offline'
   | 'settings'
   | 'contacts'
   | 'invoices'
   | 'payments'
 
-const ACCEPTED_SCOPES: Record<XeroGenerationImportCapability, ReadonlySet<string>> = {
+export type XeroGrantClassification =
+  | 'granular_ready'
+  | 'legacy_broad_compatible'
+  | 'permission_upgrade_required'
+  | 'reauth_required'
+  | 'scope_metadata_unknown'
+
+export type XeroGrantAuthState = 'active' | 'reauth_required' | 'disconnected' | 'error'
+
+type XeroScopeInput = string | readonly string[] | null | undefined
+
+const ACCEPTED_SCOPES: Record<XeroRequiredCapability, ReadonlySet<string>> = {
   offline: new Set(['offline_access']),
   settings: new Set(['accounting.settings', 'accounting.settings.read']),
   contacts: new Set(['accounting.contacts', 'accounting.contacts.read']),
@@ -37,34 +50,89 @@ const ACCEPTED_SCOPES: Record<XeroGenerationImportCapability, ReadonlySet<string
   ]),
 }
 
-export const XERO_GENERATION_IMPORT_REQUIRED_CAPABILITIES = [
+const GRANULAR_INVOICE_SCOPES = new Set(['accounting.invoices', 'accounting.invoices.read'])
+const GRANULAR_PAYMENT_SCOPES = new Set(['accounting.payments', 'accounting.payments.read'])
+const LEGACY_TRANSACTION_SCOPES = new Set([
+  'accounting.transactions',
+  'accounting.transactions.read',
+])
+
+export const XERO_REQUIRED_CAPABILITIES = [
   'offline',
   'settings',
   'contacts',
   'invoices',
   'payments',
-] as const satisfies readonly XeroGenerationImportCapability[]
+] as const satisfies readonly XeroRequiredCapability[]
 
-export function normalizeXeroGrantedScopes(scopes: readonly string[]) {
-  return new Set(
-    scopes
+export const XERO_GENERATION_IMPORT_REQUIRED_CAPABILITIES = XERO_REQUIRED_CAPABILITIES
+
+export function normalizeXeroScopes(scopes: XeroScopeInput) {
+  const values = typeof scopes === 'string' ? [scopes] : scopes ?? []
+  return [...new Set(
+    values
       .flatMap((scope) => scope.split(/\s+/))
       .map((scope) => scope.trim().toLowerCase())
       .filter(Boolean)
-  )
+  )].sort()
 }
 
-export function assessXeroGenerationImportCapabilities(scopes: readonly string[]) {
-  const normalized = normalizeXeroGrantedScopes(scopes)
-  const missing = XERO_GENERATION_IMPORT_REQUIRED_CAPABILITIES.filter(
-    (capability) => ![...ACCEPTED_SCOPES[capability]].some((scope) => normalized.has(scope))
-  )
+export function normalizeXeroGrantedScopes(scopes: XeroScopeInput) {
+  return new Set(normalizeXeroScopes(scopes))
+}
+
+function hasAnyScope(scopes: ReadonlySet<string>, accepted: ReadonlySet<string>) {
+  return [...accepted].some((scope) => scopes.has(scope))
+}
+
+export function deriveXeroCapabilities(scopes: XeroScopeInput) {
+  const normalizedScopes = normalizeXeroScopes(scopes)
+  const normalized = new Set(normalizedScopes)
+  const capabilities = Object.fromEntries(
+    XERO_REQUIRED_CAPABILITIES.map((capability) => [
+      capability,
+      hasAnyScope(normalized, ACCEPTED_SCOPES[capability]),
+    ])
+  ) as Record<XeroRequiredCapability, boolean>
+  const missing = XERO_REQUIRED_CAPABILITIES.filter((capability) => !capabilities[capability])
 
   return {
-    sufficient: missing.length === 0,
+    normalizedScopes,
+    capabilities,
     missing,
-    usesLegacyBroadTransactionsScope:
-      normalized.has('accounting.transactions') ||
-      normalized.has('accounting.transactions.read'),
+    sufficient: missing.length === 0,
+    hasGranularInvoiceScope: hasAnyScope(normalized, GRANULAR_INVOICE_SCOPES),
+    hasGranularPaymentScope: hasAnyScope(normalized, GRANULAR_PAYMENT_SCOPES),
+    usesLegacyBroadTransactionsScope: hasAnyScope(normalized, LEGACY_TRANSACTION_SCOPES),
+  }
+}
+
+export function classifyXeroGrant(params: {
+  scopes: XeroScopeInput
+  authState?: XeroGrantAuthState | null
+  scopeMetadataKnown?: boolean
+}): XeroGrantClassification {
+  if (params.authState === 'reauth_required' || params.authState === 'disconnected') {
+    return 'reauth_required' satisfies XeroGrantClassification
+  }
+
+  const assessment = deriveXeroCapabilities(params.scopes)
+  const metadataKnown = params.scopeMetadataKnown ?? assessment.normalizedScopes.length > 0
+  if (!metadataKnown) return 'scope_metadata_unknown' satisfies XeroGrantClassification
+  if (!assessment.sufficient) {
+    return 'permission_upgrade_required' satisfies XeroGrantClassification
+  }
+  if (assessment.hasGranularInvoiceScope && assessment.hasGranularPaymentScope) {
+    return 'granular_ready' satisfies XeroGrantClassification
+  }
+  return 'legacy_broad_compatible' satisfies XeroGrantClassification
+}
+
+export function assessXeroGenerationImportCapabilities(scopes: XeroScopeInput) {
+  const assessment = deriveXeroCapabilities(scopes)
+  return {
+    sufficient: assessment.sufficient,
+    missing: assessment.missing,
+    usesLegacyBroadTransactionsScope: assessment.usesLegacyBroadTransactionsScope,
   }
 }

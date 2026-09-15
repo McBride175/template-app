@@ -14,6 +14,11 @@ import { decryptXeroToken, encryptXeroToken } from '@/lib/xero/secrets'
 import { mapXeroRawToCanonical } from '@/lib/xero/canonical-mapper'
 import { persistLegacyXeroRawBatch } from '@/lib/xero/persistence'
 import { XERO_REFRESH_ISSUE_CODES } from '@/lib/xero/sync-status'
+import {
+  classifyXeroGrant,
+  normalizeXeroScopes,
+  type XeroGrantClassification,
+} from '@/lib/xero/scopes'
 
 export interface XeroConnectionPublicRow {
   user_id: string
@@ -41,6 +46,7 @@ export interface TokenAcquisitionSuccess {
   connection: XeroConnectionPublicRow
   grantId: string
   scopes: string[]
+  capabilityClassification: XeroGrantClassification
   accessToken: string
 }
 
@@ -243,6 +249,21 @@ function buildReauthRequiredResponse() {
   )
 }
 
+function buildPermissionUpgradeRequiredResponse(tenantId: string) {
+  return NextResponse.json(
+    {
+      error: 'Xero connection requires updated permissions',
+      code: 'XERO_PERMISSION_UPGRADE_REQUIRED',
+      authState: 'active',
+      reauthRequired: false,
+      permissionUpgradeRequired: true,
+      reconnectUrl: '/api/xero/connect',
+      tenantId,
+    },
+    { status: 409 }
+  )
+}
+
 function buildRetryableRefreshFailureResponse(params: {
   error: string
   code: string
@@ -419,6 +440,19 @@ export async function getValidXeroAccessTokenForTenant(params: {
     return { ok: false, response: buildReauthRequiredResponse() }
   }
 
+  let currentScopes = normalizeXeroScopes(grantRow.scopes)
+  let capabilityClassification = classifyXeroGrant({
+    scopes: currentScopes,
+    authState: connection.auth_state,
+    scopeMetadataKnown: currentScopes.length > 0,
+  })
+  if (capabilityClassification === 'permission_upgrade_required') {
+    return {
+      ok: false,
+      response: buildPermissionUpgradeRequiredResponse(connection.tenant_id),
+    }
+  }
+
   let accessToken: string | null = null
   let refreshToken: string
 
@@ -518,6 +552,7 @@ export async function getValidXeroAccessTokenForTenant(params: {
         }
 
         try {
+          currentScopes = normalizeXeroScopes(latestGrant.scopes)
           refreshToken = decryptXeroToken(latestGrant.refresh_token_encrypted)
           accessToken = latestGrant.access_token_encrypted
             ? decryptXeroToken(latestGrant.access_token_encrypted)
@@ -582,6 +617,7 @@ export async function getValidXeroAccessTokenForTenant(params: {
         }
 
         try {
+          currentScopes = normalizeXeroScopes(latestGrant.scopes)
           refreshToken = decryptXeroToken(latestGrant.refresh_token_encrypted)
           accessToken = latestGrant.access_token_encrypted
             ? decryptXeroToken(latestGrant.access_token_encrypted)
@@ -652,13 +688,23 @@ export async function getValidXeroAccessTokenForTenant(params: {
 
         const refreshedAccessTokenEncrypted = encryptXeroToken(refreshed.accessToken)
         const refreshedRefreshTokenEncrypted = encryptXeroToken(refreshed.refreshToken)
+        const grantUpdate: {
+          access_token_encrypted: string
+          refresh_token_encrypted: string
+          expires_at: string
+          scopes?: string[]
+        } = {
+          access_token_encrypted: refreshedAccessTokenEncrypted,
+          refresh_token_encrypted: refreshedRefreshTokenEncrypted,
+          expires_at: refreshed.expiresAt,
+        }
+        if (Array.isArray(refreshed.scopes)) {
+          grantUpdate.scopes = normalizeXeroScopes(refreshed.scopes)
+        }
+
         const { data: persistedRows, error: updateError } = await supabaseAdmin
           .from('xero_oauth_grants')
-          .update({
-            access_token_encrypted: refreshedAccessTokenEncrypted,
-            refresh_token_encrypted: refreshedRefreshTokenEncrypted,
-            expires_at: refreshed.expiresAt,
-          })
+          .update(grantUpdate)
           .eq('user_id', userId)
           .eq('id', grantId)
           .eq('refresh_lock_id', lockId)
@@ -714,6 +760,7 @@ export async function getValidXeroAccessTokenForTenant(params: {
 
           if (latestAfterRace) {
             try {
+              currentScopes = normalizeXeroScopes(latestAfterRace.scopes)
               refreshToken = decryptXeroToken(latestAfterRace.refresh_token_encrypted)
               accessToken = latestAfterRace.access_token_encrypted
                 ? decryptXeroToken(latestAfterRace.access_token_encrypted)
@@ -747,6 +794,9 @@ export async function getValidXeroAccessTokenForTenant(params: {
         accessToken = refreshed.accessToken
         refreshToken = refreshed.refreshToken
         expiresAt = refreshed.expiresAt
+        if (Array.isArray(refreshed.scopes)) {
+          currentScopes = normalizeXeroScopes(refreshed.scopes)
+        }
 
         await setGrantConnectionsAuthState({
           userId,
@@ -802,11 +852,24 @@ export async function getValidXeroAccessTokenForTenant(params: {
     }
   }
 
+  capabilityClassification = classifyXeroGrant({
+    scopes: currentScopes,
+    authState: connection.auth_state,
+    scopeMetadataKnown: currentScopes.length > 0,
+  })
+  if (capabilityClassification === 'permission_upgrade_required') {
+    return {
+      ok: false,
+      response: buildPermissionUpgradeRequiredResponse(connection.tenant_id),
+    }
+  }
+
   return {
     ok: true,
     connection,
     grantId,
-    scopes: grantRow.scopes,
+    scopes: currentScopes,
+    capabilityClassification,
     accessToken,
   }
 }
@@ -829,8 +892,12 @@ async function fetchAllAccountingResources(params: { accessToken: string; tenant
   }
 }
 
-function isXeroAuthApiError(error: unknown): error is XeroAccountingApiError {
-  return error instanceof XeroAccountingApiError && error.isAuthRelated
+function isXeroAuthenticationApiError(error: unknown): error is XeroAccountingApiError {
+  return error instanceof XeroAccountingApiError && error.status === 401
+}
+
+function isXeroPermissionApiError(error: unknown): error is XeroAccountingApiError {
+  return error instanceof XeroAccountingApiError && error.status === 403
 }
 
 export async function syncXeroTenantForUser(params: { userId: string; tenantId: string }) {
@@ -856,7 +923,10 @@ export async function syncXeroTenantForUser(params: { userId: string; tenantId: 
       tenantId: connection.tenant_id,
     })
   } catch (firstAttemptError) {
-    if (!isXeroAuthApiError(firstAttemptError)) {
+    if (isXeroPermissionApiError(firstAttemptError)) {
+      return buildPermissionUpgradeRequiredResponse(connection.tenant_id)
+    }
+    if (!isXeroAuthenticationApiError(firstAttemptError)) {
       throw firstAttemptError
     }
 
@@ -879,7 +949,10 @@ export async function syncXeroTenantForUser(params: { userId: string; tenantId: 
         tenantId: connection.tenant_id,
       })
     } catch (retryError) {
-      if (!isXeroAuthApiError(retryError)) {
+      if (isXeroPermissionApiError(retryError)) {
+        return buildPermissionUpgradeRequiredResponse(connection.tenant_id)
+      }
+      if (!isXeroAuthenticationApiError(retryError)) {
         throw retryError
       }
 

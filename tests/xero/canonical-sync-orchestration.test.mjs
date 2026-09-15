@@ -14,6 +14,13 @@ const MAP_CANONICAL_ROUTE_PATH = new URL(
   import.meta.url
 )
 
+const LEGACY_COMPATIBLE_SCOPES = [
+  'offline_access',
+  'accounting.settings.read',
+  'accounting.contacts.read',
+  'accounting.transactions.read',
+]
+
 function buildReadySyncState() {
   const state = buildBaseSyncState()
   const userId = 'user-sync'
@@ -32,7 +39,7 @@ function buildReadySyncState() {
     id: grantId,
     user_id: userId,
     xero_user_id: 'xero-user-sync',
-    scopes: ['accounting.transactions'],
+    scopes: LEGACY_COMPATIBLE_SCOPES,
     access_token_encrypted: 'current-access-token',
     refresh_token_encrypted: 'current-refresh-token',
     expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
@@ -114,6 +121,31 @@ test('successful Xero sync persists raw resources and maps the same user and ten
   assert.equal(harness.mappingCalls.length, 1)
   assert.equal(harness.mappingCalls[0].userId, userId)
   assert.equal(harness.mappingCalls[0].tenantId, tenantId)
+})
+
+test('legacy live sync remains compatible with a newly granular-authorized grant', async () => {
+  const { state, userId, tenantId } = buildReadySyncState()
+  state.grants[0].scopes = [
+    'offline_access',
+    'accounting.settings.read',
+    'accounting.contacts.read',
+    'accounting.invoices.read',
+    'accounting.payments.read',
+  ]
+  const harness = createSyncHarness({
+    syncModuleSpecifier: SYNC_LIB_PATH,
+    state,
+    async refreshBehavior() {
+      throw new Error('refresh should not run for a current access token')
+    },
+  })
+
+  const response = await harness.syncXeroTenantForUser({ userId, tenantId })
+  assert.equal(response.status, 200)
+  assert.deepEqual(
+    harness.fetchCalls.map((call) => call.resourceType).sort(),
+    ['accounts', 'contacts', 'invoices', 'organisation_actions', 'organisations']
+  )
 })
 
 test('normal sync repairs the raw-populated canonical-empty regression state', async () => {

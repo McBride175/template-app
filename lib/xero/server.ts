@@ -1,5 +1,6 @@
 import 'server-only'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
+import { XERO_REQUIRED_OAUTH_SCOPES } from '@/lib/xero/scopes'
 
 const XERO_AUTH_BASE_URL = 'https://login.xero.com/identity/connect/authorize'
 const XERO_TOKEN_URL = 'https://identity.xero.com/connect/token'
@@ -8,20 +9,14 @@ const XERO_CONNECTIONS_URL = 'https://api.xero.com/connections'
 export const XERO_STATE_COOKIE_NAME = 'xero_oauth_state'
 export const XERO_STATE_USER_COOKIE_NAME = 'xero_oauth_state_user'
 export const XERO_RETURN_COOKIE_NAME = 'xero_oauth_return_to'
-export const XERO_SCOPES = [
-  'offline_access',
-  'accounting.settings.read',
-  'accounting.reports.read',
-  'accounting.contacts.read',
-  'accounting.transactions.read',
-] as const
+export const XERO_SCOPES = XERO_REQUIRED_OAUTH_SCOPES
 
 export interface XeroTokenResponse {
   access_token: string
   expires_in: number
   token_type: string
   refresh_token: string
-  scope: string
+  scope?: string
   xero_userid?: string
 }
 

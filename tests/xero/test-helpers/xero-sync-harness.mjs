@@ -382,7 +382,9 @@ export function createSyncHarness(options) {
 
   return {
     syncXeroTenantForUser: loadedModule.syncXeroTenantForUser,
+    getValidXeroAccessTokenForTenant: loadedModule.getValidXeroAccessTokenForTenant,
     parseTenantId: loadedModule.parseTenantId,
+    supabaseAdmin: fakeSupabaseAdmin,
     state: options.state,
     refreshCalls,
     fetchCalls,

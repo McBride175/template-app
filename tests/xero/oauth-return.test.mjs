@@ -70,6 +70,10 @@ test('Xero callback outcomes translate to safe customer-facing categories', () =
   assert.match(oauthReturn.getXeroCallbackNotice('error', 'cancelled').message, /no data was changed/i)
   assert.match(oauthReturn.getXeroCallbackNotice('error', 'invalid_state').message, /expired/i)
   assert.match(oauthReturn.getXeroCallbackNotice('error', 'provider_error').message, /try again/i)
+  assert.match(
+    oauthReturn.getXeroCallbackNotice('error', 'permission_upgrade_required').message,
+    /updated permissions/i
+  )
   assert.equal(oauthReturn.getXeroCallbackNotice(null, 'unexpected_error'), null)
 })
 

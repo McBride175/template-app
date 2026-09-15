@@ -815,7 +815,12 @@ function buildAuthRegressionState() {
     id: 'grant-auth',
     user_id: 'user-auth',
     xero_user_id: 'xero-user-auth',
-    scopes: ['accounting.transactions.read'],
+    scopes: [
+      'offline_access',
+      'accounting.settings.read',
+      'accounting.contacts.read',
+      'accounting.transactions.read',
+    ],
     access_token_encrypted: 'old-access-token',
     refresh_token_encrypted: 'refresh-token',
     expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
@@ -922,6 +927,35 @@ test('persistent permission failure after forced refresh is surfaced without ano
   const payload = await response.json()
 
   assert.equal(response.status, 409)
-  assert.equal(payload.code, 'XERO_REAUTH_REQUIRED')
+  assert.equal(payload.code, 'XERO_PERMISSION_UPGRADE_REQUIRED')
+  assert.equal(payload.permissionUpgradeRequired, true)
   assert.equal(harness.refreshCalls.length, 1)
+})
+
+test('legacy live sync classifies an immediate 403 as permission upgrade without refreshing', async () => {
+  const state = buildAuthRegressionState()
+  let AccountingError
+  const harness = createSyncHarness({
+    syncModuleSpecifier: SYNC_PATH,
+    state,
+    async refreshBehavior() {
+      throw new Error('permission failures must not trigger token refresh')
+    },
+    async fetchBehavior({ resourceType }) {
+      throw new AccountingError({ status: 403, resourceType })
+    },
+  })
+  AccountingError = harness.XeroAccountingApiError
+
+  const response = await harness.syncXeroTenantForUser({
+    userId: 'user-auth',
+    tenantId: 'tenant-auth',
+  })
+  const payload = await response.json()
+
+  assert.equal(response.status, 409)
+  assert.equal(payload.code, 'XERO_PERMISSION_UPGRADE_REQUIRED')
+  assert.equal(payload.reauthRequired, false)
+  assert.equal(harness.refreshCalls.length, 0)
+  assert.equal(state.connections[0].auth_state, 'active')
 })

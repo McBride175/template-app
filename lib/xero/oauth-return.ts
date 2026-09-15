@@ -92,6 +92,13 @@ export function getXeroCallbackNotice(
     }
   }
 
+  if (reason === 'permission_upgrade_required') {
+    return {
+      kind: 'error',
+      message: 'Xero needs updated permissions before it can sync. Reconnect Xero to continue.',
+    }
+  }
+
   return {
     kind: 'error',
     message: 'We couldn\'t connect to Xero. Try again.',

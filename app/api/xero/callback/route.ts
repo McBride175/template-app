@@ -14,8 +14,11 @@ import {
   type XeroTokenResponse,
 } from '@/lib/xero/server'
 import { buildXeroCallbackDestination } from '@/lib/xero/oauth-return'
-
-const REQUIRED_OFFLINE_SCOPE = 'offline_access'
+import {
+  classifyXeroGrant,
+  deriveXeroCapabilities,
+  normalizeXeroScopes,
+} from '@/lib/xero/scopes'
 
 function redirectWithError(request: NextRequest, reason: string, status = 302) {
   const returnTo = request.cookies.get(XERO_RETURN_COOKIE_NAME)?.value
@@ -135,18 +138,18 @@ export async function GET(request: NextRequest) {
       return redirectWithErrorAndClear(request, 'invalid_token_response')
     }
 
-    const scopes =
-      typeof tokenData.scope === 'string'
-        ? tokenData.scope
-            .split(' ')
-            .map((scope) => scope.trim())
-            .filter((scope) => scope.length > 0)
-        : []
+    const scopes = normalizeXeroScopes(tokenData.scope)
+    const capabilityAssessment = deriveXeroCapabilities(scopes)
+    const grantClassification = classifyXeroGrant({
+      scopes,
+      authState: 'active',
+      scopeMetadataKnown: true,
+    })
 
-    if (!scopes.includes(REQUIRED_OFFLINE_SCOPE)) {
+    if (!capabilityAssessment.capabilities.offline) {
       console.error('[xero.callback] Missing required offline_access scope in token response', {
         user_id: user.id,
-        scopes,
+        scope_count: scopes.length,
       })
       return redirectWithErrorAndClear(request, 'missing_offline_access_scope')
     }
@@ -266,7 +269,6 @@ export async function GET(request: NextRequest) {
         reauth_required_at: null,
         metadata: {
           xero_user_id: xeroUserId.length > 0 ? xeroUserId : null,
-          scopes,
           tenant_type: tenant.tenantType,
         },
       })),
@@ -309,12 +311,23 @@ export async function GET(request: NextRequest) {
       return redirectWithErrorAndClear(request, 'no_tenant_found')
     }
 
+    const hasRequiredProductCapabilities =
+      grantClassification === 'granular_ready' ||
+      grantClassification === 'legacy_broad_compatible'
     const callbackUrl = new URL(
-      buildXeroCallbackDestination({
-        returnTo: request.cookies.get(XERO_RETURN_COOKIE_NAME)?.value,
-        result: 'connected',
-        tenantId: primaryTenantId,
-      }),
+      buildXeroCallbackDestination(
+        hasRequiredProductCapabilities
+          ? {
+              returnTo: request.cookies.get(XERO_RETURN_COOKIE_NAME)?.value,
+              result: 'connected',
+              tenantId: primaryTenantId,
+            }
+          : {
+              returnTo: request.cookies.get(XERO_RETURN_COOKIE_NAME)?.value,
+              result: 'error',
+              reason: 'permission_upgrade_required',
+            }
+      ),
       request.url
     )
     const response = NextResponse.redirect(callbackUrl)

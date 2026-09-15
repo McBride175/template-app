@@ -1,5 +1,6 @@
 import 'server-only'
 import { getXeroConfig, getXeroTokenUrl } from '@/lib/xero/server'
+import { normalizeXeroScopes } from '@/lib/xero/scopes'
 
 const XERO_ACCOUNTING_API_BASE = 'https://api.xero.com/api.xro/2.0'
 
@@ -21,6 +22,7 @@ interface XeroTokenRefreshResponse {
   access_token: string
   refresh_token: string
   expires_in: number
+  scope?: string
 }
 
 interface XeroTokenRefreshErrorResponse {
@@ -189,6 +191,7 @@ export async function refreshXeroAccessToken(refreshToken: string) {
     accessToken: payload.access_token,
     refreshToken: payload.refresh_token,
     expiresAt: new Date(Date.now() + payload.expires_in * 1000).toISOString(),
+    scopes: typeof payload.scope === 'string' ? normalizeXeroScopes(payload.scope) : null,
   }
 }
 

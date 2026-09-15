@@ -14,6 +14,13 @@ const MIGRATION_PATH = new URL(
   import.meta.url
 )
 
+const LEGACY_COMPATIBLE_SCOPES = [
+  'offline_access',
+  'accounting.settings.read',
+  'accounting.contacts.read',
+  'accounting.transactions.read',
+]
+
 test('grant-scoped locking primitives are present and tenant-scoped lock functions are removed', async () => {
   const migrationSql = await readFile(MIGRATION_PATH, 'utf8')
 
@@ -63,7 +70,7 @@ test('same-tenant concurrent sync executes refresh once and avoids duplicate rot
     id: grantId,
     user_id: userId,
     xero_user_id: 'xero-user-1',
-    scopes: ['accounting.transactions'],
+    scopes: LEGACY_COMPATIBLE_SCOPES,
     access_token_encrypted: 'old-access-token',
     refresh_token_encrypted: 'old-refresh-token',
     expires_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
@@ -125,7 +132,7 @@ test('cross-tenant concurrent sync sharing one grant refreshes once and both com
     id: grantId,
     user_id: userId,
     xero_user_id: 'xero-user-1',
-    scopes: ['accounting.transactions'],
+    scopes: LEGACY_COMPATIBLE_SCOPES,
     access_token_encrypted: 'old-access-token',
     refresh_token_encrypted: 'old-refresh-token',
     expires_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
@@ -177,7 +184,7 @@ test('refresh race under grant lock reloads winner token state and completes syn
     id: grantId,
     user_id: userId,
     xero_user_id: 'xero-user-1',
-    scopes: ['accounting.transactions'],
+    scopes: LEGACY_COMPATIBLE_SCOPES,
     access_token_encrypted: 'old-access-token',
     refresh_token_encrypted: 'old-refresh-token',
     expires_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
@@ -239,7 +246,7 @@ test('transient refresh failure keeps auth active and remains retryable', async 
     id: grantId,
     user_id: userId,
     xero_user_id: 'xero-user-1',
-    scopes: ['accounting.transactions'],
+    scopes: LEGACY_COMPATIBLE_SCOPES,
     access_token_encrypted: 'old-access-token',
     refresh_token_encrypted: 'old-refresh-token',
     expires_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
@@ -310,7 +317,7 @@ test('definitive refresh auth failure moves grant connections to reauth_required
     id: grantId,
     user_id: userId,
     xero_user_id: 'xero-user-1',
-    scopes: ['accounting.transactions'],
+    scopes: LEGACY_COMPATIBLE_SCOPES,
     access_token_encrypted: 'old-access-token',
     refresh_token_encrypted: 'old-refresh-token',
     expires_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
@@ -347,4 +354,165 @@ test('definitive refresh auth failure moves grant connections to reauth_required
   assert.ok(connection?.reauth_required_at, 'reauth timestamp should be recorded for definitive auth failures')
   assert.equal(grant?.access_token_encrypted, null)
   assert.equal(grant?.expires_at, null)
+})
+
+test('refresh omission preserves authoritative scopes while rotating both tokens', async () => {
+  const state = buildBaseSyncState()
+  const userId = 'user-scope-preserve'
+  const tenantId = 'tenant-scope-preserve'
+  const grantId = 'grant-scope-preserve'
+  state.connections.push({
+    user_id: userId,
+    tenant_id: tenantId,
+    grant_id: grantId,
+    auth_state: 'active',
+    last_refresh_error: null,
+    reauth_required_at: null,
+  })
+  state.grants.push({
+    id: grantId,
+    user_id: userId,
+    xero_user_id: 'xero-user-scope-preserve',
+    scopes: [...LEGACY_COMPATIBLE_SCOPES],
+    access_token_encrypted: 'old-access-token',
+    refresh_token_encrypted: 'old-refresh-token',
+    expires_at: new Date(Date.now() - 60_000).toISOString(),
+    refresh_lock_id: null,
+    refresh_lock_expires_at: null,
+  })
+  const harness = createSyncHarness({
+    syncModuleSpecifier: SYNC_LIB_PATH,
+    state,
+    async refreshBehavior() {
+      return {
+        accessToken: 'new-access-token',
+        refreshToken: 'new-refresh-token',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        scopes: null,
+      }
+    },
+  })
+
+  const result = await harness.getValidXeroAccessTokenForTenant({
+    supabaseAdmin: harness.supabaseAdmin,
+    userId,
+    tenantId,
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.capabilityClassification, 'legacy_broad_compatible')
+  assert.deepEqual(result.scopes, [...LEGACY_COMPATIBLE_SCOPES].sort())
+  assert.deepEqual(state.grants[0].scopes, LEGACY_COMPATIBLE_SCOPES)
+  assert.equal(state.grants[0].access_token_encrypted, 'new-access-token')
+  assert.equal(state.grants[0].refresh_token_encrypted, 'new-refresh-token')
+})
+
+test('refresh-provided scopes replace stored metadata only when explicitly returned', async () => {
+  const state = buildBaseSyncState()
+  const userId = 'user-scope-update'
+  const tenantId = 'tenant-scope-update'
+  const grantId = 'grant-scope-update'
+  state.connections.push({
+    user_id: userId,
+    tenant_id: tenantId,
+    grant_id: grantId,
+    auth_state: 'active',
+    last_refresh_error: null,
+    reauth_required_at: null,
+  })
+  state.grants.push({
+    id: grantId,
+    user_id: userId,
+    xero_user_id: 'xero-user-scope-update',
+    scopes: [...LEGACY_COMPATIBLE_SCOPES],
+    access_token_encrypted: 'old-access-token',
+    refresh_token_encrypted: 'old-refresh-token',
+    expires_at: new Date(Date.now() - 60_000).toISOString(),
+    refresh_lock_id: null,
+    refresh_lock_expires_at: null,
+  })
+  const targetScopes = [
+    'offline_access',
+    'accounting.settings.read',
+    'accounting.contacts.read',
+    'accounting.invoices.read',
+    'accounting.payments.read',
+  ]
+  const harness = createSyncHarness({
+    syncModuleSpecifier: SYNC_LIB_PATH,
+    state,
+    async refreshBehavior() {
+      return {
+        accessToken: 'granular-access-token',
+        refreshToken: 'granular-refresh-token',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        scopes: [...targetScopes].reverse(),
+      }
+    },
+  })
+
+  const result = await harness.getValidXeroAccessTokenForTenant({
+    supabaseAdmin: harness.supabaseAdmin,
+    userId,
+    tenantId,
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.capabilityClassification, 'granular_ready')
+  assert.deepEqual(result.scopes, [...targetScopes].sort())
+  assert.deepEqual(state.grants[0].scopes, [...targetScopes].sort())
+})
+
+test('known incomplete scope metadata is a permission upgrade, while unknown legacy metadata remains usable', async () => {
+  for (const [label, storedScopes, expected] of [
+    ['known incomplete', ['offline_access', 'accounting.settings.read'], 'permission'],
+    ['unknown legacy', [], 'unknown'],
+  ]) {
+    const state = buildBaseSyncState()
+    const userId = `user-${label}`
+    const tenantId = `tenant-${label}`
+    const grantId = `grant-${label}`
+    state.connections.push({
+      user_id: userId,
+      tenant_id: tenantId,
+      grant_id: grantId,
+      auth_state: 'active',
+      last_refresh_error: null,
+      reauth_required_at: null,
+    })
+    state.grants.push({
+      id: grantId,
+      user_id: userId,
+      xero_user_id: `xero-${label}`,
+      scopes: storedScopes,
+      access_token_encrypted: 'access-token',
+      refresh_token_encrypted: 'refresh-token',
+      expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      refresh_lock_id: null,
+      refresh_lock_expires_at: null,
+    })
+    const harness = createSyncHarness({
+      syncModuleSpecifier: SYNC_LIB_PATH,
+      state,
+      async refreshBehavior() {
+        throw new Error('refresh should not run')
+      },
+    })
+    const result = await harness.getValidXeroAccessTokenForTenant({
+      supabaseAdmin: harness.supabaseAdmin,
+      userId,
+      tenantId,
+    })
+
+    if (expected === 'permission') {
+      assert.equal(result.ok, false)
+      const payload = await result.response.json()
+      assert.equal(payload.code, 'XERO_PERMISSION_UPGRADE_REQUIRED')
+      assert.equal(payload.permissionUpgradeRequired, true)
+      assert.equal(state.connections[0].auth_state, 'active')
+    } else {
+      assert.equal(result.ok, true)
+      assert.equal(result.capabilityClassification, 'scope_metadata_unknown')
+    }
+  }
 })

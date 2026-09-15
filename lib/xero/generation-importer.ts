@@ -307,6 +307,9 @@ async function parseTokenFailure(result: TokenAcquisitionResult): Promise<Genera
     'XERO_AUTH_STATE_BLOCKED',
     'XERO_NOT_CONNECTED',
   ])
+  if (responseCode === 'XERO_PERMISSION_UPGRADE_REQUIRED') {
+    return { ok: false, code: 'xero_permission_required' }
+  }
   return {
     ok: false,
     code: responseCode && reauthCodes.has(responseCode)

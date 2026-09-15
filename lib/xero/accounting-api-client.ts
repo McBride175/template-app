@@ -10,8 +10,13 @@ export const XERO_ACCOUNTING_RETRY_MAX_DELAY_MS = 8_000
 export const XERO_ACCOUNTING_DEFAULT_PAGE_SIZE = 1_000
 export const XERO_ACCOUNTING_PROCESSING_LIMIT_RECORDS = 100_000
 
-export type XeroAccountingCollectionName = 'contacts' | 'invoices' | 'payments'
+export type XeroAccountingCollectionName =
+  | 'organisation'
+  | 'contacts'
+  | 'invoices'
+  | 'payments'
 export type XeroGranularCapability =
+  | 'accounting.settings'
   | 'accounting.contacts'
   | 'accounting.invoices'
   | 'accounting.payments'
@@ -55,6 +60,8 @@ export type XeroAccountingRequestErrorKind =
   | 'http'
   | 'network'
   | 'timeout'
+  | 'cancelled'
+  | 'deadline'
   | 'malformed_response'
 
 export class XeroAccountingRequestError extends Error {
@@ -139,6 +146,9 @@ export interface XeroAccountingRequestOptions {
   responseKey: string
   page?: number | null
   query?: XeroAccountingQuery
+  ifModifiedSince?: string
+  signal?: AbortSignal
+  deadlineAtMs?: number
   timeoutMs?: number
   maxAttempts?: number
   dependencies?: Partial<XeroAccountingRequestDependencies>
@@ -171,6 +181,9 @@ export interface XeroPaginatedCollectionOptions<TRecord extends Record<string, u
   maxPages?: number
   requestTimeoutMs?: number
   requestMaxAttempts?: number
+  ifModifiedSince?: string
+  signal?: AbortSignal
+  deadlineAtMs?: number
   dependencies?: Partial<XeroAccountingRequestDependencies>
 }
 
@@ -375,6 +388,15 @@ function assertPositiveInteger(value: number, label: string) {
   }
 }
 
+function requireIfModifiedSince(value: string | undefined) {
+  if (value === undefined) return undefined
+  const normalized = value.trim()
+  if (!normalized || Number.isNaN(Date.parse(normalized))) {
+    throw new TypeError('ifModifiedSince must be a valid timestamp')
+  }
+  return new Date(normalized).toUTCString()
+}
+
 function buildQueryString(query: XeroAccountingQuery | undefined) {
   const searchParams = new URLSearchParams()
   if (!query) return searchParams
@@ -455,6 +477,90 @@ function requestError(params: {
   })
 }
 
+function stoppedRequestError(params: {
+  options: XeroAccountingRequestOptions
+  dependencies: XeroAccountingRequestDependencies
+  attemptCount: number
+  aggregate: MutableAggregateRequestMetadata
+}) {
+  if (
+    params.options.deadlineAtMs !== undefined &&
+    params.dependencies.now() >= params.options.deadlineAtMs
+  ) {
+    return requestError({
+      kind: 'deadline',
+      options: params.options,
+      retryable: false,
+      attemptCount: params.attemptCount,
+      aggregate: params.aggregate,
+    })
+  }
+  if (params.options.signal?.aborted) {
+    return requestError({
+      kind: 'cancelled',
+      options: params.options,
+      retryable: false,
+      attemptCount: params.attemptCount,
+      aggregate: params.aggregate,
+    })
+  }
+  return null
+}
+
+async function waitBeforeRetry(params: {
+  delayMs: number
+  options: XeroAccountingRequestOptions
+  dependencies: XeroAccountingRequestDependencies
+  attemptCount: number
+  aggregate: MutableAggregateRequestMetadata
+}) {
+  const stopped = stoppedRequestError(params)
+  if (stopped) throw stopped
+  if (
+    params.options.deadlineAtMs !== undefined &&
+    params.dependencies.now() + params.delayMs >= params.options.deadlineAtMs
+  ) {
+    throw requestError({
+      kind: 'deadline',
+      options: params.options,
+      retryable: false,
+      attemptCount: params.attemptCount,
+      aggregate: params.aggregate,
+    })
+  }
+
+  if (!params.options.signal) {
+    await params.dependencies.sleep(params.delayMs)
+    return
+  }
+
+  const signal = params.options.signal
+  await new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      reject(
+        requestError({
+          kind: 'cancelled',
+          options: params.options,
+          retryable: false,
+          attemptCount: params.attemptCount,
+          aggregate: params.aggregate,
+        })
+      )
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    params.dependencies.sleep(params.delayMs).then(
+      () => {
+        signal.removeEventListener('abort', onAbort)
+        resolve()
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(error)
+      }
+    )
+  })
+}
+
 export async function requestXeroAccountingCollectionPage<
   TRecord extends Record<string, unknown>,
 >(options: XeroAccountingRequestOptions): Promise<XeroAccountingRequestResult<TRecord>> {
@@ -469,14 +575,27 @@ export async function requestXeroAccountingCollectionPage<
   const dependencies = resolveDependencies(options.dependencies)
   const url = buildRequestUrl(options.path, options.query)
   const aggregate = createMutableAggregateMetadata()
+  const ifModifiedSince = requireIfModifiedSince(options.ifModifiedSince)
+  if (options.deadlineAtMs !== undefined && !Number.isFinite(options.deadlineAtMs)) {
+    throw new TypeError('deadlineAtMs must be finite')
+  }
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const stopped = stoppedRequestError({ options, dependencies, attemptCount: attempt, aggregate })
+    if (stopped) throw stopped
+
     const abortController = new AbortController()
-    let timedOut = false
+    const timeoutState: { kind: 'timeout' | 'deadline' | null } = { kind: null }
+    const remainingDeadlineMs = options.deadlineAtMs === undefined
+      ? Number.POSITIVE_INFINITY
+      : Math.max(0, options.deadlineAtMs - dependencies.now())
+    const effectiveTimeoutMs = Math.min(timeoutMs, remainingDeadlineMs)
     const timeoutHandle = dependencies.scheduleTimeout(() => {
-      timedOut = true
+      timeoutState.kind = remainingDeadlineMs <= timeoutMs ? 'deadline' : 'timeout'
       abortController.abort()
-    }, timeoutMs)
+    }, effectiveTimeoutMs)
+    const externalAbort = () => abortController.abort()
+    options.signal?.addEventListener('abort', externalAbort, { once: true })
 
     let response: Response
     try {
@@ -486,14 +605,38 @@ export async function requestXeroAccountingCollectionPage<
           Authorization: `Bearer ${options.accessToken}`,
           'xero-tenant-id': options.tenantId,
           Accept: 'application/json',
+          ...(ifModifiedSince ? { 'If-Modified-Since': ifModifiedSince } : {}),
         },
         signal: abortController.signal,
       })
     } catch {
       dependencies.cancelTimeout(timeoutHandle)
-      const kind = timedOut ? 'timeout' : 'network'
+      options.signal?.removeEventListener('abort', externalAbort)
+      const externallyStopped = stoppedRequestError({
+        options,
+        dependencies,
+        attemptCount: attempt,
+        aggregate,
+      })
+      if (externallyStopped) throw externallyStopped
+      const kind: XeroAccountingRequestErrorKind = timeoutState.kind ?? 'network'
+      if (kind === 'deadline') {
+        throw requestError({
+          kind,
+          options,
+          retryable: false,
+          attemptCount: attempt,
+          aggregate,
+        })
+      }
       if (attempt < maxAttempts) {
-        await dependencies.sleep(calculateRetryDelayMs(attempt - 1, dependencies.random, null))
+        await waitBeforeRetry({
+          delayMs: calculateRetryDelayMs(attempt - 1, dependencies.random, null),
+          options,
+          dependencies,
+          attemptCount: attempt,
+          aggregate,
+        })
         continue
       }
       throw requestError({
@@ -509,6 +652,7 @@ export async function requestXeroAccountingCollectionPage<
 
     if (!response.ok) {
       dependencies.cancelTimeout(timeoutHandle)
+      options.signal?.removeEventListener('abort', externalAbort)
       await discardResponseBody(response)
       if (response.status === 401) {
         throw requestError({
@@ -545,13 +689,17 @@ export async function requestXeroAccountingCollectionPage<
         }
 
         if (attempt < maxAttempts) {
-          await dependencies.sleep(
-            calculateRetryDelayMs(
+          await waitBeforeRetry({
+            delayMs: calculateRetryDelayMs(
               attempt - 1,
               dependencies.random,
               responseMetadata.retryAfterSeconds
-            )
-          )
+            ),
+            options,
+            dependencies,
+            attemptCount: attempt,
+            aggregate,
+          })
           continue
         }
 
@@ -566,7 +714,13 @@ export async function requestXeroAccountingCollectionPage<
       }
 
       if (isRetryableStatus(response.status) && attempt < maxAttempts) {
-        await dependencies.sleep(calculateRetryDelayMs(attempt - 1, dependencies.random, null))
+        await waitBeforeRetry({
+          delayMs: calculateRetryDelayMs(attempt - 1, dependencies.random, null),
+          options,
+          dependencies,
+          attemptCount: attempt,
+          aggregate,
+        })
         continue
       }
 
@@ -585,11 +739,31 @@ export async function requestXeroAccountingCollectionPage<
       try {
         payload = await response.json()
       } catch {
-        if (timedOut) {
+        const externallyStopped = stoppedRequestError({
+          options,
+          dependencies,
+          attemptCount: attempt,
+          aggregate,
+        })
+        if (externallyStopped) throw externallyStopped
+        if (timeoutState.kind) {
+          if (timeoutState.kind === 'deadline') {
+            throw requestError({
+              kind: 'deadline',
+              options,
+              retryable: false,
+              attemptCount: attempt,
+              aggregate,
+            })
+          }
           if (attempt < maxAttempts) {
-            await dependencies.sleep(
-              calculateRetryDelayMs(attempt - 1, dependencies.random, null)
-            )
+            await waitBeforeRetry({
+              delayMs: calculateRetryDelayMs(attempt - 1, dependencies.random, null),
+              options,
+              dependencies,
+              attemptCount: attempt,
+              aggregate,
+            })
             continue
           }
           throw requestError({
@@ -651,6 +825,7 @@ export async function requestXeroAccountingCollectionPage<
       }
     } finally {
       dependencies.cancelTimeout(timeoutHandle)
+      options.signal?.removeEventListener('abort', externalAbort)
     }
   }
 
@@ -808,6 +983,9 @@ export async function fetchXeroPaginatedCollection<TRecord extends Record<string
       query,
       timeoutMs: options.requestTimeoutMs,
       maxAttempts: options.requestMaxAttempts,
+      ifModifiedSince: options.ifModifiedSince,
+      signal: options.signal,
+      deadlineAtMs: options.deadlineAtMs,
       dependencies: options.dependencies,
     })
 
@@ -882,6 +1060,20 @@ type EndpointFetchOptions<TOptions> = Omit<
   'config'
 > & {
   endpoint?: TOptions
+}
+
+export function fetchXeroOrganisation(
+  options: Omit<
+    XeroAccountingRequestOptions,
+    'resource' | 'path' | 'responseKey' | 'page' | 'query'
+  >
+) {
+  return requestXeroAccountingCollectionPage({
+    ...options,
+    resource: 'organisation',
+    path: '/Organisation',
+    responseKey: 'Organisations',
+  })
 }
 
 export function fetchXeroContacts(

@@ -613,6 +613,74 @@ test('pagination aggregates response metadata and HTTP attempt counts', async ()
   assert.deepEqual(result.metadata.correlationIds, ['page-1', 'page-2'])
 })
 
+test('If-Modified-Since is sent as a header and preserved across paginated catch-up pages', async () => {
+  const calls = []
+  const { options } = paginatedOptions(
+    sequenceFetcher([
+      jsonResponse({ Contacts: [contact('c-1')] }),
+      jsonResponse({ Contacts: [] }),
+    ], calls),
+    { ifModifiedSince: '2026-09-15T10:00:00.000Z' }
+  )
+
+  await client.fetchXeroPaginatedCollection(options)
+
+  assert.equal(calls.length, 2)
+  assert.ok(calls.every((call) =>
+    new Headers(call.init.headers).get('if-modified-since') ===
+      'Tue, 15 Sep 2026 10:00:00 GMT'
+  ))
+})
+
+test('a retry that cannot fit inside the overall deadline fails before sleeping', async () => {
+  let calls = 0
+  const dependencies = createDependencies(async () => {
+    calls += 1
+    return jsonResponse({}, { status: 503 })
+  }, { now: () => 1_000 })
+
+  await assert.rejects(
+    client.requestXeroAccountingCollectionPage({
+      accessToken: 'secret-access-token',
+      tenantId: 'tenant-1',
+      resource: 'contacts',
+      path: '/Contacts',
+      responseKey: 'Contacts',
+      deadlineAtMs: 1_300,
+      dependencies: dependencies.value,
+    }),
+    (error) => error.kind === 'deadline' && error.retryable === false
+  )
+  assert.equal(calls, 1)
+  assert.deepEqual(dependencies.delays, [])
+})
+
+test('external cancellation aborts an in-flight provider request without retrying', async () => {
+  let calls = 0
+  const abortController = new AbortController()
+  const dependencies = createDependencies(async (_input, init) => {
+    calls += 1
+    return new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+    })
+  })
+  const request = client.requestXeroAccountingCollectionPage({
+    accessToken: 'secret-access-token',
+    tenantId: 'tenant-1',
+    resource: 'contacts',
+    path: '/Contacts',
+    responseKey: 'Contacts',
+    signal: abortController.signal,
+    dependencies: dependencies.value,
+  })
+
+  abortController.abort()
+
+  await assert.rejects(request, (error) => error.kind === 'cancelled')
+  assert.equal(calls, 1)
+  assert.deepEqual(dependencies.delays, [])
+})
+
 test('401 and 403 are surfaced without internal retries or response-body leakage', async () => {
   for (const [status, expectedKind] of [
     [401, 'authentication'],
@@ -655,6 +723,23 @@ test('Contacts adapter uses explicit pagination, ContactID order, and contacts c
   assert.equal(requestUrl.searchParams.get('includeArchived'), 'true')
   assert.equal(requestUrl.searchParams.get('where'), 'Name=="Example"')
   assert.equal(client.createXeroContactsCollectionConfig().granularCapability, 'accounting.contacts')
+})
+
+test('Organisation helper uses the settings endpoint without pretending it is paginated', async () => {
+  const calls = []
+  const dependencies = createDependencies(
+    sequenceFetcher([jsonResponse({ Organisations: [{ OrganisationID: 'tenant' }] })], calls)
+  )
+
+  const result = await client.fetchXeroOrganisation({
+    accessToken: 'token',
+    tenantId: 'tenant',
+    dependencies: dependencies.value,
+  })
+
+  assert.equal(result.records.length, 1)
+  assert.equal(calls[0].url.pathname, '/api.xro/2.0/Organisation')
+  assert.equal(calls[0].url.searchParams.has('page'), false)
 })
 
 test('AUTHORISED and PAID ACCREC invoice adapters preserve exact Xero query syntax', () => {

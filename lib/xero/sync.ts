@@ -15,7 +15,7 @@ import { mapXeroRawToCanonical } from '@/lib/xero/canonical-mapper'
 import { persistLegacyXeroRawBatch } from '@/lib/xero/persistence'
 import { XERO_REFRESH_ISSUE_CODES } from '@/lib/xero/sync-status'
 
-interface XeroConnectionPublicRow {
+export interface XeroConnectionPublicRow {
   user_id: string
   tenant_id: string
   grant_id: string | null
@@ -36,18 +36,20 @@ interface XeroOAuthGrantRow {
   refresh_lock_expires_at: string | null
 }
 
-interface TokenAcquisitionSuccess {
+export interface TokenAcquisitionSuccess {
   ok: true
   connection: XeroConnectionPublicRow
+  grantId: string
+  scopes: string[]
   accessToken: string
 }
 
-interface TokenAcquisitionFailure {
+export interface TokenAcquisitionFailure {
   ok: false
   response: NextResponse
 }
 
-type TokenAcquisitionResult = TokenAcquisitionSuccess | TokenAcquisitionFailure
+export type TokenAcquisitionResult = TokenAcquisitionSuccess | TokenAcquisitionFailure
 
 type XeroAuthState = 'active' | 'reauth_required' | 'disconnected' | 'error'
 
@@ -291,7 +293,7 @@ async function markGrantConnectionsRetryableFailure(params: {
   })
 }
 
-async function getValidXeroAccessTokenForTenant(params: {
+export async function getValidXeroAccessTokenForTenant(params: {
   supabaseAdmin: SupabaseAdminClient
   userId: string
   tenantId: string
@@ -803,6 +805,8 @@ async function getValidXeroAccessTokenForTenant(params: {
   return {
     ok: true,
     connection,
+    grantId,
+    scopes: grantRow.scopes,
     accessToken,
   }
 }

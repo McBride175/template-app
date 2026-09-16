@@ -13,6 +13,7 @@
     "test:xero-generation:db": "RUN_SUPABASE_INTEGRATION=1 node --test tests/database/xero-sync-generation.integration.test.mjs",
     "test:xero-generation-persistence:db": "RUN_SUPABASE_INTEGRATION=1 node --test tests/database/xero-generation-persistence.integration.test.mjs",
     "test:xero-generation-importer:db": "RUN_SUPABASE_INTEGRATION=1 node --test tests/database/xero-generation-importer.integration.test.mjs",
+    "xero:generation:operator": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/xero-generation-operator.ts",
     "test:baseline": "node --test tests/database/baseline-contract.test.mjs",
     "security:sqlcheck": "bash scripts/security-sql-check.sh",
     "test:privacy": "node --test tests/privacy/*.test.mjs",
@@ -39,6 +40,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
     "tailwindcss": "^4",
+    "tsx": "4.23.13",
     "typescript": "^5"
   }
 }

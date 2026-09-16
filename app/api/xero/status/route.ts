@@ -7,6 +7,12 @@ import {
   resolveXeroSyncState,
   type XeroSyncState,
 } from '@/lib/xero/sync-status'
+import {
+  loadXeroAuthoritativeFreshness,
+  resolveXeroAuthoritativeSnapshot,
+  toXeroSnapshotReference,
+  type XeroSnapshotReference,
+} from '@/lib/xero/authoritative-snapshot'
 
 interface XeroConnectionRow {
   tenant_id: string
@@ -15,10 +21,6 @@ interface XeroConnectionRow {
   last_refresh_error: string | null
   reauth_required_at: string | null
   updated_at: string
-}
-
-interface XeroRawLatestRow {
-  fetched_at: string
 }
 
 interface XeroConnectionStatusSummary {
@@ -217,30 +219,30 @@ export async function GET(request: NextRequest) {
     const selectedConnection = selectTenantConnection(connectionRows, requestedTenantId) ?? null
     diagnosticContext.selectedTenantId = selectedConnection?.tenant_id ?? null
     let lastSyncedAt: string | null = null
+    let snapshot: XeroSnapshotReference | null = null
 
     if (selectedConnection) {
       const supabaseAdmin = createSupabaseAdminClient()
-      const { data: latestRaw, error: latestRawError } = await supabaseAdmin
-        .from('xero_raw')
-        .select('fetched_at')
-        .eq('user_id', user.id)
-        .eq('tenant_id', selectedConnection.tenant_id)
-        .is('sync_run_id', null)
-        .order('fetched_at', { ascending: false })
-        .limit(1)
-        .maybeSingle<XeroRawLatestRow>()
-
-      if (latestRawError) {
+      try {
+        const resolvedSnapshot = await resolveXeroAuthoritativeSnapshot({
+          supabaseAdmin,
+          userId: user.id,
+          tenantId: selectedConnection.tenant_id,
+        })
+        snapshot = toXeroSnapshotReference(resolvedSnapshot)
+        lastSyncedAt = await loadXeroAuthoritativeFreshness({
+          supabaseAdmin,
+          snapshot: resolvedSnapshot,
+        })
+      } catch (error) {
         logXeroStatusFailure({
           stage: 'sync_status_query',
           status: 500,
           context: diagnosticContext,
-          error: latestRawError,
+          error,
         })
         return NextResponse.json({ error: 'Failed to load Xero sync status' }, { status: 500 })
       }
-
-      lastSyncedAt = latestRaw?.fetched_at ?? null
     }
 
     const canAccessInternalTools = canAccessInternalXeroTools(user.email)
@@ -260,6 +262,7 @@ export async function GET(request: NextRequest) {
       tenantName: selectedConnection?.tenant_name ?? null,
       reauthRequiredAt: selectedConnectionSummary?.reauthRequiredAt ?? null,
       lastSyncedAt,
+      snapshot,
       connections,
       canAccessInternalTools,
       diagnostics:

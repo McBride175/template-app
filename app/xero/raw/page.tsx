@@ -166,7 +166,7 @@ export default function XeroRawPage() {
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">Xero Raw JSON</h1>
           <p className="mt-1 text-sm text-gray-600">
-            Inspect raw Xero Accounting payloads stored in Supabase.
+            Inspect transitional legacy raw Xero Accounting payloads stored in Supabase.
           </p>
         </div>
         <Link

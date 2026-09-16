@@ -10,16 +10,18 @@ import {
 } from '@/lib/xero/auto-sync'
 import { parseTenantId, syncXeroTenantForUser } from '@/lib/xero/sync'
 import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
+import {
+  loadXeroAuthoritativeFreshness,
+  resolveXeroAuthoritativeSnapshot,
+  toXeroSnapshotReference,
+  type XeroAuthoritativeSnapshot,
+} from '@/lib/xero/authoritative-snapshot'
 
 interface XeroConnectionRow {
   tenant_id: string
   auth_state: 'active' | 'reauth_required' | 'disconnected' | 'error'
   updated_at: string
   last_auto_sync_triggered_at: string | null
-}
-
-interface XeroRawLatestRow {
-  fetched_at: string
 }
 
 function selectTenantConnection(
@@ -127,21 +129,22 @@ export async function POST(request: Request) {
       })
     }
 
-    const { data: latestRaw, error: latestRawError } = await supabaseAdmin
-      .from('xero_raw')
-      .select('fetched_at')
-      .eq('user_id', user.id)
-      .eq('tenant_id', selectedConnection.tenant_id)
-      .is('sync_run_id', null)
-      .order('fetched_at', { ascending: false })
-      .limit(1)
-      .maybeSingle<XeroRawLatestRow>()
-
-    if (latestRawError) {
+    let resolvedSnapshot: XeroAuthoritativeSnapshot
+    let lastSyncedAt: string | null
+    try {
+      resolvedSnapshot = await resolveXeroAuthoritativeSnapshot({
+        supabaseAdmin,
+        userId: user.id,
+        tenantId: selectedConnection.tenant_id,
+      })
+      lastSyncedAt = await loadXeroAuthoritativeFreshness({
+        supabaseAdmin,
+        snapshot: resolvedSnapshot,
+      })
+    } catch {
       return NextResponse.json({ error: 'Failed to load Xero sync status' }, { status: 500 })
     }
-
-    const lastSyncedAt = latestRaw?.fetched_at ?? null
+    const snapshot = toXeroSnapshotReference(resolvedSnapshot)
 
     if (!isXeroDataStale(lastSyncedAt)) {
       return NextResponse.json({
@@ -150,6 +153,7 @@ export async function POST(request: Request) {
         reason: 'xero_data_fresh',
         tenantId: selectedConnection.tenant_id,
         lastSyncedAt,
+        snapshot,
         staleThresholdMinutes: XERO_AUTO_SYNC_STALE_MINUTES,
         surface,
       })
@@ -162,6 +166,7 @@ export async function POST(request: Request) {
         reason: 'auto_sync_cooldown_active',
         tenantId: selectedConnection.tenant_id,
         lastSyncedAt,
+        snapshot,
         surface,
       })
     }
@@ -210,6 +215,7 @@ export async function POST(request: Request) {
         reason: 'auto_sync_in_progress',
         tenantId: selectedConnection.tenant_id,
         lastSyncedAt,
+        snapshot,
         surface,
       })
     }
@@ -239,6 +245,7 @@ export async function POST(request: Request) {
       syncStatus,
       tenantId: selectedConnection.tenant_id,
       lastSyncedAt,
+      snapshot,
       staleThresholdMinutes: XERO_AUTO_SYNC_STALE_MINUTES,
       surface,
     })

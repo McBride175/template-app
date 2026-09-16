@@ -130,13 +130,18 @@ test('promotion validates current ownership and the complete required-step manif
   assert.match(sql, /last_successful_sync_at = v_now/)
 })
 
-test('application readers remain pinned to legacy rows until the future active-generation cutover', async () => {
-  const [liveSync, collectionsSummary] = await Promise.all([
+test('application readers use the active-generation resolver while live sync remains legacy', async () => {
+  const [liveSync, collectionsSummary, snapshotResolver] = await Promise.all([
     readFile(liveSyncUrl, 'utf8'),
     readFile(collectionsSummaryUrl, 'utf8'),
+    readFile(new URL('../../lib/xero/authoritative-snapshot.ts', import.meta.url), 'utf8'),
   ])
 
   assert.doesNotMatch(liveSync, /acquire_xero_sync_run|promote_xero_sync_run|sync_run_id/)
-  assert.doesNotMatch(collectionsSummary, /active_sync_run_id/)
-  assert.match(collectionsSummary, /\.is\('sync_run_id', null\)/)
+  assert.match(collectionsSummary, /resolveXeroAuthoritativeSnapshot/)
+  assert.match(collectionsSummary, /applyXeroAuthoritativeSnapshot/)
+  assert.match(snapshotResolver, /active_sync_run_id/)
+  assert.match(snapshotResolver, /runData\.status !== 'succeeded'/)
+  assert.match(snapshotResolver, /filterableQuery\.eq\('sync_run_id', snapshot\.syncRunId\)/)
+  assert.match(snapshotResolver, /filterableQuery\.is\('sync_run_id', null\)/)
 })

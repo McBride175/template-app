@@ -26,6 +26,13 @@ import {
   normalizeDecimalValue,
   sumDecimalValues,
 } from '@/lib/money/currency'
+import {
+  applyXeroAuthoritativeSnapshot,
+  resolveXeroAuthoritativeSnapshot,
+  toXeroSnapshotReference,
+  type XeroAuthoritativeSnapshot,
+  type XeroSnapshotReference,
+} from '@/lib/xero/authoritative-snapshot'
 
 const PAGE_SIZE = 1000
 const MS_PER_DAY = 86_400_000
@@ -100,6 +107,7 @@ export interface CustomerCollectionsSummaryResult {
     invoices: number
     payments: number
   }
+  snapshot: XeroSnapshotReference
 }
 
 interface CanonicalOrganisationRow {
@@ -416,18 +424,17 @@ function createMutableSummary(
 
 async function fetchCanonicalCustomers(
   supabase: ServerSupabaseClient,
-  userId: string,
-  tenantId: string
+  snapshot: XeroAuthoritativeSnapshot
 ) {
   const rows: CanonicalCustomerRow[] = []
 
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await supabase
+    const query = supabase
       .from('canonical_customers')
       .select('source_id, name, email, is_customer, is_supplier, status')
-      .eq('user_id', userId)
-      .eq('tenant_id', tenantId)
-      .is('sync_run_id', null)
+      .eq('user_id', snapshot.userId)
+      .eq('tenant_id', snapshot.tenantId)
+    const { data, error } = await applyXeroAuthoritativeSnapshot(query, snapshot)
       .order('source_id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
 
@@ -446,15 +453,14 @@ async function fetchCanonicalCustomers(
 
 async function fetchCanonicalOrganisations(
   supabase: ServerSupabaseClient,
-  userId: string,
-  tenantId: string
+  snapshot: XeroAuthoritativeSnapshot
 ) {
-  const { data, error } = await supabase
+  const query = supabase
     .from('canonical_organisations')
     .select('base_currency_code')
-    .eq('user_id', userId)
-    .eq('tenant_id', tenantId)
-    .is('sync_run_id', null)
+    .eq('user_id', snapshot.userId)
+    .eq('tenant_id', snapshot.tenantId)
+  const { data, error } = await applyXeroAuthoritativeSnapshot(query, snapshot)
 
   if (error) {
     throw new Error(`Failed to load canonical organisation currency: ${error.message}`)
@@ -465,20 +471,19 @@ async function fetchCanonicalOrganisations(
 
 async function fetchCanonicalInvoices(
   supabase: ServerSupabaseClient,
-  userId: string,
-  tenantId: string
+  snapshot: XeroAuthoritativeSnapshot
 ) {
   const rows: CanonicalInvoiceRow[] = []
 
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await supabase
+    const query = supabase
       .from('canonical_invoices')
       .select(
         'source_id, customer_source_id, type, status, issue_date, due_date, fully_paid_date, transaction_currency_code, organisation_base_currency_code, total_native, amount_paid_native, amount_due_native, amount_credited_native, amount_due_base, currency_conversion_status, currency_conversion_failure_reason'
       )
-      .eq('user_id', userId)
-      .eq('tenant_id', tenantId)
-      .is('sync_run_id', null)
+      .eq('user_id', snapshot.userId)
+      .eq('tenant_id', snapshot.tenantId)
+    const { data, error } = await applyXeroAuthoritativeSnapshot(query, snapshot)
       .order('source_id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
 
@@ -497,18 +502,17 @@ async function fetchCanonicalInvoices(
 
 async function fetchCanonicalPayments(
   supabase: ServerSupabaseClient,
-  userId: string,
-  tenantId: string
+  snapshot: XeroAuthoritativeSnapshot
 ) {
   const rows: CanonicalPaymentRow[] = []
 
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await supabase
+    const query = supabase
       .from('canonical_payments')
       .select('invoice_source_id, customer_source_id, payment_date')
-      .eq('user_id', userId)
-      .eq('tenant_id', tenantId)
-      .is('sync_run_id', null)
+      .eq('user_id', snapshot.userId)
+      .eq('tenant_id', snapshot.tenantId)
+    const { data, error } = await applyXeroAuthoritativeSnapshot(query, snapshot)
       .order('source_id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
 
@@ -531,12 +535,17 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
   tenantId: string
 ): Promise<CustomerCollectionsSummaryResult> {
   const { todayIso, todayUtcMs } = getTodayContext()
+  const snapshot = await resolveXeroAuthoritativeSnapshot({
+    supabaseAdmin: supabase,
+    userId,
+    tenantId,
+  })
 
   const [organisations, customers, invoices, payments] = await Promise.all([
-    fetchCanonicalOrganisations(supabase, userId, tenantId),
-    fetchCanonicalCustomers(supabase, userId, tenantId),
-    fetchCanonicalInvoices(supabase, userId, tenantId),
-    fetchCanonicalPayments(supabase, userId, tenantId),
+    fetchCanonicalOrganisations(supabase, snapshot),
+    fetchCanonicalCustomers(supabase, snapshot),
+    fetchCanonicalInvoices(supabase, snapshot),
+    fetchCanonicalPayments(supabase, snapshot),
   ])
 
   const currencyEvaluation = evaluateCollectionsCurrencyHealth({ organisations, invoices })
@@ -588,6 +597,7 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
       currencyEvaluation,
       currencyContext,
       sourceCounts,
+      snapshot: toXeroSnapshotReference(snapshot),
     }
   }
 
@@ -867,6 +877,7 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
     currencyEvaluation,
     currencyContext,
     sourceCounts,
+    snapshot: toXeroSnapshotReference(snapshot),
   }
 }
 

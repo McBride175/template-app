@@ -4,6 +4,10 @@ import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
 import {
+  applyXeroAuthoritativeSnapshot,
+  resolveXeroAuthoritativeSnapshot,
+} from '@/lib/xero/authoritative-snapshot'
+import {
   CANONICAL_ACTION_LINK_CLASS,
   CANONICAL_EMPTY_STATE_MESSAGE,
   getCanonicalNavLinks,
@@ -67,12 +71,17 @@ export default async function XeroCanonicalPaymentsPage({
   }
 
   const supabaseAdmin = createSupabaseAdminClient()
-  const { data: rows, error } = await supabaseAdmin
+  const snapshot = await resolveXeroAuthoritativeSnapshot({
+    supabaseAdmin,
+    userId: user.id,
+    tenantId,
+  })
+  const query = supabaseAdmin
     .from('canonical_payments')
     .select('id, invoice_source_id, customer_source_id, amount, payment_date, reference')
-    .eq('user_id', user.id)
-    .eq('tenant_id', tenantId)
-    .is('sync_run_id', null)
+    .eq('user_id', snapshot.userId)
+    .eq('tenant_id', snapshot.tenantId)
+  const { data: rows, error } = await applyXeroAuthoritativeSnapshot(query, snapshot)
     .order('payment_date', { ascending: false, nullsFirst: false })
     .limit(500)
 

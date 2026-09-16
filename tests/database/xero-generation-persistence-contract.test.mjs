@@ -81,23 +81,30 @@ test('generation writes are fenced and raw invoice identity is stream-independen
   assert.doesNotMatch(persistence, /paid_accrec_invoices.*InvoiceID/)
 })
 
-test('legacy readers explicitly exclude inactive generated rows', async () => {
-  const files = [
+test('legacy-only compatibility paths still exclude generated rows', async () => {
+  const legacyOnlyFiles = [
     '../../lib/xero/canonical-mapper.ts',
-    '../../lib/collections/customer-summary.ts',
-    '../../lib/collections/currency-context-server.ts',
     '../../lib/collections/tenant-context.ts',
     '../../app/api/xero/raw/route.ts',
+  ]
+
+  for (const file of legacyOnlyFiles) {
+    const source = await readFile(new URL(file, import.meta.url), 'utf8')
+    assert.match(source, /\.is\('sync_run_id', null\)/, file)
+  }
+
+  const generationAwareFiles = [
+    '../../lib/collections/customer-summary.ts',
+    '../../lib/collections/currency-context-server.ts',
     '../../app/api/xero/sync/auto/route.ts',
     '../../app/api/xero/status/route.ts',
     '../../app/xero/canonical/customers/page.tsx',
     '../../app/xero/canonical/invoices/page.tsx',
     '../../app/xero/canonical/payments/page.tsx',
   ]
-
-  for (const file of files) {
+  for (const file of generationAwareFiles) {
     const source = await readFile(new URL(file, import.meta.url), 'utf8')
-    assert.match(source, /\.is\('sync_run_id', null\)/, file)
+    assert.match(source, /resolveXeroAuthoritativeSnapshot/, file)
   }
 })
 

@@ -103,6 +103,10 @@ function createQuery(rows) {
         error: null,
       })
     },
+    maybeSingle() {
+      const filtered = rows.filter((row) => filters.every((filter) => filter(row)))
+      return Promise.resolve({ data: filtered[0] ?? null, error: null })
+    },
     then(resolve, reject) {
       return Promise.resolve({
         data: rows.filter((row) => filters.every((filter) => filter(row))),
@@ -115,6 +119,8 @@ function createQuery(rows) {
 
 async function loadSummary({ baseCurrency = 'GBP', customers, invoices, payments = [] }) {
   const tables = {
+    xero_sync_tenant_state: [],
+    xero_sync_runs: [],
     canonical_organisations: baseCurrency
       ? [{ user_id: USER_ID, tenant_id: TENANT_ID, base_currency_code: baseCurrency }]
       : [],

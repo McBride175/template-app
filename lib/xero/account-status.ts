@@ -37,6 +37,10 @@ export interface XeroConnectionStatus {
   tenantId: string | null
   tenantName: string | null
   lastSyncedAt: string | null
+  snapshot?: {
+    mode: 'generation' | 'legacy'
+    syncRunId: string | null
+  } | null
   connections: XeroConnectionSummary[]
   diagnostics?: {
     refreshIssueCode?: string | null

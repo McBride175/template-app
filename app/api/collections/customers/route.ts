@@ -142,6 +142,7 @@ export async function GET(request: NextRequest) {
       currencyEvaluation,
       currencyContext,
       reviewRequiredCustomers,
+      snapshot,
     } = await loadCustomerCollectionsSummaryWithMetadata(supabaseAdmin, user.id, tenantId)
     const currencyAccess = resolveCollectionsCurrencyAccess({ entitlement, currencyContext })
 
@@ -174,6 +175,7 @@ export async function GET(request: NextRequest) {
         organisationBaseCurrency,
         currencyHealth,
         reviewRequiredCustomers,
+        snapshot,
         rows: [],
       })
     }
@@ -192,6 +194,7 @@ export async function GET(request: NextRequest) {
       organisationBaseCurrency,
       currencyHealth,
       reviewRequiredCustomers,
+      snapshot,
       rows: filteredRows.slice(0, limit),
     })
   } catch (error) {

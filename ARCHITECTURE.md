@@ -78,6 +78,17 @@ The final Xero design contains only:
 
 The legacy `xero_connections`, transient `xero_connection_secrets`, tenant-scoped refresh-lock RPCs, and orphaned `set_updated_at_xero_connections()` function are not part of the final architecture.
 
+Canonical application reads resolve one authoritative snapshot per user and tenant. A non-null
+`xero_sync_tenant_state.active_sync_run_id` is authoritative only when it references that exact
+user/tenant's succeeded run; all related organisation, customer, invoice, and payment reads are
+then scoped to that exact `sync_run_id`. A missing tenant-state row or an explicitly null active
+pointer uses only the transitional legacy `sync_run_id IS NULL` rows. An invalid non-null pointer
+fails closed and never falls back to legacy data. The resolved snapshot is held for the full logical
+read so concurrent promotion cannot mix generations. Status freshness follows
+`last_successful_sync_at` for promoted generations and the latest legacy raw fetch only in legacy
+mode. The current manual, automatic, and scheduled sync executors still write the legacy cache;
+migrating those execution paths to the validated generation lifecycle is a separate phase.
+
 Xero token, auto-sync, and scheduler RPCs are `SECURITY DEFINER`, have a fixed `pg_catalog, public` search path, and are executable only by `service_role`. The scheduled candidate RPC is the final stale-aware three-argument version.
 
 ### Currency data contract

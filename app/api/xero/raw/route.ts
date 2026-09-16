@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
 
 const ALLOWED_RESOURCE_TYPES = new Set(['accounts', 'contacts', 'invoices'])
+const RAW_DIAGNOSTIC_SNAPSHOT = 'legacy' as const
 
 export async function GET(request: NextRequest) {
   try {
@@ -54,6 +55,9 @@ export async function GET(request: NextRequest) {
       : 20
 
     const supabaseAdmin = createSupabaseAdminClient()
+    // This forensic route intentionally preserves access to the transitional
+    // legacy raw cache. Product and canonical readers use the authoritative
+    // active snapshot resolver instead.
     let query = supabaseAdmin
       .from('xero_raw')
       .select('id, tenant_id, resource_type, source_id, raw_json, fetched_at, updated_at')
@@ -73,7 +77,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to load Xero raw data' }, { status: 500 })
     }
 
-    return NextResponse.json({ ok: true, tenantId, rows: data ?? [] })
+    return NextResponse.json({
+      ok: true,
+      tenantId,
+      snapshotMode: RAW_DIAGNOSTIC_SNAPSHOT,
+      rows: data ?? [],
+    })
   } catch {
     return NextResponse.json({ error: 'Failed to load Xero raw data' }, { status: 500 })
   }

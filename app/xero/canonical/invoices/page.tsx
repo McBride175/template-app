@@ -6,6 +6,10 @@ import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
 import { resolveCollectionsCurrencyAccess } from '@/lib/billing/collections-access'
 import { loadCollectionsCurrencyContext } from '@/lib/collections/currency-context-server'
 import {
+  applyXeroAuthoritativeSnapshot,
+  resolveXeroAuthoritativeSnapshot,
+} from '@/lib/xero/authoritative-snapshot'
+import {
   CANONICAL_ACTION_LINK_CLASS,
   CANONICAL_EMPTY_STATE_MESSAGE,
   getCanonicalNavLinks,
@@ -101,10 +105,16 @@ export default async function XeroCanonicalInvoicesPage({
   }
 
   const supabaseAdmin = createSupabaseAdminClient()
+  const snapshot = await resolveXeroAuthoritativeSnapshot({
+    supabaseAdmin,
+    userId: user.id,
+    tenantId,
+  })
   const currencyContext = await loadCollectionsCurrencyContext({
     supabaseAdmin,
     userId: user.id,
     tenantId,
+    snapshot,
   })
   const currencyAccess = resolveCollectionsCurrencyAccess({ entitlement, currencyContext })
   if (!currencyAccess.allowed) {
@@ -112,14 +122,14 @@ export default async function XeroCanonicalInvoicesPage({
   }
   const showMultiCurrencyAmounts = currencyContext.mode === 'multi_currency'
 
-  const { data: rows, error } = await supabaseAdmin
+  const query = supabaseAdmin
     .from('canonical_invoices')
     .select(
       'id, invoice_number, customer_source_id, status, issue_date, due_date, total, amount_due, amount_paid, amount_credited, transaction_currency_code, organisation_base_currency_code, amount_due_native, amount_due_base, sent_to_contact'
     )
-    .eq('user_id', user.id)
-    .eq('tenant_id', tenantId)
-    .is('sync_run_id', null)
+    .eq('user_id', snapshot.userId)
+    .eq('tenant_id', snapshot.tenantId)
+  const { data: rows, error } = await applyXeroAuthoritativeSnapshot(query, snapshot)
     .order('issue_date', { ascending: false, nullsFirst: false })
     .limit(500)
 

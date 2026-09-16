@@ -385,7 +385,7 @@ test(
 )
 
 test(
-  'promotion requires the complete manifest and atomically preserves or flips the active pointer',
+  'promotion remains blocked when current readiness evidence and coherent generated data are absent',
   { skip: !enabled },
   () => {
     resetFixtures()
@@ -426,59 +426,35 @@ test(
     })
 
     assert.deepEqual(promote(first.runId, ownerA, first.fence), {
-      promoted: true,
-      resultCode: 'promoted',
-      hasTimestamp: true,
-    })
-    const firstSuccessfulAt = psql(`
-      select active_sync_run_id::text || '|' || latest_sync_run_id::text || '|' ||
-        current_fencing_token::text || '|' || last_successful_sync_at::text
-      from public.xero_sync_tenant_state
-      where user_id = '${userId}'::uuid and tenant_id = '${tenantId}';
-    `).split('|')
-    assert.deepEqual(firstSuccessfulAt.slice(0, 3), [first.runId, first.runId, '1'])
-    assert.ok(firstSuccessfulAt[3])
-    assert.equal(
-      psql(`
-        select status || '|' || (completed_at is not null)::text || '|' ||
-          (lease_owner is null)::text || '|' || snapshot_as_of::text
-        from public.xero_sync_runs where id = '${first.runId}'::uuid;
-      `),
-      'succeeded|true|true|2026-09-15 05:00:00+00'
-    )
-
-    const second = acquire(ownerB)
-    assert.equal(second.fence, 2)
-    assert.deepEqual(promote(second.runId, ownerB, second.fence), {
       promoted: false,
       resultCode: 'manifest_incomplete',
       hasTimestamp: false,
     })
-    assert.equal(
-      psql(`
-        select active_sync_run_id::text || '|' || last_successful_sync_at::text
-        from public.xero_sync_tenant_state
-        where user_id = '${userId}'::uuid and tenant_id = '${tenantId}';
-      `),
-      `${first.runId}|${firstSuccessfulAt[3]}`
-    )
-    assert.deepEqual(failRun(second.runId, ownerB, second.fence), {
+    assert.equal(psql(`
+      select (active_sync_run_id is null)::text || '|' ||
+        latest_sync_run_id::text || '|' || current_fencing_token::text || '|' ||
+        (last_successful_sync_at is null)::text
+      from public.xero_sync_tenant_state
+      where user_id = '${userId}'::uuid and tenant_id = '${tenantId}';
+    `), `true|${first.runId}|1|true`)
+    assert.deepEqual(failRun(first.runId, ownerA, first.fence), {
       failed: true,
       resultCode: 'failed',
     })
     assert.equal(
       psql(`
-        select active_sync_run_id::text || '|' || last_successful_sync_at::text
+          select (active_sync_run_id is null)::text || '|' ||
+            (last_successful_sync_at is null)::text
         from public.xero_sync_tenant_state
         where user_id = '${userId}'::uuid and tenant_id = '${tenantId}';
       `),
-      `${first.runId}|${firstSuccessfulAt[3]}`
+      'true|true'
     )
   }
 )
 
 test(
-  'a stale worker cannot displace the newer promoted generation after takeover',
+  'a stale worker cannot displace a newer tenant owner after takeover',
   { skip: !enabled },
   () => {
     resetFixtures()
@@ -490,7 +466,11 @@ test(
     `)
     const second = acquire(ownerB)
     completeManifest(second.runId, ownerB, second.fence)
-    assert.equal(promote(second.runId, ownerB, second.fence).promoted, true)
+    assert.deepEqual(promote(second.runId, ownerB, second.fence), {
+      promoted: false,
+      resultCode: 'manifest_incomplete',
+      hasTimestamp: false,
+    })
 
     assert.deepEqual(promote(first.runId, ownerA, first.fence), {
       promoted: false,
@@ -499,11 +479,11 @@ test(
     })
     assert.equal(
       psql(`
-        select active_sync_run_id::text || '|' || current_fencing_token::text
+        select (active_sync_run_id is null)::text || '|' || current_fencing_token::text
         from public.xero_sync_tenant_state
         where user_id = '${userId}'::uuid and tenant_id = '${tenantId}';
       `),
-      `${second.runId}|2`
+      'true|2'
     )
   }
 )

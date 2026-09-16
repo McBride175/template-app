@@ -27,6 +27,11 @@ import {
 } from '@/lib/xero/generation-lease'
 import { mapXeroGenerationToCanonical, type XeroGenerationMappingResult } from '@/lib/xero/generation-mapper'
 import {
+  recordXeroGenerationReadiness,
+  XeroGenerationReadinessContractError,
+  type XeroGenerationReadinessEvidence,
+} from '@/lib/xero/generation-readiness'
+import {
   acquireXeroGenerationRun,
   completeXeroGenerationRunStep,
   failXeroGenerationRun,
@@ -132,6 +137,7 @@ interface XeroGenerationImportDependencies {
   fetchCollection: typeof fetchXeroPaginatedCollection
   persistRaw: typeof persistXeroGenerationRawBatch
   mapCanonical: typeof mapXeroGenerationToCanonical
+  recordReadiness: typeof recordXeroGenerationReadiness
   now: () => number
   scheduleDeadline: XeroGenerationLeaseTimerDependencies['schedule']
   cancelDeadline: XeroGenerationLeaseTimerDependencies['cancel']
@@ -174,6 +180,7 @@ export type XeroGenerationImportResult =
         canonical: XeroGenerationMappingResult['counts']
       }
       validation: XeroGenerationMappingResult['validation']
+      readiness: XeroGenerationReadinessEvidence
       diagnostics: XeroGenerationImportDiagnostics
     }
   | {
@@ -195,6 +202,7 @@ const DEFAULT_DEPENDENCIES: XeroGenerationImportDependencies = {
   fetchCollection: fetchXeroPaginatedCollection,
   persistRaw: persistXeroGenerationRawBatch,
   mapCanonical: mapXeroGenerationToCanonical,
+  recordReadiness: recordXeroGenerationReadiness,
   now: Date.now,
   scheduleDeadline: (callback, milliseconds) => setTimeout(callback, milliseconds),
   cancelDeadline: (handle) => clearTimeout(handle),
@@ -370,6 +378,13 @@ function classifyError(error: unknown, runId: string | null): XeroGenerationImpo
     })
   }
   if (error instanceof XeroSyncRunContractError) {
+    return new XeroGenerationImportError({
+      code: 'persistence_failed',
+      resource: error.operation,
+      runId,
+    })
+  }
+  if (error instanceof XeroGenerationReadinessContractError) {
     return new XeroGenerationImportError({
       code: 'persistence_failed',
       resource: error.operation,
@@ -773,7 +788,9 @@ export async function importXeroGeneration(params: {
       mapping.counts.customers !== contacts.length ||
       mapping.counts.invoices !== invoices.length ||
       mapping.counts.payments !== payments.length ||
-      !normalizeCurrencyCode(mapping.validation.organisationBaseCurrencyCode)
+      !normalizeCurrencyCode(mapping.validation.organisationBaseCurrencyCode) ||
+      mapping.validation.incompleteFxInvoiceCount !== 0 ||
+      mapping.validation.completeFxInvoiceCount !== mapping.counts.invoices
     ) {
       throw new XeroGenerationImportError({
         code: 'generation_validation_failed',
@@ -799,6 +816,17 @@ export async function importXeroGeneration(params: {
         canonical_mapping: canonicalCount,
       },
     })
+    const readiness = await dependencies.recordReadiness({
+      ...authority,
+      supabaseAdmin,
+    })
+    if (!readiness.validated) {
+      throw new XeroGenerationImportError({
+        code: 'generation_validation_failed',
+        resource: readiness.resultCode,
+        runId: authority.syncRunId,
+      })
+    }
     await completeStep('validation', 1)
     await lease.renewNow()
 
@@ -816,6 +844,7 @@ export async function importXeroGeneration(params: {
         canonical: mapping.counts,
       },
       validation: mapping.validation,
+      readiness,
       diagnostics: {
         runStartedAt: new Date(runStartedMs).toISOString(),
         catchUpSince,

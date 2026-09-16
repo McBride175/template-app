@@ -496,3 +496,82 @@ test('missing foreign CurrencyRate remains explicitly incomplete and is never tr
   assert.equal(invoice.total_base, null)
   assert.equal(invoice.amount_due_base, null)
 })
+
+test('generation mapper classifies identity, valid foreign, and unusable foreign FX fail closed', async (t) => {
+  const { mapXeroGenerationToCanonical } = loadTypeScriptModule(GENERATION_MAPPER_PATH, {
+    mocks: {
+      '@/lib/supabase-admin': {
+        createSupabaseAdminClient() {
+          throw new Error('tests supply an explicit database client')
+        },
+      },
+    },
+  })
+
+  async function mapInvoice(currencyCode, currencyRate) {
+    const rawInvoice = {
+      InvoiceID: 'invoice-a',
+      Contact: { ContactID: 'contact-a' },
+      Type: 'ACCREC',
+      Status: 'AUTHORISED',
+      CurrencyCode: currencyCode,
+      Total: 100,
+      AmountDue: 100,
+      AmountPaid: 0,
+      AmountCredited: 0,
+    }
+    if (currencyRate !== undefined) rawInvoice.CurrencyRate = currencyRate
+    const database = createGenerationDatabase([
+      rawRow('run-a', 'organisations', 'organisation-a', {
+        OrganisationID: 'organisation-a',
+        BaseCurrency: 'GBP',
+      }),
+      rawRow('run-a', 'contacts', 'contact-a', {
+        ContactID: 'contact-a',
+        Name: 'Contact A',
+      }),
+      rawRow('run-a', 'invoices', 'invoice-a', rawInvoice),
+    ])
+    const result = await mapXeroGenerationToCanonical({
+      syncRunId: 'run-a',
+      userId: 'generation-user',
+      tenantId: 'generation-tenant',
+      leaseOwner: 'owner-a',
+      fencingToken: 7,
+      supabaseAdmin: database,
+    })
+    return { result, invoice: database.canonical.invoices[0] }
+  }
+
+  await t.test('GBP base plus GBP invoice is an identity conversion', async () => {
+    const { result, invoice } = await mapInvoice('GBP', undefined)
+    assert.equal(result.validation.incompleteFxInvoiceCount, 0)
+    assert.equal(invoice.currency_conversion_status, 'identity')
+    assert.equal(invoice.total_base, '100')
+  })
+
+  await t.test('GBP base plus foreign invoice with a valid rate is converted', async () => {
+    const { result, invoice } = await mapInvoice('USD', '1.25')
+    assert.equal(result.validation.incompleteFxInvoiceCount, 0)
+    assert.equal(invoice.currency_conversion_status, 'converted')
+    assert.equal(invoice.xero_currency_rate, '1.25')
+    assert.equal(invoice.total_base, '80.00000000')
+  })
+
+  for (const [label, rate, reason] of [
+    ['missing', undefined, 'missing_rate'],
+    ['zero', '0', 'invalid_rate'],
+    ['negative', '-1.25', 'invalid_rate'],
+    ['malformed', 'not-a-number', 'invalid_rate'],
+    ['non-finite', Number.POSITIVE_INFINITY, 'invalid_rate'],
+  ]) {
+    await t.test(`foreign invoice with ${label} rate stays incomplete`, async () => {
+      const { result, invoice } = await mapInvoice('USD', rate)
+      assert.equal(result.validation.incompleteFxInvoiceCount, 1)
+      assert.equal(invoice.currency_conversion_status, 'incomplete')
+      assert.equal(invoice.currency_conversion_failure_reason, reason)
+      assert.equal(invoice.xero_currency_rate, null)
+      assert.equal(invoice.total_base, null)
+    })
+  }
+})

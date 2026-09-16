@@ -104,7 +104,7 @@ const DEFAULT_DEPENDENCIES: XeroGenerationOperatorDependencies = {
   randomUUID,
 }
 
-function requireProjectRef(value: string) {
+export function requireXeroGenerationOperatorProjectRef(value: string) {
   const projectRef = value?.trim().toLowerCase()
   if (!projectRef || !PROJECT_REF_PATTERN.test(projectRef)) {
     throw new XeroGenerationOperatorError({
@@ -130,7 +130,7 @@ function requireProjectRef(value: string) {
   return projectRef
 }
 
-function requireUuid(value: string, label: string) {
+export function requireXeroGenerationOperatorUuid(value: string, label: string) {
   const uuid = value?.trim().toLowerCase()
   if (!uuid || !UUID_PATTERN.test(uuid)) {
     throw new XeroGenerationOperatorError({
@@ -166,15 +166,15 @@ export function readSupabaseProjectRef(rawUrl: string | undefined) {
 
 function validateInput(input: XeroGenerationOperatorInput) {
   return {
-    projectRef: requireProjectRef(input.projectRef),
-    userId: requireUuid(input.userId, 'user-id'),
-    tenantId: requireUuid(input.tenantId, 'tenant-id'),
-    grantId: requireUuid(input.grantId, 'grant-id'),
+    projectRef: requireXeroGenerationOperatorProjectRef(input.projectRef),
+    userId: requireXeroGenerationOperatorUuid(input.userId, 'user-id'),
+    tenantId: requireXeroGenerationOperatorUuid(input.tenantId, 'tenant-id'),
+    grantId: requireXeroGenerationOperatorUuid(input.grantId, 'grant-id'),
     dryRun: input.dryRun,
   }
 }
 
-function ensureCredentialTarget(params: {
+export function ensureXeroGenerationOperatorCredentialTarget(params: {
   projectRef: string
   supabaseUrl?: string
   serviceRoleKey?: string
@@ -364,7 +364,7 @@ export async function runXeroGenerationOperator(params: {
 }) {
   const input = validateInput(params.input)
   const environment = params.environment ?? process.env
-  const configuredProjectRef = ensureCredentialTarget({
+  const configuredProjectRef = ensureXeroGenerationOperatorCredentialTarget({
     projectRef: input.projectRef,
     supabaseUrl: environment.NEXT_PUBLIC_SUPABASE_URL,
     serviceRoleKey: environment.SUPABASE_SERVICE_ROLE_KEY,
@@ -454,6 +454,7 @@ export async function runXeroGenerationOperator(params: {
     },
     counts: result.counts,
     validation: result.validation,
+    readiness: result.readiness,
     manifest,
     diagnostics: safeDiagnostics(result),
     promotionCapability: 'unavailable' as const,

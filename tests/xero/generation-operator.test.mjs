@@ -133,6 +133,17 @@ function readyResult() {
       incompleteFxInvoiceCount: 0,
       completeFxInvoiceCount: 2,
     },
+    readiness: {
+      validated: true,
+      resultCode: 'validated',
+      validationId: '00000000-0000-4000-8000-000000000102',
+      validatedAt: '2026-09-16T12:01:00.000Z',
+      contractVersion: 'collections_readiness_v2',
+      fencingToken: 1,
+      baseCurrencyCode: 'GBP',
+      incompleteFxInvoiceCount: 0,
+      fxViolationCount: 0,
+    },
     diagnostics: {
       runStartedAt: '2026-09-16T12:00:00.000Z',
       catchUpSince: '2026-09-16T11:59:55.000Z',

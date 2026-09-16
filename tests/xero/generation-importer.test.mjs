@@ -63,6 +63,10 @@ test('complete generation reaches ready-for-promotion with ordered trusted manif
   )
   assert.ok(harness.events.indexOf('map') > harness.events.indexOf('persist:payments'))
   assert.ok(harness.events.indexOf('manifest') > harness.events.indexOf('step:canonical_mapping'))
+  assert.ok(harness.events.indexOf('readiness:record') > harness.events.indexOf('manifest'))
+  assert.ok(harness.events.indexOf('step:validation') > harness.events.indexOf('readiness:record'))
+  assert.equal(result.readiness.contractVersion, 'collections_readiness_v2')
+  assert.equal(harness.readinessRecords, 1)
   assert.equal(harness.failures.length, 0)
   assert.equal(harness.heartbeatCount, 1)
   assert.equal(harness.cancelledDeadlineTimers.length, 1)
@@ -460,6 +464,55 @@ test('missing capability, invalid organisation, mapping failure, and final valid
       (error) => error.code === 'generation_validation_failed'
     )
     assert.equal(harness.steps.get('validation').status, 'pending')
+  })
+
+  for (const [label, incompleteFxInvoiceCount, completeFxInvoiceCount] of [
+    ['one incomplete invoice in a mixed generation', 1, 1],
+    ['all invoices incomplete', 2, 0],
+  ]) {
+    await t.test(label, async () => {
+      const harness = createGenerationImportHarness({
+        mappingResult: {
+          counts: { organisations: 1, customers: 1, invoices: 2, payments: 1 },
+          writes: {},
+          validation: {
+            organisationBaseCurrencyCode: 'GBP',
+            incompleteFxInvoiceCount,
+            completeFxInvoiceCount,
+          },
+        },
+      })
+      await assert.rejects(
+        importer.importXeroGeneration(harness.params),
+        (error) => error.code === 'generation_validation_failed'
+      )
+      assert.equal(harness.readinessRecords, 0)
+      assert.equal(harness.steps.get('validation').status, 'pending')
+      assert.equal(harness.failures[0].errorCode, 'generation_validation_failed')
+    })
+  }
+
+  await t.test('authoritative readiness rejection', async () => {
+    const harness = createGenerationImportHarness({
+      readinessResult: () => ({
+        validated: false,
+        resultCode: 'fx_incomplete',
+        validationId: null,
+        validatedAt: null,
+        contractVersion: 'collections_readiness_v2',
+        fencingToken: 1,
+        baseCurrencyCode: 'GBP',
+        incompleteFxInvoiceCount: 1,
+        fxViolationCount: 1,
+      }),
+    })
+    await assert.rejects(
+      importer.importXeroGeneration(harness.params),
+      (error) => error.code === 'generation_validation_failed' && error.resource === 'fx_incomplete'
+    )
+    assert.equal(harness.readinessRecords, 1)
+    assert.equal(harness.steps.get('validation').status, 'pending')
+    assert.equal(harness.failures[0].errorCode, 'generation_validation_failed')
   })
 
   await t.test('incomplete trusted manifest', async () => {

@@ -39,3 +39,30 @@ the inactive run for diagnosis.
 
 Production operation is prohibited by implementation, not convention. There is
 no `--force`, Production mode, or guard bypass.
+
+## Prepared-run revalidation
+
+An already prepared generation whose lease expired can be checked without
+mutating it:
+
+```sh
+pnpm xero:generation:revalidate -- \
+  --project-ref rbmxegyiwntomhpbepnu \
+  --user-id <uuid> \
+  --tenant-id <uuid> \
+  --grant-id <uuid> \
+  --run-id <uuid> \
+  --dry-run
+```
+
+This evaluates the current `collections_readiness_v2` contract directly against
+the run-scoped raw and canonical rows. Historical success of the unversioned
+`validation` manifest step is not sufficient.
+
+Omitting `--dry-run` is allowed only at an explicitly authorised reacquisition
+checkpoint. It atomically gives the same prepared run a new tenant-monotonic
+fence and finite lease, then records immutable readiness evidence for that new
+fence. It does not call Xero, remap data, retry, create a generation, alter active
+pointers, or promote. The command has the same hard Test allowlist, credential
+cross-check, exact identity/grant checks, and no bypass option as the import
+operator.

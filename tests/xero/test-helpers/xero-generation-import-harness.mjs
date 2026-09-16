@@ -124,6 +124,7 @@ export function createGenerationImportHarness(options = {}) {
   const cancelledDeadlineTimers = []
   let heartbeatCount = 0
   let tokenLoads = 0
+  let readinessRecords = 0
 
   const primary = {
     contacts: options.contacts ?? [contact('contact-a')],
@@ -187,6 +188,22 @@ export function createGenerationImportHarness(options = {}) {
     async loadManifest() {
       events.push('manifest')
       return [...steps.values()].map((step) => ({ ...step }))
+    },
+    async recordReadiness(params) {
+      readinessRecords += 1
+      events.push('readiness:record')
+      if (options.readinessResult) return options.readinessResult(params)
+      return {
+        validated: true,
+        resultCode: 'validated',
+        validationId: 'validation-evidence-a',
+        validatedAt: '2026-09-15T10:01:00.000Z',
+        contractVersion: 'collections_readiness_v2',
+        fencingToken: params.fencingToken,
+        baseCurrencyCode: 'GBP',
+        incompleteFxInvoiceCount: 0,
+        fxViolationCount: 0,
+      }
     },
     async loadAccessToken({ forceRefresh = false }) {
       tokenLoads += 1
@@ -311,6 +328,9 @@ export function createGenerationImportHarness(options = {}) {
     },
     get tokenLoads() {
       return tokenLoads
+    },
+    get readinessRecords() {
+      return readinessRecords
     },
   }
 }

@@ -1,6 +1,6 @@
 # Local Supabase configuration only. Hosted project links belong in the ignored
 # supabase/.temp directory and must never be committed.
-project_id = "template-app"
+project_id = "yuohme"
 
 [api]
 enabled = true

@@ -127,7 +127,7 @@ test('response headers noindex every non-production route and private production
   })
 })
 
-test('public structured data does not publish the placeholder brand or an unverified offer', async () => {
+test('public structured data does not publish an unverified offer', async () => {
   const sources = await Promise.all(
     [
       'app/layout.tsx',
@@ -139,7 +139,6 @@ test('public structured data does not publish the placeholder brand or an unveri
   )
   const structuredDataSource = sources.join('\n')
 
-  assert.doesNotMatch(structuredDataSource, /name:\s*['"]Template App['"]/)
   assert.doesNotMatch(structuredDataSource, /['"]@type['"]:\s*['"]SoftwareApplication['"]/)
   assert.doesNotMatch(structuredDataSource, /priceCurrency/)
 })

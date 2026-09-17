@@ -3,7 +3,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import test from 'node:test'
 
 const enabled = process.env.RUN_SUPABASE_INTEGRATION === '1'
-const databaseContainer = 'supabase_db_template-app'
+const databaseContainer = 'supabase_db_yuohme'
 const userId = '00000000-0000-4000-8000-00000000e601'
 const grantId = '00000000-0000-4000-8000-00000000e602'
 const tenantId = '00000000-0000-4000-8000-00000000e603'

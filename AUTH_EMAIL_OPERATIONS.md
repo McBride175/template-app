@@ -74,7 +74,7 @@ than changing them piecemeal:
 - the Vercel custom domain and environment-scoped application URLs;
 - canonical URLs, SEO and social metadata, Open Graph assets, sitemap, and robots configuration;
 - legal, privacy, terms, support/contact addresses, and domain-specific cookie/consent settings;
-- hard-coded Preview or `template-app` naming in application copy, configuration, operational
+- hard-coded Preview or legacy product naming in application copy, configuration, operational
   documents, and external dashboards;
 - Sentry environment, release, allowed-origin, and domain assumptions; and
 - Stripe customer-facing branding, support details, return URLs, and portal/receipt settings.

@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   },
 }
 
-const DEFAULT_CONTROLLER_NAME = 'Template App Operator'
+const DEFAULT_CONTROLLER_NAME = 'Yuohme Operator'
 const DEFAULT_CONTROLLER_EMAIL = 'privacy@yourdomain.com'
 const DEFAULT_EU_REP_CONTACT = 'Not appointed'
 const DEFAULT_DPO_CONTACT = 'Not appointed'

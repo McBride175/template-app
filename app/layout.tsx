@@ -9,24 +9,24 @@ const siteUrl = getSiteUrl()
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: 'Template App',
-    template: '%s | Template App',
+    default: 'Yuohme',
+    template: '%s | Yuohme',
   },
-  description: 'Template App with auth, subscriptions, and dashboard workflows.',
+  description: 'Yuohme with auth, subscriptions, and dashboard workflows.',
   alternates: {
     canonical: '/',
   },
   openGraph: {
-    title: 'Template App',
-    description: 'Template App with auth, subscriptions, and dashboard workflows.',
+    title: 'Yuohme',
+    description: 'Yuohme with auth, subscriptions, and dashboard workflows.',
     url: siteUrl,
-    siteName: 'Template App',
+    siteName: 'Yuohme',
     type: 'website',
   },
   twitter: {
     card: 'summary',
-    title: 'Template App',
-    description: 'Template App with auth, subscriptions, and dashboard workflows.',
+    title: 'Yuohme',
+    description: 'Yuohme with auth, subscriptions, and dashboard workflows.',
   },
 };
 

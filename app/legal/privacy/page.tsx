@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { LEGAL_LAST_UPDATED_LABEL } from '@/app/legal/constants'
+import { getPrivacyControllerConfig } from '@/lib/privacy-controller'
 
 const title = 'Privacy Policy'
 const description = 'Read how this service handles account, billing, support and product data.'
@@ -24,8 +25,6 @@ export const metadata: Metadata = {
   },
 }
 
-const DEFAULT_CONTROLLER_NAME = 'Yuohme Operator'
-const DEFAULT_CONTROLLER_EMAIL = 'privacy@yourdomain.com'
 const DEFAULT_EU_REP_CONTACT = 'Not appointed'
 const DEFAULT_DPO_CONTACT = 'Not appointed'
 
@@ -37,8 +36,7 @@ function getPositiveInteger(value: string | undefined, fallback: number) {
 }
 
 export default function PrivacyPage() {
-  const controllerName = process.env.DATA_CONTROLLER_NAME ?? DEFAULT_CONTROLLER_NAME
-  const controllerEmail = process.env.DATA_CONTROLLER_EMAIL ?? DEFAULT_CONTROLLER_EMAIL
+  const controller = getPrivacyControllerConfig()
   const dpoContact = process.env.DATA_PROTECTION_OFFICER_CONTACT ?? DEFAULT_DPO_CONTACT
   const euRepContact = process.env.EU_REPRESENTATIVE_CONTACT ?? DEFAULT_EU_REP_CONTACT
   const supportTicketRetentionDays = getPositiveInteger(
@@ -55,8 +53,16 @@ export default function PrivacyPage() {
 
       <section className="space-y-2">
         <h2>1. Controller and Contacts</h2>
-        <p className="text-sm text-gray-700">Data controller: {controllerName}</p>
-        <p className="text-sm text-gray-700">Privacy contact: {controllerEmail}</p>
+        {controller.configured ? (
+          <>
+            <p className="text-sm text-gray-700">Data controller: {controller.name}</p>
+            <p className="text-sm text-gray-700">Privacy contact: {controller.email}</p>
+          </>
+        ) : (
+          <p className="text-sm text-gray-700">
+            Controller contact details are not configured in this non-production environment.
+          </p>
+        )}
         <p className="text-sm text-gray-700">DPO contact (if appointed): {dpoContact}</p>
         <p className="text-sm text-gray-700">EU representative (if required): {euRepContact}</p>
       </section>
@@ -120,8 +126,10 @@ export default function PrivacyPage() {
           supervisory authority.
         </p>
         <p className="text-sm text-gray-700">
-          Requests can be submitted to {controllerEmail}. We target response within one month, subject to lawful
-          extensions for complex requests.
+          {controller.configured
+            ? `Requests can be submitted to ${controller.email}. `
+            : 'Contact details for rights requests are not configured in this non-production environment. '}
+          We target response within one month, subject to lawful extensions for complex requests.
         </p>
       </section>
 

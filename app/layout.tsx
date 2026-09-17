@@ -5,6 +5,7 @@ import Footer from './components/Footer'
 import { getSiteUrl } from '@/lib/site-url'
 
 const siteUrl = getSiteUrl()
+const description = 'Yuohme helps businesses prioritise which overdue customers need chasing first.'
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -12,13 +13,13 @@ export const metadata: Metadata = {
     default: 'Yuohme',
     template: '%s | Yuohme',
   },
-  description: 'Yuohme with auth, subscriptions, and dashboard workflows.',
+  description,
   alternates: {
     canonical: '/',
   },
   openGraph: {
     title: 'Yuohme',
-    description: 'Yuohme with auth, subscriptions, and dashboard workflows.',
+    description,
     url: siteUrl,
     siteName: 'Yuohme',
     type: 'website',
@@ -26,7 +27,7 @@ export const metadata: Metadata = {
   twitter: {
     card: 'summary',
     title: 'Yuohme',
-    description: 'Yuohme with auth, subscriptions, and dashboard workflows.',
+    description,
   },
 };
 

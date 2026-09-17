@@ -7,6 +7,8 @@ const { getAllIndexableSeoProblemPages } = loadTypeScriptModule('lib/seo-pages.t
 const { SITEMAP_PAGE_LINKS } = loadTypeScriptModule('lib/sitemap-links.ts')
 const { GET: getSitemap } = loadTypeScriptModule('app/sitemap.xml/route.ts')
 const { GET: getRobots } = loadTypeScriptModule('app/robots.txt/route.ts')
+const { getSiteUrl } = loadTypeScriptModule('lib/site-url.ts')
+const { getPrivacyControllerConfig } = loadTypeScriptModule('lib/privacy-controller.ts')
 const nextConfig = loadTypeScriptModule('next.config.ts').default
 
 async function withEnvironment(values, callback) {
@@ -63,6 +65,92 @@ test('production sitemap contains every public guide exactly once and no private
       }
     }
   )
+})
+
+test('site URL requires explicit production configuration and never adopts a generated Vercel URL', () => {
+  assert.equal(
+    getSiteUrl({
+      NEXT_PUBLIC_SITE_URL: 'https://www.example.com/',
+      VERCEL_ENV: 'production',
+    }),
+    'https://www.example.com'
+  )
+  assert.equal(
+    getSiteUrl({
+      NEXT_PUBLIC_SITE_URL: undefined,
+      VERCEL_ENV: 'preview',
+      VERCEL_URL: 'template-app-generated.vercel.app',
+    }),
+    'http://localhost:3000'
+  )
+  assert.throws(
+    () =>
+      getSiteUrl({
+        NEXT_PUBLIC_SITE_URL: undefined,
+        VERCEL_ENV: 'production',
+      }),
+    /NEXT_PUBLIC_SITE_URL must be configured for Production/
+  )
+  assert.throws(
+    () =>
+      getSiteUrl({
+        NEXT_PUBLIC_SITE_URL: 'http://www.example.com',
+        VERCEL_ENV: 'production',
+      }),
+    /must use https in Production/
+  )
+})
+
+test('privacy controller identity requires complete production configuration', () => {
+  assert.deepEqual(
+    getPrivacyControllerConfig({
+      DATA_CONTROLLER_NAME: 'Example Controller',
+      DATA_CONTROLLER_EMAIL: 'privacy@example.com',
+      VERCEL_ENV: 'production',
+    }),
+    {
+      name: 'Example Controller',
+      email: 'privacy@example.com',
+      configured: true,
+    }
+  )
+  assert.deepEqual(
+    getPrivacyControllerConfig({
+      DATA_CONTROLLER_NAME: undefined,
+      DATA_CONTROLLER_EMAIL: undefined,
+      VERCEL_ENV: 'preview',
+    }),
+    { name: null, email: null, configured: false }
+  )
+  assert.throws(
+    () =>
+      getPrivacyControllerConfig({
+        DATA_CONTROLLER_NAME: 'Example Controller',
+        DATA_CONTROLLER_EMAIL: undefined,
+        VERCEL_ENV: 'production',
+      }),
+    /DATA_CONTROLLER_EMAIL must be configured for Production/
+  )
+})
+
+test('unfinished disputes UI and unsafe public identity fallbacks are not customer-renderable', async () => {
+  const [nav, disputes, privacy, pricing, pricingMetadata, layout] = await Promise.all(
+    [
+      'app/components/Nav.tsx',
+      'app/disputes/page.tsx',
+      'app/legal/privacy/page.tsx',
+      'app/pricing/PricingClient.tsx',
+      'app/pricing/page.tsx',
+      'app/layout.tsx',
+    ].map((path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8'))
+  )
+
+  assert.doesNotMatch(nav, /href=["']\/disputes["']/)
+  assert.match(disputes, /notFound\(\)/)
+  assert.doesNotMatch(disputes, /Placeholder page/i)
+  assert.doesNotMatch(privacy, /Yuohme Operator|privacy@yourdomain\.com/i)
+  assert.doesNotMatch(`${pricing}\n${pricingMetadata}`, /Suggested pricing|Suggested:/i)
+  assert.doesNotMatch(layout, /auth, subscriptions, and dashboard workflows/i)
 })
 
 test('robots advertises the sitemap only in production and lets crawlers observe preview noindex headers', async () => {

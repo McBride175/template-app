@@ -127,7 +127,7 @@ export default function PricingClient() {
       <div>
         <h1>Pricing</h1>
         <p className="mt-2 text-gray-600">
-          Suggested pricing ideas for packaging your decision engine by team maturity and value delivered.
+          Choose the plan that fits your collections workflow and currency needs.
         </p>
       </div>
 
@@ -147,7 +147,7 @@ export default function PricingClient() {
           <div className="space-y-4">
             <div>
               <h2 className="mb-1">Basic</h2>
-              <p className="text-sm text-gray-600">Suggested: $49 / month</p>
+              <p className="text-sm text-gray-600">$49 / month</p>
               <p className="mt-1 text-xs text-gray-500">
                 For lean teams that need clear daily priorities across overdue accounts.
               </p>
@@ -187,7 +187,7 @@ export default function PricingClient() {
           <div className="space-y-4">
             <div>
               <h2 className="mb-1">Pro</h2>
-              <p className="text-sm text-gray-600">Suggested: $149 / month</p>
+              <p className="text-sm text-gray-600">$149 / month</p>
               <p className="mt-1 text-xs text-gray-500">
                 For larger finance teams managing bigger overdue books with the current prioritisation workflow.
               </p>

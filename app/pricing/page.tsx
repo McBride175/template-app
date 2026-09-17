@@ -5,19 +5,19 @@ export const metadata: Metadata = {
   title: {
     absolute: 'Pricing',
   },
-  description: 'Explore suggested Basic and Pro pricing ideas for a collections decision engine.',
+  description: 'Compare Yuohme Basic and Pro plans for prioritising overdue customer collections.',
   alternates: {
     canonical: '/pricing',
   },
   openGraph: {
     title: 'Pricing',
-    description: 'Explore suggested Basic and Pro pricing ideas for a collections decision engine.',
+    description: 'Compare Yuohme Basic and Pro plans for prioritising overdue customer collections.',
     url: '/pricing',
     type: 'website',
   },
   twitter: {
     title: 'Pricing',
-    description: 'Explore suggested Basic and Pro pricing ideas for a collections decision engine.',
+    description: 'Compare Yuohme Basic and Pro plans for prioritising overdue customer collections.',
   },
 }
 

@@ -3,7 +3,8 @@ import { NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { acquireXeroTenantSyncLock, releaseXeroTenantSyncLock } from '@/lib/xero/tenant-sync-lock'
-import { parseTenantId, syncXeroTenantForUser } from '@/lib/xero/sync'
+import { syncXeroAuthoritatively } from '@/lib/xero/generation-sync'
+import { parseTenantId } from '@/lib/xero/sync'
 import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
 
 export async function POST(request: Request) {
@@ -81,9 +82,10 @@ export async function POST(request: Request) {
     }
 
     try {
-      return await syncXeroTenantForUser({
+      return await syncXeroAuthoritatively({
         userId: user.id,
         tenantId,
+        supabaseAdmin,
       })
     } finally {
       const releaseError = await releaseXeroTenantSyncLock({

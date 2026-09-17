@@ -153,7 +153,9 @@ test('direct manual Xero sync request is rejected before lock or provider work',
         parseTenantId(value) {
           return typeof value === 'string' ? value : null
         },
-        async syncXeroTenantForUser() {
+      },
+      '@/lib/xero/generation-sync': {
+        async syncXeroAuthoritatively() {
           syncCalled = true
         },
       },

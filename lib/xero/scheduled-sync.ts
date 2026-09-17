@@ -1,8 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
-import { XERO_AUTO_SYNC_LOCK_TTL_SECONDS, XERO_AUTO_SYNC_STALE_MINUTES } from '@/lib/xero/auto-sync'
-import { syncXeroTenantForUser } from '@/lib/xero/sync'
+import {
+  isXeroDataStale,
+  XERO_AUTO_SYNC_LOCK_TTL_SECONDS,
+  XERO_AUTO_SYNC_STALE_MINUTES,
+} from '@/lib/xero/auto-sync'
+import {
+  loadXeroAuthoritativeFreshness,
+  resolveXeroAuthoritativeSnapshot,
+  toXeroSnapshotReference,
+  type XeroSnapshotReference,
+} from '@/lib/xero/authoritative-snapshot'
+import { syncXeroAuthoritatively } from '@/lib/xero/generation-sync'
 
 const JOB_KEY = 'xero_scheduled_sync'
 
@@ -12,6 +22,7 @@ const DEFAULT_ACTIVITY_WINDOW_HOURS = 168
 const DEFAULT_MIN_INTERVAL_MINUTES = 120
 const DEFAULT_RUN_LOCK_TTL_SECONDS = 900
 const DEFAULT_STALE_MINUTES = XERO_AUTO_SYNC_STALE_MINUTES
+const DISCOVERY_STALE_MINUTES = 1
 
 interface ScheduledSyncCandidateRow {
   user_id: string
@@ -19,6 +30,11 @@ interface ScheduledSyncCandidateRow {
   last_sign_in_at: string | null
   connection_updated_at: string | null
   last_synced_at: string | null
+}
+
+interface AuthoritativeScheduledSyncCandidate extends ScheduledSyncCandidateRow {
+  authoritativeLastSyncedAt: string | null
+  snapshot: XeroSnapshotReference
 }
 
 interface ScheduledSyncConfig {
@@ -216,8 +232,10 @@ export async function runScheduledXeroSyncJob(options: RunScheduledXeroSyncJobOp
       'list_xero_scheduled_sync_candidates',
       {
         p_activity_window_hours: config.activityWindowHours,
-        p_limit: limit,
-        p_stale_minutes: config.staleMinutes,
+        // This legacy SQL function is now only a coarse discovery scan. A
+        // newer inactive attempt must not override active-generation freshness.
+        p_limit: MAX_BATCH_SIZE,
+        p_stale_minutes: DISCOVERY_STALE_MINUTES,
       }
     )
 
@@ -234,7 +252,38 @@ export async function runScheduledXeroSyncJob(options: RunScheduledXeroSyncJobOp
       )
     }
 
-    const candidates = (candidatesData ?? []) as ScheduledSyncCandidateRow[]
+    const discoveredCandidates = (candidatesData ?? []) as ScheduledSyncCandidateRow[]
+    const candidates: AuthoritativeScheduledSyncCandidate[] = []
+    try {
+      for (const candidate of discoveredCandidates) {
+        const resolvedSnapshot = await resolveXeroAuthoritativeSnapshot({
+          supabaseAdmin,
+          userId: candidate.user_id,
+          tenantId: candidate.tenant_id,
+        })
+        const authoritativeLastSyncedAt = await loadXeroAuthoritativeFreshness({
+          supabaseAdmin,
+          snapshot: resolvedSnapshot,
+        })
+        if (!isXeroDataStale(authoritativeLastSyncedAt, Date.now(), config.staleMinutes)) {
+          continue
+        }
+        candidates.push({
+          ...candidate,
+          authoritativeLastSyncedAt,
+          snapshot: toXeroSnapshotReference(resolvedSnapshot),
+        })
+        if (candidates.length >= limit) break
+      }
+    } catch {
+      return NextResponse.json(
+        {
+          error: 'Failed to resolve authoritative Xero sync freshness',
+          code: 'XERO_SCHEDULED_SYNC_FRESHNESS_FAILED',
+        },
+        { status: 500 }
+      )
+    }
 
     if (options.dryRun) {
       return NextResponse.json({
@@ -254,7 +303,8 @@ export async function runScheduledXeroSyncJob(options: RunScheduledXeroSyncJobOp
           tenantId: candidate.tenant_id,
           lastSignInAt: candidate.last_sign_in_at,
           connectionUpdatedAt: candidate.connection_updated_at,
-          lastSyncedAt: candidate.last_synced_at,
+          lastSyncedAt: candidate.authoritativeLastSyncedAt,
+          snapshot: candidate.snapshot,
         })),
       })
     }
@@ -317,9 +367,10 @@ export async function runScheduledXeroSyncJob(options: RunScheduledXeroSyncJobOp
       let response: NextResponse
 
       try {
-        response = await syncXeroTenantForUser({
+        response = await syncXeroAuthoritatively({
           userId: candidate.user_id,
           tenantId: candidate.tenant_id,
+          supabaseAdmin,
         })
       } finally {
         await releaseTenantAutoSyncLock({

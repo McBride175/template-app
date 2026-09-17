@@ -8,7 +8,8 @@ import {
   XERO_AUTO_SYNC_LOCK_TTL_SECONDS,
   XERO_AUTO_SYNC_STALE_MINUTES,
 } from '@/lib/xero/auto-sync'
-import { parseTenantId, syncXeroTenantForUser } from '@/lib/xero/sync'
+import { syncXeroAuthoritatively } from '@/lib/xero/generation-sync'
+import { parseTenantId } from '@/lib/xero/sync'
 import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
 import {
   loadXeroAuthoritativeFreshness,
@@ -222,14 +223,34 @@ export async function POST(request: Request) {
 
     let syncSucceeded = false
     let syncStatus = 500
+    let resultingLastSyncedAt = lastSyncedAt
+    let resultingSnapshot = snapshot
 
     try {
-      const syncResponse = await syncXeroTenantForUser({
+      const syncResponse = await syncXeroAuthoritatively({
         userId: user.id,
         tenantId: selectedConnection.tenant_id,
+        supabaseAdmin,
       })
       syncSucceeded = syncResponse.ok
       syncStatus = syncResponse.status
+      const syncPayload = (await syncResponse.json().catch(() => null)) as {
+        lastSyncedAt?: unknown
+        snapshot?: { mode?: unknown; syncRunId?: unknown }
+      } | null
+      if (syncSucceeded && typeof syncPayload?.lastSyncedAt === 'string') {
+        resultingLastSyncedAt = syncPayload.lastSyncedAt
+      }
+      if (
+        syncSucceeded &&
+        syncPayload?.snapshot?.mode === 'generation' &&
+        typeof syncPayload.snapshot.syncRunId === 'string'
+      ) {
+        resultingSnapshot = {
+          mode: 'generation',
+          syncRunId: syncPayload.snapshot.syncRunId,
+        }
+      }
     } finally {
       await releaseAutoSyncLock({
         userId: user.id,
@@ -244,8 +265,8 @@ export async function POST(request: Request) {
       syncSucceeded,
       syncStatus,
       tenantId: selectedConnection.tenant_id,
-      lastSyncedAt,
-      snapshot,
+      lastSyncedAt: resultingLastSyncedAt,
+      snapshot: resultingSnapshot,
       staleThresholdMinutes: XERO_AUTO_SYNC_STALE_MINUTES,
       surface,
     })

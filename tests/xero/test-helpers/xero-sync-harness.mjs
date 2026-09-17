@@ -464,7 +464,10 @@ export function createRouteHarness(options = {}) {
       const trimmed = value.trim()
       return trimmed.length > 0 ? trimmed : null
     },
-    async syncXeroTenantForUser(params) {
+  }
+
+  mocks['@/lib/xero/generation-sync'] = {
+    async syncXeroAuthoritatively(params) {
       inflightSyncCalls.push(params)
       if (options.syncDelayMs) {
         await sleep(options.syncDelayMs)

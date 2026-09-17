@@ -3,6 +3,7 @@ export const XERO_STATUS_UNAVAILABLE_MESSAGE = 'Unable to check your Xero connec
 export type XeroSyncState =
   | 'active'
   | 'reconnect_required'
+  | 'permission_upgrade_required'
   | 'temporary_sync_issue'
   | 'sync_in_progress'
   | 'disconnected'
@@ -40,6 +41,17 @@ export interface XeroConnectionStatus {
   snapshot?: {
     mode: 'generation' | 'legacy'
     syncRunId: string | null
+  } | null
+  grantClassification?:
+    | 'granular_ready'
+    | 'legacy_broad_compatible'
+    | 'permission_upgrade_required'
+    | 'reauth_required'
+    | 'scope_metadata_unknown'
+    | null
+  latestSyncAttempt?: {
+    runId: string
+    state: 'running' | 'failed' | 'interrupted' | 'promoted'
   } | null
   connections: XeroConnectionSummary[]
   diagnostics?: {
@@ -130,6 +142,7 @@ export function resolveXeroAccountStatusView(params: {
     status.needsReauth ||
     status.hasError ||
     status.syncState === 'reconnect_required' ||
+    status.syncState === 'permission_upgrade_required' ||
     status.authState === 'reauth_required' ||
     status.authState === 'error'
   ) {

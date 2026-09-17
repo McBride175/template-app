@@ -11,6 +11,7 @@ const persistenceMigrationUrl = new URL(
   import.meta.url
 )
 const liveSyncUrl = new URL('../../lib/xero/sync.ts', import.meta.url)
+const generationSyncUrl = new URL('../../lib/xero/generation-sync.ts', import.meta.url)
 const collectionsSummaryUrl = new URL('../../lib/collections/customer-summary.ts', import.meta.url)
 
 async function readMigration() {
@@ -130,14 +131,18 @@ test('promotion validates current ownership and the complete required-step manif
   assert.match(sql, /last_successful_sync_at = v_now/)
 })
 
-test('application readers use the active-generation resolver while live sync remains legacy', async () => {
-  const [liveSync, collectionsSummary, snapshotResolver] = await Promise.all([
+test('application readers and normal sync use the generation lifecycle while legacy primitives stay isolated', async () => {
+  const [liveSync, generationSync, collectionsSummary, snapshotResolver] = await Promise.all([
     readFile(liveSyncUrl, 'utf8'),
+    readFile(generationSyncUrl, 'utf8'),
     readFile(collectionsSummaryUrl, 'utf8'),
     readFile(new URL('../../lib/xero/authoritative-snapshot.ts', import.meta.url), 'utf8'),
   ])
 
   assert.doesNotMatch(liveSync, /acquire_xero_sync_run|promote_xero_sync_run|sync_run_id/)
+  assert.match(generationSync, /importXeroGeneration/)
+  assert.match(generationSync, /inspectXeroGenerationReadiness/)
+  assert.match(generationSync, /promoteXeroGenerationRun/)
   assert.match(collectionsSummary, /resolveXeroAuthoritativeSnapshot/)
   assert.match(collectionsSummary, /applyXeroAuthoritativeSnapshot/)
   assert.match(snapshotResolver, /active_sync_run_id/)

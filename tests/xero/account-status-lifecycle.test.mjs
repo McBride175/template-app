@@ -140,6 +140,21 @@ test('confirmed reconnect and temporary states remain distinct from disconnected
   assert.equal(shouldShowXeroConnectCta(temporaryState), false)
 })
 
+test('permission upgrade uses reconnect recovery without being treated as disconnected', () => {
+  const permissionState = resolveXeroAccountStatusView({
+    loading: false,
+    status: buildStatus({
+      connected: false,
+      needsReauth: true,
+      syncState: 'permission_upgrade_required',
+    }),
+    statusError: null,
+  })
+
+  assert.equal(permissionState, 'reconnect_required')
+  assert.equal(shouldShowXeroConnectCta(permissionState), false)
+})
+
 test('retry after a failed status request recovers to connected UI', async () => {
   let attempt = 0
   const fetcher = async () => {

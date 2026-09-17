@@ -108,11 +108,12 @@ test('legacy-only compatibility paths still exclude generated rows', async () =>
   }
 })
 
-test('new generation APIs require explicit run ownership and remain unused by live sync', async () => {
-  const [persistence, generationMapper, liveSync] = await Promise.all([
+test('generation APIs require explicit ownership while legacy persistence remains an isolated primitive', async () => {
+  const [persistence, generationMapper, liveSync, generationSync] = await Promise.all([
     readFile(new URL('../../lib/xero/persistence.ts', import.meta.url), 'utf8'),
     readFile(new URL('../../lib/xero/generation-mapper.ts', import.meta.url), 'utf8'),
     readFile(new URL('../../lib/xero/sync.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../../lib/xero/generation-sync.ts', import.meta.url), 'utf8'),
   ])
 
   for (const field of ['syncRunId', 'userId', 'tenantId', 'leaseOwner', 'fencingToken']) {
@@ -122,4 +123,6 @@ test('new generation APIs require explicit run ownership and remain unused by li
 
   assert.doesNotMatch(liveSync, /persistXeroGeneration|mapXeroGenerationToCanonical/)
   assert.match(liveSync, /persistLegacyXeroRawBatch/)
+  assert.match(generationSync, /importXeroGeneration/)
+  assert.doesNotMatch(generationSync, /persistLegacyXeroRawBatch|mapLegacyXeroRawToCanonical/)
 })

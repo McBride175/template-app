@@ -53,9 +53,10 @@ function parseTenantId(value: string | null) {
 }
 
 interface XeroSyncCounts {
-  accounts: number
+  organisations: number
   contacts: number
   invoices: number
+  payments: number
 }
 
 interface XeroCanonicalMapCounts {
@@ -67,6 +68,7 @@ interface XeroCanonicalMapCounts {
 function formatXeroSyncStateLabel(syncState: XeroSyncState) {
   if (syncState === 'active') return 'Active'
   if (syncState === 'reconnect_required') return 'Reconnect required'
+  if (syncState === 'permission_upgrade_required') return 'Permission upgrade required'
   if (syncState === 'temporary_sync_issue') return 'Temporary issue'
   if (syncState === 'sync_in_progress') return 'Sync in progress'
   return 'Disconnected'
@@ -504,6 +506,7 @@ export default function AccountPage() {
   const xeroAuthStateLabel = formatXeroSyncStateLabel(xeroSyncState)
   const xeroStatusClass =
     xeroSyncState === 'reconnect_required' ||
+    xeroSyncState === 'permission_upgrade_required' ||
     xeroSyncState === 'temporary_sync_issue' ||
     xeroSyncState === 'sync_in_progress' ||
     xeroAuthState === 'error'
@@ -685,6 +688,16 @@ export default function AccountPage() {
                 Status: <span className="font-medium">{xeroAuthStateLabel}</span>
               </p>
               {xeroStatusMessage && <p className="text-sm text-gray-600">{xeroStatusMessage}</p>}
+              {xeroStatus.latestSyncAttempt?.state === 'failed' && (
+                <p className="text-sm text-amber-700">
+                  The latest refresh failed. Your previously successful Xero snapshot remains active.
+                </p>
+              )}
+              {xeroStatus.latestSyncAttempt?.state === 'interrupted' && (
+                <p className="text-sm text-amber-700">
+                  The latest refresh was interrupted. Your previously successful Xero snapshot remains active.
+                </p>
+              )}
               <p className="text-sm text-gray-600">Last synced: {xeroLastSyncedLabel}</p>
             </div>
           )}
@@ -826,8 +839,9 @@ export default function AccountPage() {
               )}
               {xeroSyncCounts && (
                 <p className="text-sm text-green-700">
-                  Synced Accounts: {xeroSyncCounts.accounts}, Contacts: {xeroSyncCounts.contacts},
-                  {' '}Invoices: {xeroSyncCounts.invoices}
+                  Synced Organisations: {xeroSyncCounts.organisations}, Contacts:{' '}
+                  {xeroSyncCounts.contacts}, Invoices: {xeroSyncCounts.invoices}, Payments:{' '}
+                  {xeroSyncCounts.payments}
                 </p>
               )}
             </div>

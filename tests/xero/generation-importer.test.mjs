@@ -665,9 +665,8 @@ test('one tenant failure does not fail or mutate another tenant run', async () =
   assert.equal(tenantB.steps.get('validation').status, 'succeeded')
 })
 
-test('inactive importer has no route activation or promotion call', async () => {
+test('importer remains promotion-free while normal routes use the authoritative wrapper', async () => {
   const source = await readFile(IMPORTER_PATH, 'utf8')
-  const liveSync = await readFile(new URL('../../lib/xero/sync.ts', import.meta.url), 'utf8')
   const routes = await Promise.all([
     '../../app/api/xero/sync/route.ts',
     '../../app/api/xero/sync/auto/route.ts',
@@ -676,6 +675,6 @@ test('inactive importer has no route activation or promotion call', async () => 
   ].map((path) => readFile(new URL(path, import.meta.url), 'utf8')))
 
   assert.doesNotMatch(source, /promote_xero_sync_run|promoteXero/)
-  assert.doesNotMatch(liveSync, /importXeroGeneration/)
   assert.ok(routes.every((route) => !route.includes('importXeroGeneration')))
+  assert.ok(routes.slice(0, 3).every((route) => route.includes('syncXeroAuthoritatively')))
 })

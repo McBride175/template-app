@@ -13,6 +13,7 @@ import {
   toXeroSnapshotReference,
   type XeroSnapshotReference,
 } from '@/lib/xero/authoritative-snapshot'
+import { classifyXeroGrant, type XeroGrantClassification } from '@/lib/xero/scopes'
 
 interface XeroConnectionRow {
   tenant_id: string
@@ -21,6 +22,22 @@ interface XeroConnectionRow {
   last_refresh_error: string | null
   reauth_required_at: string | null
   updated_at: string
+  grant_id: string | null
+}
+
+type XeroGenerationAttemptState = 'none' | 'running' | 'failed' | 'interrupted' | 'promoted'
+
+interface XeroTenantStateStatusRow {
+  active_sync_run_id: string | null
+  latest_sync_run_id: string | null
+}
+
+interface XeroSyncRunStatusRow {
+  id: string
+  user_id: string
+  tenant_id: string
+  status: 'running' | 'succeeded' | 'failed' | 'abandoned'
+  lease_expires_at: string | null
 }
 
 interface XeroConnectionStatusSummary {
@@ -195,7 +212,7 @@ export async function GET(request: NextRequest) {
     const { data, error: connectionError } = await supabase
       .from('xero_connections_public')
       .select(
-        'tenant_id, tenant_name, auth_state, last_refresh_error, reauth_required_at, updated_at'
+        'tenant_id, tenant_name, auth_state, last_refresh_error, reauth_required_at, updated_at, grant_id'
       )
       .eq('user_id', user.id)
       .order('updated_at', { ascending: false })
@@ -220,10 +237,29 @@ export async function GET(request: NextRequest) {
     diagnosticContext.selectedTenantId = selectedConnection?.tenant_id ?? null
     let lastSyncedAt: string | null = null
     let snapshot: XeroSnapshotReference | null = null
+    let grantClassification: XeroGrantClassification | null = null
+    let latestAttempt: { runId: string; state: Exclude<XeroGenerationAttemptState, 'none'> } | null = null
 
     if (selectedConnection) {
       const supabaseAdmin = createSupabaseAdminClient()
       try {
+        if (selectedConnection.grant_id) {
+          const { data: grantData, error: grantError } = await supabaseAdmin
+            .from('xero_oauth_grants')
+            .select('scopes')
+            .eq('id', selectedConnection.grant_id)
+            .eq('user_id', user.id)
+            .maybeSingle<{ scopes: string[] | null }>()
+          if (grantError) throw grantError
+          grantClassification = classifyXeroGrant({
+            scopes: grantData?.scopes ?? null,
+            authState: selectedConnection.auth_state,
+            scopeMetadataKnown: Array.isArray(grantData?.scopes) && grantData.scopes.length > 0,
+          })
+        } else {
+          grantClassification = 'reauth_required'
+        }
+
         const resolvedSnapshot = await resolveXeroAuthoritativeSnapshot({
           supabaseAdmin,
           userId: user.id,
@@ -234,6 +270,40 @@ export async function GET(request: NextRequest) {
           supabaseAdmin,
           snapshot: resolvedSnapshot,
         })
+
+        const { data: tenantStateData, error: tenantStateError } = await supabaseAdmin
+          .from('xero_sync_tenant_state')
+          .select('active_sync_run_id, latest_sync_run_id')
+          .eq('user_id', user.id)
+          .eq('tenant_id', selectedConnection.tenant_id)
+          .maybeSingle<XeroTenantStateStatusRow>()
+        if (tenantStateError) throw tenantStateError
+        if (tenantStateData?.latest_sync_run_id) {
+          const { data: latestRunData, error: latestRunError } = await supabaseAdmin
+            .from('xero_sync_runs')
+            .select('id, user_id, tenant_id, status, lease_expires_at')
+            .eq('id', tenantStateData.latest_sync_run_id)
+            .eq('user_id', user.id)
+            .eq('tenant_id', selectedConnection.tenant_id)
+            .maybeSingle<XeroSyncRunStatusRow>()
+          if (latestRunError || !latestRunData) throw latestRunError ?? new Error('latest run missing')
+
+          let attemptState: Exclude<XeroGenerationAttemptState, 'none'>
+          if (latestRunData.status === 'running') {
+            attemptState = latestRunData.lease_expires_at &&
+              Date.parse(latestRunData.lease_expires_at) > Date.now()
+              ? 'running'
+              : 'interrupted'
+          } else if (latestRunData.status === 'succeeded') {
+            if (tenantStateData.active_sync_run_id !== latestRunData.id) {
+              throw new Error('latest successful run is not active')
+            }
+            attemptState = 'promoted'
+          } else {
+            attemptState = 'failed'
+          }
+          latestAttempt = { runId: latestRunData.id, state: attemptState }
+        }
       } catch (error) {
         logXeroStatusFailure({
           stage: 'sync_status_query',
@@ -247,22 +317,34 @@ export async function GET(request: NextRequest) {
 
     const canAccessInternalTools = canAccessInternalXeroTools(user.email)
     const selectedConnectionSummary = selectedConnection ? toConnectionSummary(selectedConnection) : null
-    const syncState = selectedConnectionSummary?.syncState ?? 'disconnected'
+    const syncState = selectedConnectionSummary
+      ? resolveXeroSyncState({
+          authState: selectedConnectionSummary.authState,
+          lastRefreshErrorCode: selectedConnection?.last_refresh_error ?? null,
+          grantClassification,
+          latestAttemptState: latestAttempt?.state ?? 'none',
+        })
+      : 'disconnected'
 
     return NextResponse.json({
       connected: syncState === 'active' || syncState === 'temporary_sync_issue' || syncState === 'sync_in_progress',
-      needsReauth: syncState === 'reconnect_required',
+      needsReauth:
+        syncState === 'reconnect_required' || syncState === 'permission_upgrade_required',
       hasError: selectedConnectionSummary?.hasError ?? false,
       hasTemporaryIssue: syncState === 'temporary_sync_issue' || syncState === 'sync_in_progress',
       authState: selectedConnectionSummary?.authState ?? 'disconnected',
       syncState,
       syncMessage: getXeroSyncStateMessage(syncState),
-      canSync: selectedConnectionSummary?.canSync ?? false,
+      canSync:
+        (selectedConnectionSummary?.canSync ?? false) &&
+        syncState !== 'permission_upgrade_required',
       tenantId: selectedConnection?.tenant_id ?? null,
       tenantName: selectedConnection?.tenant_name ?? null,
       reauthRequiredAt: selectedConnectionSummary?.reauthRequiredAt ?? null,
       lastSyncedAt,
       snapshot,
+      grantClassification,
+      latestSyncAttempt: latestAttempt,
       connections,
       canAccessInternalTools,
       diagnostics:

@@ -17,7 +17,7 @@ export const XERO_SYNC_RUN_REQUIRED_STEPS = [
 export type XeroSyncRunStepKey = (typeof XERO_SYNC_RUN_REQUIRED_STEPS)[number]
 
 export class XeroSyncRunContractError extends Error {
-  readonly operation: 'acquire' | 'heartbeat' | 'complete_step' | 'fail' | 'manifest'
+  readonly operation: 'acquire' | 'heartbeat' | 'complete_step' | 'fail' | 'manifest' | 'promote'
   readonly code: string | null
 
   constructor(params: {
@@ -223,6 +223,43 @@ export async function failXeroGenerationRun(params: {
     throw new XeroSyncRunContractError({ operation: 'fail', detail: 'response was missing result_code' })
   }
   return { failed, resultCode }
+}
+
+export async function promoteXeroGenerationRun(params: {
+  syncRunId: string
+  leaseOwner: string
+  fencingToken: number
+  snapshotAsOf?: string | null
+  supabaseAdmin?: SupabaseAdminClient
+}) {
+  const supabaseAdmin = params.supabaseAdmin ?? createSupabaseAdminClient()
+  const row = await rpcRow({
+    supabaseAdmin,
+    functionName: 'promote_xero_sync_run',
+    operation: 'promote',
+    args: {
+      p_sync_run_id: requireNonEmpty(params.syncRunId, 'syncRunId'),
+      p_lease_owner: requireNonEmpty(params.leaseOwner, 'leaseOwner'),
+      p_fencing_token: requirePositiveInteger(params.fencingToken, 'fencingToken'),
+      p_snapshot_as_of: params.snapshotAsOf?.trim() || null,
+    },
+  })
+  const promoted = readRequiredBoolean(row, 'promoted', 'promote')
+  const resultCode = readOptionalString(row.result_code)
+  if (!resultCode) {
+    throw new XeroSyncRunContractError({
+      operation: 'promote',
+      detail: 'response was missing result_code',
+    })
+  }
+  const promotedAt = readOptionalString(row.promoted_at)
+  if (promoted && !promotedAt) {
+    throw new XeroSyncRunContractError({
+      operation: 'promote',
+      detail: 'promoted response omitted promoted_at',
+    })
+  }
+  return { promoted, resultCode, promotedAt }
 }
 
 export interface XeroSyncRunManifestStep {

@@ -39,13 +39,20 @@ function toTimestamp(value: string | null) {
   return parsed
 }
 
-export function isXeroDataStale(lastSyncedAt: string | null, nowMs = Date.now()) {
+export function isXeroDataStale(
+  lastSyncedAt: string | null,
+  nowMs = Date.now(),
+  staleMinutes = XERO_AUTO_SYNC_STALE_MINUTES
+) {
   const lastSyncedAtMs = toTimestamp(lastSyncedAt)
   if (!lastSyncedAtMs) {
     return true
   }
 
-  return nowMs - lastSyncedAtMs >= XERO_AUTO_SYNC_STALE_MS
+  const staleMs = Number.isFinite(staleMinutes) && staleMinutes > 0
+    ? staleMinutes * 60 * 1000
+    : XERO_AUTO_SYNC_STALE_MS
+  return nowMs - lastSyncedAtMs >= staleMs
 }
 
 export function isWithinXeroAutoSyncCooldown(lastTriggeredAt: string | null, nowMs = Date.now()) {

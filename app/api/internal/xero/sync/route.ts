@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
-import { syncXeroTenantForUser } from '@/lib/xero/sync'
+import { syncXeroAuthoritatively } from '@/lib/xero/generation-sync'
 import { acquireXeroTenantSyncLock, releaseXeroTenantSyncLock } from '@/lib/xero/tenant-sync-lock'
 
 function parseNonEmptyString(value: unknown) {
@@ -92,9 +92,10 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    return await syncXeroTenantForUser({
+    return await syncXeroAuthoritatively({
       userId,
       tenantId,
+      supabaseAdmin,
     })
   } finally {
     const releaseError = await releaseXeroTenantSyncLock({

@@ -25,6 +25,11 @@ import {
   decimalValueToFiniteNumber,
   sumDecimalValues,
 } from '@/lib/money/currency'
+import {
+  elapsedMilliseconds,
+  monotonicNow,
+  recordFirstValueLatency,
+} from '@/lib/observability/first-value-latency'
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 200
@@ -177,7 +182,21 @@ export async function GET(request: NextRequest) {
     }
 
     const supabaseAdmin = createSupabaseAdminClient()
+    const resultAssemblyStartedAt = monotonicNow()
+    recordFirstValueLatency({
+      stage: 'T9',
+      outcome: 'started',
+      userId: user.id,
+      tenantId,
+    })
 
+    const summaryStartedAt = monotonicNow()
+    const summaryPromise = loadCustomerCollectionsSummaryWithMetadata(
+      supabaseAdmin,
+      user.id,
+      tenantId
+    ).then((value) => ({ value, durationMs: elapsedMilliseconds(summaryStartedAt) }))
+    const summaryResult = await summaryPromise
     const {
       rows: summaryRows,
       sourceCounts,
@@ -187,10 +206,18 @@ export async function GET(request: NextRequest) {
       currencyContext,
       reviewRequiredCustomers,
       snapshot,
-    } = await loadCustomerCollectionsSummaryWithMetadata(supabaseAdmin, user.id, tenantId)
+    } = summaryResult.value
     const currencyAccess = resolveCollectionsCurrencyAccess({ entitlement, currencyContext })
 
     if (!currencyAccess.allowed) {
+      recordFirstValueLatency({
+        stage: 'T10',
+        outcome: 'blocked',
+        userId: user.id,
+        tenantId,
+        durationMs: elapsedMilliseconds(resultAssemblyStartedAt),
+        detail: MULTI_CURRENCY_REQUIRES_PRO_CODE,
+      })
       return NextResponse.json(
         {
           ok: false,
@@ -203,16 +230,34 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    const overridesStartedAt = monotonicNow()
+    const overridesPromise = supabaseAdmin
+      .from('customer_overrides')
+      .select('customer_source_id, override_level')
+      .eq('user_id', user.id)
+      .eq('tenant_id', tenantId)
+      .then((value) => ({ value, durationMs: elapsedMilliseconds(overridesStartedAt) }))
+    const actionsStartedAt = monotonicNow()
+    const actionsPromise = supabaseAdmin
+      .from('collection_actions')
+      .select(
+        'id, customer_source_id, action_type, outcome, next_action_date, action_timestamp'
+      )
+      .eq('user_id', user.id)
+      .eq('tenant_id', tenantId)
+      .order('action_timestamp', { ascending: false })
+      .then((value) => ({ value, durationMs: elapsedMilliseconds(actionsStartedAt) }))
+    const [overridesResult, actionsResult] = await Promise.all([
+      overridesPromise,
+      actionsPromise,
+    ])
+
     const overrideLevelByCustomerSourceId = new Map<string, CustomerOverrideLevel>()
     const latestActionByCustomerSourceId = new Map<string, LoggedCollectionAction>()
     const actionsTakenByCustomerId: Record<string, LoggedCollectionAction> = {}
     const todayDateIso = entitlement.usageDate
 
-    const { data: overrideRows, error: overrideError } = await supabaseAdmin
-      .from('customer_overrides')
-      .select('customer_source_id, override_level')
-      .eq('user_id', user.id)
-      .eq('tenant_id', tenantId)
+    const { data: overrideRows, error: overrideError } = overridesResult.value
 
     if (overrideError) {
       if (!isMissingRelationError(overrideError, 'customer_overrides')) {
@@ -227,14 +272,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const { data: actionRows, error: actionError } = await supabaseAdmin
-      .from('collection_actions')
-      .select(
-        'id, customer_source_id, action_type, outcome, next_action_date, action_timestamp'
-      )
-      .eq('user_id', user.id)
-      .eq('tenant_id', tenantId)
-      .order('action_timestamp', { ascending: false })
+    const { data: actionRows, error: actionError } = actionsResult.value
 
     if (actionError) {
       if (!isMissingRelationError(actionError, 'collection_actions')) {
@@ -272,6 +310,14 @@ export async function GET(request: NextRequest) {
     })
 
     if (currencyHealth.status === 'unavailable' || !organisationBaseCurrency) {
+      recordFirstValueLatency({
+        stage: 'T10',
+        outcome: 'blocked',
+        userId: user.id,
+        tenantId,
+        durationMs: elapsedMilliseconds(resultAssemblyStartedAt),
+        detail: 'currency_data_unavailable',
+      })
       return NextResponse.json({
         ok: true,
         tenantId,
@@ -468,6 +514,25 @@ export async function GET(request: NextRequest) {
           last_action_timestamp: latestAction?.takenAtIso ?? null,
         }
       })
+
+    recordFirstValueLatency({
+      stage: 'T10',
+      outcome: 'succeeded',
+      userId: user.id,
+      tenantId,
+      syncRunId: snapshot?.mode === 'generation' ? snapshot.syncRunId : null,
+      durationMs: elapsedMilliseconds(resultAssemblyStartedAt),
+      metrics: {
+        customers: sourceCounts.customers,
+        invoices: sourceCounts.invoices,
+        payments: sourceCounts.payments,
+        result_rows: prioritizedRows.length,
+        summary_ms: summaryResult.durationMs,
+        overrides_ms: overridesResult.durationMs,
+        actions_ms: actionsResult.durationMs,
+      },
+      detail: queueStatus,
+    })
 
     return NextResponse.json({
       ok: true,

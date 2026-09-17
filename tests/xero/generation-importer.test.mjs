@@ -91,7 +91,7 @@ test('legitimately empty provider streams still produce a complete generation', 
   assert.equal(harness.steps.get('validation').recordCount, 1)
 })
 
-test('real provider pagination is used for every stream with at most two concurrent requests', async () => {
+test('real provider pagination uses all independent streams within Xero concurrency limits', async () => {
   const { importer, accountingClient } = loadImporter()
   const tenantId = '00000000-0000-4000-8000-0000000000a1'
   const harness = createGenerationImportHarness({ tenantId })
@@ -158,7 +158,8 @@ test('real provider pagination is used for every stream with at most two concurr
   assert.equal(result.diagnostics.resources.authorisedInvoices.pageRequests, 2)
   assert.equal(result.diagnostics.resources.paidInvoices.pageRequests, 2)
   assert.equal(result.diagnostics.resources.payments.pageRequests, 2)
-  assert.ok(maximumActiveRequests <= 2)
+  assert.equal(maximumActiveRequests, 4)
+  assert.ok(maximumActiveRequests < 5)
   assert.ok(calls.some((call) => call.headers.has('if-modified-since')))
   assert.ok(calls.every((call) => call.url.pathname.endsWith('/Organisation') || call.url.searchParams.has('page')))
 })
@@ -265,6 +266,34 @@ test('a failed generation batch remains inactive and its resource step stays pen
   assert.equal(harness.steps.get('authorised_accrec_invoices').status, 'pending')
   assert.equal(harness.steps.get('canonical_mapping').status, 'pending')
   assert.equal(harness.failures[0].errorCode, 'persistence_failed')
+})
+
+test('independent raw resource batches persist concurrently behind the same generation fence', async () => {
+  const { importer } = loadImporter()
+  const harness = createGenerationImportHarness()
+  const persistRaw = harness.dependencies.persistRaw
+  let activeResourceWrites = 0
+  let maximumActiveResourceWrites = 0
+
+  harness.dependencies.persistRaw = async (request) => {
+    if (request.resourceType === 'organisations') return persistRaw(request)
+    activeResourceWrites += 1
+    maximumActiveResourceWrites = Math.max(maximumActiveResourceWrites, activeResourceWrites)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    try {
+      return await persistRaw(request)
+    } finally {
+      activeResourceWrites -= 1
+    }
+  }
+
+  const result = await importer.importXeroGeneration(harness.params)
+
+  assert.equal(result.status, 'ready_for_promotion')
+  assert.equal(maximumActiveResourceWrites, 3)
+  assert.ok(harness.events.indexOf('map') > harness.events.indexOf('persist:contacts'))
+  assert.ok(harness.events.indexOf('map') > harness.events.indexOf('persist:invoices'))
+  assert.ok(harness.events.indexOf('map') > harness.events.indexOf('persist:payments'))
 })
 
 test('401 forces one secure token refresh and retries only the affected operation', async () => {

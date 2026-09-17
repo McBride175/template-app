@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { recordFirstValueLatency } from '@/lib/observability/first-value-latency'
 
 function isSameOrigin(request: NextRequest) {
   const origin = request.headers.get('origin')
@@ -56,6 +57,14 @@ export async function POST(request: NextRequest) {
   if (!connection) {
     return NextResponse.json({ error: 'Organisation is not connected' }, { status: 404 })
   }
+
+  recordFirstValueLatency({
+    stage: 'T0',
+    outcome: 'succeeded',
+    userId: user.id,
+    tenantId: connection.tenant_id,
+    detail: 'organisation_selection_resolved',
+  })
 
   return NextResponse.json({
     next: `/start?tenantId=${encodeURIComponent(connection.tenant_id)}`,

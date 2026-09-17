@@ -19,6 +19,12 @@ import {
   promoteXeroGenerationRun,
 } from '@/lib/xero/generation-run'
 import { classifyXeroGrant, type XeroGrantClassification } from '@/lib/xero/scopes'
+import {
+  elapsedMilliseconds,
+  monotonicNow,
+  recordFirstValueLatency,
+  type FirstValueLatencyEvent,
+} from '@/lib/observability/first-value-latency'
 
 type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>
 
@@ -43,6 +49,8 @@ interface XeroGenerationSyncDependencies {
   promoteRun: typeof promoteXeroGenerationRun
   failRun: typeof failXeroGenerationRun
   randomUUID: typeof randomUUID
+  monotonicNow: () => number
+  recordLatency: (event: FirstValueLatencyEvent) => void
 }
 
 interface XeroGenerationSyncPreflight {
@@ -61,6 +69,8 @@ const DEFAULT_DEPENDENCIES: XeroGenerationSyncDependencies = {
   promoteRun: promoteXeroGenerationRun,
   failRun: failXeroGenerationRun,
   randomUUID,
+  monotonicNow,
+  recordLatency: recordFirstValueLatency,
 }
 
 function requireNonEmpty(value: string, label: string) {
@@ -304,6 +314,7 @@ export async function syncXeroAuthoritatively(params: {
   const userId = requireNonEmpty(params.userId, 'userId')
   const tenantId = requireNonEmpty(params.tenantId, 'tenantId')
   const dependencies = { ...DEFAULT_DEPENDENCIES, ...params.dependencies }
+  const syncStartedAt = dependencies.monotonicNow()
   const supabaseAdmin = params.supabaseAdmin ?? dependencies.createSupabaseAdminClient()
   const preflight = await loadPreflight({ supabaseAdmin, userId, tenantId })
   if (!preflight.ok) return preflight.response
@@ -317,6 +328,10 @@ export async function syncXeroAuthoritatively(params: {
       grantId: preflight.preflight.grantId,
       leaseOwner,
       supabaseAdmin,
+      dependencies: {
+        monotonicNow: dependencies.monotonicNow,
+        recordLatency: dependencies.recordLatency,
+      },
     })
   } catch (error) {
     if (error instanceof XeroGenerationImportError) return importFailureResponse(error)
@@ -331,6 +346,7 @@ export async function syncXeroAuthoritatively(params: {
   }
   if (result.status !== 'ready_for_promotion') return nonReadyResponse(result)
 
+  const promotionStartedAt = dependencies.monotonicNow()
   const evidence = result.readiness
   const evidenceIsCurrent =
     evidence.validated &&
@@ -351,6 +367,15 @@ export async function syncXeroAuthoritatively(params: {
       errorCode: 'generation_validation_failed',
       errorResource: 'readiness_evidence',
     })
+    dependencies.recordLatency({
+      stage: 'T7',
+      outcome: 'failed',
+      userId,
+      tenantId,
+      syncRunId: result.runId,
+      durationMs: elapsedMilliseconds(promotionStartedAt, dependencies.monotonicNow()),
+      detail: 'readiness_evidence',
+    })
     return NextResponse.json(
       { error: 'The new Xero snapshot failed validation', code: 'XERO_GENERATION_VALIDATION_FAILED', runId: result.runId },
       { status: 422 }
@@ -366,6 +391,15 @@ export async function syncXeroAuthoritatively(params: {
       supabaseAdmin,
     })
     if (!heartbeat.renewed) {
+      dependencies.recordLatency({
+        stage: 'T7',
+        outcome: 'deduplicated',
+        userId,
+        tenantId,
+        syncRunId: result.runId,
+        durationMs: elapsedMilliseconds(promotionStartedAt, dependencies.monotonicNow()),
+        detail: 'lease_lost',
+      })
       return NextResponse.json(
         { error: 'A newer Xero sync owns this tenant', code: 'XERO_GENERATION_LEASE_LOST', runId: result.runId },
         { status: 409 }
@@ -393,6 +427,15 @@ export async function syncXeroAuthoritatively(params: {
         errorCode: 'generation_validation_failed',
         errorResource: readiness.resultCode,
       })
+      dependencies.recordLatency({
+        stage: 'T7',
+        outcome: 'failed',
+        userId,
+        tenantId,
+        syncRunId: result.runId,
+        durationMs: elapsedMilliseconds(promotionStartedAt, dependencies.monotonicNow()),
+        detail: readiness.resultCode,
+      })
       return NextResponse.json(
         { error: 'The new Xero snapshot failed validation', code: 'XERO_GENERATION_VALIDATION_FAILED', runId: result.runId },
         { status: 422 }
@@ -415,6 +458,15 @@ export async function syncXeroAuthoritatively(params: {
         errorCode: 'promotion_failed',
         errorResource: promotion.resultCode,
       })
+      dependencies.recordLatency({
+        stage: 'T7',
+        outcome: 'failed',
+        userId,
+        tenantId,
+        syncRunId: result.runId,
+        durationMs: elapsedMilliseconds(promotionStartedAt, dependencies.monotonicNow()),
+        detail: promotion.resultCode,
+      })
       return NextResponse.json(
         {
           error: 'The new Xero snapshot could not become active',
@@ -424,6 +476,37 @@ export async function syncXeroAuthoritatively(params: {
         { status: 409 }
       )
     }
+
+    const promotionDurationMs = elapsedMilliseconds(
+      promotionStartedAt,
+      dependencies.monotonicNow()
+    )
+    const importReadyMs = result.diagnostics.timings?.totalMs ?? null
+    const syncToPromotionMs = elapsedMilliseconds(
+      syncStartedAt,
+      dependencies.monotonicNow()
+    )
+    dependencies.recordLatency({
+      stage: 'T7',
+      outcome: 'succeeded',
+      userId,
+      tenantId,
+      syncRunId: result.runId,
+      durationMs: promotionDurationMs,
+    })
+    dependencies.recordLatency({
+      stage: 'T8',
+      outcome: 'succeeded',
+      userId,
+      tenantId,
+      syncRunId: result.runId,
+      durationMs: syncToPromotionMs,
+      metrics: {
+        import_ready_ms: importReadyMs,
+        promotion_ms: promotionDurationMs,
+      },
+      detail: 'promotion_rpc_committed',
+    })
 
     return NextResponse.json({
       ok: true,
@@ -441,8 +524,22 @@ export async function syncXeroAuthoritatively(params: {
         payments: result.counts.payments,
       },
       canonicalCounts: result.counts.canonical,
+      latency: {
+        import: result.diagnostics.timings,
+        promotionMs: promotionDurationMs,
+        syncToPromotionMs,
+      },
     })
   } catch {
+    dependencies.recordLatency({
+      stage: 'T7',
+      outcome: 'failed',
+      userId,
+      tenantId,
+      syncRunId: result.runId,
+      durationMs: elapsedMilliseconds(promotionStartedAt, dependencies.monotonicNow()),
+      detail: 'promotion_exception',
+    })
     await failPreparedRun({
       dependencies,
       supabaseAdmin,

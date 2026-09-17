@@ -103,7 +103,7 @@ function buildCurrencyContext(summaryRows) {
   }
 }
 
-function createQuery(rows) {
+function createQuery(rows, options = {}) {
   const filters = []
   const query = {
     select() {
@@ -117,10 +117,16 @@ function createQuery(rows) {
       return query
     },
     then(resolve, reject) {
-      return Promise.resolve({
-        data: rows.filter((row) => filters.every((filter) => filter(row))),
-        error: null,
-      }).then(resolve, reject)
+      return (async () => {
+        options.onStart?.()
+        if (options.delayMs) {
+          await new Promise((delayResolve) => setTimeout(delayResolve, options.delayMs))
+        }
+        return {
+          data: rows.filter((row) => filters.every((filter) => filter(row))),
+          error: null,
+        }
+      })().then(resolve, reject)
     },
   }
   return query
@@ -142,6 +148,8 @@ function loadActionsRoute({
   currencyIssues = [],
   currencyContext = buildCurrencyContext(summaryRows),
   onCurrencyLog = () => {},
+  onResultReadStart = () => {},
+  resultReadDelayMs = 0,
 }) {
   const tables = {
     customer_overrides: [],
@@ -179,6 +187,10 @@ function loadActionsRoute({
       },
       '@/lib/collections/customer-summary': {
         async loadCustomerCollectionsSummaryWithMetadata() {
+          onResultReadStart()
+          if (resultReadDelayMs) {
+            await new Promise((resolve) => setTimeout(resolve, resultReadDelayMs))
+          }
           return {
             rows: summaryRows,
             sourceCounts,
@@ -230,7 +242,10 @@ function loadActionsRoute({
               if (!Object.hasOwn(tables, table)) {
                 throw new Error(`Unexpected queue table: ${table}`)
               }
-              return createQuery(tables[table])
+              return createQuery(tables[table], {
+                onStart: onResultReadStart,
+                delayMs: resultReadDelayMs,
+              })
             },
           }
         },
@@ -238,6 +253,31 @@ function loadActionsRoute({
     },
   })
 }
+
+test('override and action reads run together only after the currency-gating summary', async () => {
+  let activeReads = 0
+  let maximumActiveReads = 0
+  const started = []
+  const onResultReadStart = () => {
+    activeReads += 1
+    started.push(activeReads)
+    maximumActiveReads = Math.max(maximumActiveReads, activeReads)
+    setTimeout(() => {
+      activeReads -= 1
+    }, 5)
+  }
+
+  const { response } = await requestActions({
+    summaryRows: [buildSummaryRow()],
+    sourceCounts: { customers: 1, invoices: 1, payments: 0 },
+    onResultReadStart,
+    resultReadDelayMs: 10,
+  })
+
+  assert.equal(response.status, 200)
+  assert.equal(started.length, 3)
+  assert.equal(maximumActiveReads, 2)
+})
 
 async function requestActions(options) {
   const { GET } = loadActionsRoute(options)

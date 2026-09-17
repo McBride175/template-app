@@ -17,6 +17,7 @@ import {
   toXeroSnapshotReference,
   type XeroAuthoritativeSnapshot,
 } from '@/lib/xero/authoritative-snapshot'
+import { recordFirstValueLatency } from '@/lib/observability/first-value-latency'
 
 interface XeroConnectionRow {
   tenant_id: string
@@ -210,6 +211,13 @@ export async function POST(request: Request) {
     }
 
     if (!lockAcquired) {
+      recordFirstValueLatency({
+        stage: 'T1',
+        outcome: 'deduplicated',
+        userId: user.id,
+        tenantId: selectedConnection.tenant_id,
+        detail: 'auto_sync_in_progress',
+      })
       return NextResponse.json({
         ok: true,
         triggered: false,
@@ -227,6 +235,12 @@ export async function POST(request: Request) {
     let resultingSnapshot = snapshot
 
     try {
+      recordFirstValueLatency({
+        stage: 'T1',
+        outcome: 'started',
+        userId: user.id,
+        tenantId: selectedConnection.tenant_id,
+      })
       const syncResponse = await syncXeroAuthoritatively({
         userId: user.id,
         tenantId: selectedConnection.tenant_id,

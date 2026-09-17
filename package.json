@@ -16,6 +16,7 @@
     "test:xero-readiness:db": "RUN_SUPABASE_INTEGRATION=1 node --test tests/database/xero-promotion-readiness.integration.test.mjs",
     "xero:generation:operator": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/xero-generation-operator.ts",
     "xero:generation:revalidate": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/xero-generation-revalidate.ts",
+    "measure:first-value": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/measure-first-value-latency.ts",
     "test:baseline": "node --test tests/database/baseline-contract.test.mjs",
     "security:sqlcheck": "bash scripts/security-sql-check.sh",
     "test:privacy": "node --test tests/privacy/*.test.mjs",

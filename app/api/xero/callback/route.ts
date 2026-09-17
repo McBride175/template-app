@@ -26,6 +26,7 @@ import {
   deriveXeroCapabilities,
   normalizeXeroScopes,
 } from '@/lib/xero/scopes'
+import { recordFirstValueLatency } from '@/lib/observability/first-value-latency'
 
 function redirectWithError(request: NextRequest, reason: string, status = 302) {
   const returnTo = request.cookies.get(XERO_RETURN_COOKIE_NAME)?.value
@@ -340,6 +341,16 @@ export async function GET(request: NextRequest) {
     )
     const response = NextResponse.redirect(callbackUrl)
     clearStateCookies(response)
+
+    if (hasRequiredProductCapabilities && intendedTenantId) {
+      recordFirstValueLatency({
+        stage: 'T0',
+        outcome: 'succeeded',
+        userId: user.id,
+        tenantId: intendedTenantId,
+        detail: 'oauth_callback_resolved',
+      })
+    }
 
     return response
   } catch (error) {

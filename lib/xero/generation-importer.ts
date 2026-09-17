@@ -2,6 +2,12 @@ import 'server-only'
 
 import { isDeepStrictEqual } from 'node:util'
 import { normalizeCurrencyCode } from '@/lib/money/currency'
+import {
+  elapsedMilliseconds,
+  monotonicNow,
+  recordFirstValueLatency,
+  type FirstValueLatencyEvent,
+} from '@/lib/observability/first-value-latency'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import {
   createXeroAuthorisedAccrecInvoicesConfig,
@@ -58,7 +64,10 @@ type ProviderRecord = Record<string, unknown>
 export const XERO_GENERATION_IMPORT_SCOPE_VERSION = 'collections_v1'
 export const XERO_GENERATION_IMPORT_DEFAULT_LEASE_TTL_SECONDS = 300
 export const XERO_GENERATION_IMPORT_DEFAULT_DEADLINE_MS = 240_000
-export const XERO_GENERATION_IMPORT_MAX_PROVIDER_CONCURRENCY = 2
+// Xero permits five concurrent calls per tenant. Keep one slot in reserve for
+// recovery/other tenant-scoped work while allowing all four independent first
+// value streams to progress together.
+export const XERO_GENERATION_IMPORT_MAX_PROVIDER_CONCURRENCY = 4
 export const XERO_GENERATION_IMPORT_CATCH_UP_OVERLAP_MS = 5_000
 
 export type XeroGenerationImportFailureCode =
@@ -139,6 +148,8 @@ interface XeroGenerationImportDependencies {
   mapCanonical: typeof mapXeroGenerationToCanonical
   recordReadiness: typeof recordXeroGenerationReadiness
   now: () => number
+  monotonicNow: () => number
+  recordLatency: (event: FirstValueLatencyEvent) => void
   scheduleDeadline: XeroGenerationLeaseTimerDependencies['schedule']
   cancelDeadline: XeroGenerationLeaseTimerDependencies['cancel']
   leaseTimers?: Partial<XeroGenerationLeaseTimerDependencies>
@@ -163,6 +174,26 @@ export interface XeroGenerationImportDiagnostics {
       metadata: XeroAggregateRequestMetadata
     }
   >
+  timings: {
+    totalMs: number
+    acquisitionMs: number
+    providerWallMs: number
+    organisationPersistenceMs: number
+    rawPersistenceMs: number
+    canonicalMappingMs: number
+    validationMs: number
+    providerCalls: Record<
+      | 'organisation'
+      | 'contacts'
+      | 'authorisedInvoices'
+      | 'paidInvoices'
+      | 'payments'
+      | 'catchUpContacts'
+      | 'catchUpInvoices'
+      | 'catchUpPayments',
+      number
+    >
+  }
 }
 
 export type XeroGenerationImportResult =
@@ -204,6 +235,8 @@ const DEFAULT_DEPENDENCIES: XeroGenerationImportDependencies = {
   mapCanonical: mapXeroGenerationToCanonical,
   recordReadiness: recordXeroGenerationReadiness,
   now: Date.now,
+  monotonicNow,
+  recordLatency: recordFirstValueLatency,
   scheduleDeadline: (callback, milliseconds) => setTimeout(callback, milliseconds),
   cancelDeadline: (handle) => clearTimeout(handle),
 }
@@ -509,6 +542,7 @@ export async function importXeroGeneration(params: {
   const dependencies = { ...DEFAULT_DEPENDENCIES, ...params.dependencies }
   const supabaseAdmin = params.supabaseAdmin ?? dependencies.createSupabaseAdminClient()
   const runStartedMs = dependencies.now()
+  const importStartedAt = dependencies.monotonicNow()
   const deadlineAtMs = runStartedMs + deadlineMs
   if (params.signal?.aborted) {
     throw new XeroGenerationImportError({ code: 'run_cancelled' })
@@ -531,6 +565,14 @@ export async function importXeroGeneration(params: {
     const status = acquisition.resultCode === 'connection_not_available'
       ? 'connection_not_available'
       : 'lease_held'
+    dependencies.recordLatency({
+      stage: 'T2',
+      outcome: status === 'lease_held' ? 'deduplicated' : 'blocked',
+      userId,
+      tenantId,
+      durationMs: elapsedMilliseconds(importStartedAt, dependencies.monotonicNow()),
+      detail: acquisition.resultCode,
+    })
     return {
       status,
       runId: null,
@@ -542,6 +584,15 @@ export async function importXeroGeneration(params: {
     throw new XeroGenerationImportError({ code: 'provider_unavailable' })
   }
   if (acquisition.resultCode === 'already_owned') {
+    dependencies.recordLatency({
+      stage: 'T2',
+      outcome: 'deduplicated',
+      userId,
+      tenantId,
+      syncRunId: acquisition.syncRunId,
+      durationMs: elapsedMilliseconds(importStartedAt, dependencies.monotonicNow()),
+      detail: 'already_owned',
+    })
     return {
       status: 'already_running',
       runId: acquisition.syncRunId,
@@ -557,6 +608,15 @@ export async function importXeroGeneration(params: {
     leaseOwner,
     fencingToken: acquisition.fencingToken,
   }
+  const acquisitionMs = elapsedMilliseconds(importStartedAt, dependencies.monotonicNow())
+  dependencies.recordLatency({
+    stage: 'T2',
+    outcome: 'started',
+    userId,
+    tenantId,
+    syncRunId: authority.syncRunId,
+    durationMs: acquisitionMs,
+  })
   const abortController = new AbortController()
   let latestLeaseExpiresAt = acquisition.leaseExpiresAt
   let deadlineReached = false
@@ -665,6 +725,22 @@ export async function importXeroGeneration(params: {
     }
   }
 
+  const providerCallDurations = {} as XeroGenerationImportDiagnostics['timings']['providerCalls']
+  const timeProviderCall = async <T>(
+    name: keyof XeroGenerationImportDiagnostics['timings']['providerCalls'],
+    operation: () => Promise<T>
+  ) => {
+    const startedAt = dependencies.monotonicNow()
+    try {
+      return await operation()
+    } finally {
+      providerCallDurations[name] = elapsedMilliseconds(
+        startedAt,
+        dependencies.monotonicNow()
+      )
+    }
+  }
+
   const fetchCollection = (
     config: XeroPaginatedCollectionConfig<ProviderRecord>,
     ifModifiedSince?: string
@@ -699,44 +775,77 @@ export async function importXeroGeneration(params: {
     await loadToken()
     assertCanContinue()
 
+    const providerStartedAt = dependencies.monotonicNow()
+    dependencies.recordLatency({
+      stage: 'T3',
+      outcome: 'started',
+      userId,
+      tenantId,
+      syncRunId: authority.syncRunId,
+    })
     const organisationResult: XeroAccountingRequestResult<ProviderRecord> =
-      await withAuthenticationRetry((token) => dependencies.fetchOrganisation({
-        accessToken: token,
-        tenantId,
-        signal: lease.signal,
-        deadlineAtMs,
-        dependencies: dependencies.requestDependencies,
-      }))
+      await timeProviderCall('organisation', () =>
+        withAuthenticationRetry((token) => dependencies.fetchOrganisation({
+          accessToken: token,
+          tenantId,
+          signal: lease.signal,
+          deadlineAtMs,
+          dependencies: dependencies.requestDependencies,
+        }))
+      )
     assertOrganisation(organisationResult.records, tenantId)
     const organisationFetchedAt = new Date(dependencies.now()).toISOString()
-    await persistRaw('organisations', organisationResult.records, organisationFetchedAt)
-    await completeStep('organisation', 1)
+    const organisationPersistenceStartedAt = dependencies.monotonicNow()
+    const organisationPersistence = (async () => {
+      await persistRaw('organisations', organisationResult.records, organisationFetchedAt)
+      await completeStep('organisation', 1)
+      return elapsedMilliseconds(
+        organisationPersistenceStartedAt,
+        dependencies.monotonicNow()
+      )
+    })()
 
     const contactsConfig = createXeroContactsCollectionConfig({ includeArchived: true })
     const authorisedInvoicesConfig = createXeroAuthorisedAccrecInvoicesConfig()
     const paidInvoicesConfig = createXeroPaidAccrecInvoicesConfig()
     const authorisedPaymentsConfig = createXeroAuthorisedAccrecPaymentsConfig()
 
-    const [contactsPrimary, authorisedPrimary, paidPrimary, paymentsPrimary] =
-      await runWithConcurrency([
-        () => fetchCollection(contactsConfig),
-        () => fetchCollection(authorisedInvoicesConfig),
-        () => fetchCollection(paidInvoicesConfig),
-        () => fetchCollection(authorisedPaymentsConfig),
-      ], XERO_GENERATION_IMPORT_MAX_PROVIDER_CONCURRENCY)
+    const [primaryResults, organisationPersistenceMs] = await Promise.all([
+      runWithConcurrency([
+        () => timeProviderCall('contacts', () => fetchCollection(contactsConfig)),
+        () => timeProviderCall('authorisedInvoices', () => fetchCollection(authorisedInvoicesConfig)),
+        () => timeProviderCall('paidInvoices', () => fetchCollection(paidInvoicesConfig)),
+        () => timeProviderCall('payments', () => fetchCollection(authorisedPaymentsConfig)),
+      ], XERO_GENERATION_IMPORT_MAX_PROVIDER_CONCURRENCY),
+      organisationPersistence,
+    ])
+    const [contactsPrimary, authorisedPrimary, paidPrimary, paymentsPrimary] = primaryResults
 
     const catchUpSince = new Date(
       runStartedMs - XERO_GENERATION_IMPORT_CATCH_UP_OVERLAP_MS
     ).toISOString()
     const [contactsCatchUp, invoicesCatchUp, paymentsCatchUp] = await runWithConcurrency([
-      () => fetchCollection(contactsConfig, catchUpSince),
-      () => fetchCollection(createXeroInvoicesCollectionConfig({
+      () => timeProviderCall('catchUpContacts', () => fetchCollection(contactsConfig, catchUpSince)),
+      () => timeProviderCall('catchUpInvoices', () => fetchCollection(createXeroInvoicesCollectionConfig({
         where: 'Type=="ACCREC"',
-      }), catchUpSince),
-      () => fetchCollection(createXeroPaymentsCollectionConfig({
+      }), catchUpSince)),
+      () => timeProviderCall('catchUpPayments', () => fetchCollection(createXeroPaymentsCollectionConfig({
         where: 'PaymentType=="ACCRECPAYMENT"',
-      }), catchUpSince),
+      }), catchUpSince)),
     ], XERO_GENERATION_IMPORT_MAX_PROVIDER_CONCURRENCY)
+    const providerWallMs = elapsedMilliseconds(providerStartedAt, dependencies.monotonicNow())
+    dependencies.recordLatency({
+      stage: 'T4',
+      outcome: 'succeeded',
+      userId,
+      tenantId,
+      syncRunId: authority.syncRunId,
+      durationMs: providerWallMs,
+      metrics: {
+        ...providerCallDurations,
+        organisation_persistence_ms: organisationPersistenceMs,
+      },
+    })
 
     const contacts = mergeProviderRecords({
       resource: 'contacts',
@@ -757,16 +866,32 @@ export async function importXeroGeneration(params: {
     const paidInvoiceCount = invoices.filter(isPaidInvoice).length
     const resourcesFetchedAt = new Date(dependencies.now()).toISOString()
 
-    await persistRaw('contacts', contacts, resourcesFetchedAt)
-    await completeStep('contacts', contacts.length)
-    await persistRaw('invoices', invoices, resourcesFetchedAt)
-    await completeStep('authorised_accrec_invoices', authorisedInvoiceCount)
-    await completeStep('paid_accrec_invoices', paidInvoiceCount)
-    await persistRaw('payments', payments, resourcesFetchedAt)
-    await completeStep('authorised_accrec_payments', payments.length)
+    const rawPersistenceStartedAt = dependencies.monotonicNow()
+    await Promise.all([
+      (async () => {
+        await persistRaw('contacts', contacts, resourcesFetchedAt)
+        await completeStep('contacts', contacts.length)
+      })(),
+      (async () => {
+        await persistRaw('invoices', invoices, resourcesFetchedAt)
+        await Promise.all([
+          completeStep('authorised_accrec_invoices', authorisedInvoiceCount),
+          completeStep('paid_accrec_invoices', paidInvoiceCount),
+        ])
+      })(),
+      (async () => {
+        await persistRaw('payments', payments, resourcesFetchedAt)
+        await completeStep('authorised_accrec_payments', payments.length)
+      })(),
+    ])
+    const rawPersistenceMs = elapsedMilliseconds(
+      rawPersistenceStartedAt,
+      dependencies.monotonicNow()
+    )
 
     assertCanContinue()
     let mapping: XeroGenerationMappingResult
+    const canonicalMappingStartedAt = dependencies.monotonicNow()
     try {
       mapping = await dependencies.mapCanonical({ ...authority, supabaseAdmin })
     } catch (error) {
@@ -800,7 +925,21 @@ export async function importXeroGeneration(params: {
     }
     const canonicalCount = Object.values(mapping.counts).reduce((sum, count) => sum + count, 0)
     await completeStep('canonical_mapping', canonicalCount)
+    const canonicalMappingMs = elapsedMilliseconds(
+      canonicalMappingStartedAt,
+      dependencies.monotonicNow()
+    )
+    dependencies.recordLatency({
+      stage: 'T5',
+      outcome: 'succeeded',
+      userId,
+      tenantId,
+      syncRunId: authority.syncRunId,
+      durationMs: rawPersistenceMs + canonicalMappingMs,
+      metrics: { raw_persistence_ms: rawPersistenceMs, canonical_mapping_ms: canonicalMappingMs },
+    })
 
+    const validationStartedAt = dependencies.monotonicNow()
     const manifest = await dependencies.loadManifest({
       syncRunId: authority.syncRunId,
       supabaseAdmin,
@@ -829,6 +968,18 @@ export async function importXeroGeneration(params: {
     }
     await completeStep('validation', 1)
     await lease.renewNow()
+    const validationMs = elapsedMilliseconds(
+      validationStartedAt,
+      dependencies.monotonicNow()
+    )
+    dependencies.recordLatency({
+      stage: 'T6',
+      outcome: 'succeeded',
+      userId,
+      tenantId,
+      syncRunId: authority.syncRunId,
+      durationMs: validationMs,
+    })
 
     return {
       status: 'ready_for_promotion',
@@ -862,6 +1013,16 @@ export async function importXeroGeneration(params: {
           catchUpInvoices: diagnosticsFor(invoicesCatchUp),
           catchUpPayments: diagnosticsFor(paymentsCatchUp),
         },
+        timings: {
+          totalMs: elapsedMilliseconds(importStartedAt, dependencies.monotonicNow()),
+          acquisitionMs,
+          providerWallMs,
+          organisationPersistenceMs,
+          rawPersistenceMs,
+          canonicalMappingMs,
+          validationMs,
+          providerCalls: providerCallDurations,
+        },
       },
     }
   } catch (rawError) {
@@ -886,6 +1047,15 @@ export async function importXeroGeneration(params: {
         runId: authority.syncRunId,
       })
     }
+    dependencies.recordLatency({
+      stage: 'T6',
+      outcome: 'failed',
+      userId,
+      tenantId,
+      syncRunId: authority.syncRunId,
+      durationMs: elapsedMilliseconds(importStartedAt, dependencies.monotonicNow()),
+      detail: error.code,
+    })
     try {
       await dependencies.failRun({
         syncRunId: authority.syncRunId,

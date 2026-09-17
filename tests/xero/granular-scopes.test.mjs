@@ -186,7 +186,7 @@ test('refresh token response scopes are normalized when present and explicitly a
   }
 })
 
-test('implemented migration documentation names target, compatibility, and reauthorisation boundaries', async () => {
+test('implemented migration documentation names target, compatibility, and generation lifecycle boundaries', async () => {
   const design = await readFile(
     new URL('../../docs/xero-granular-scope-migration.md', import.meta.url),
     'utf8'
@@ -194,5 +194,7 @@ test('implemented migration documentation names target, compatibility, and reaut
   assert.match(design, /granular_ready/)
   assert.match(design, /legacy_broad_compatible/)
   assert.match(design, /scope_metadata_unknown/)
-  assert.match(design, /Reauthorise the Test Xero connection/)
+  assert.match(design, /Manual, Dashboard automatic, and scheduled sync/)
+  assert.match(design, /active_sync_run_id/)
+  assert.match(design, /reacquire\/revalidate/)
 })

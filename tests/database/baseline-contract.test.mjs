@@ -149,10 +149,12 @@ test('multi-currency foundation is forward-only, explicit and service-role prote
   assert.match(sql, /'identity', 'converted', 'incomplete'/)
 })
 
-test('Xero data purge includes canonical organisation metadata', async () => {
+test('public Xero disconnect rejects incomplete purge semantics', async () => {
   const disconnectRoute = await readFile(xeroDisconnectRouteUrl, 'utf8')
 
-  assert.match(disconnectRoute, /'canonical_organisations'/)
+  assert.match(disconnectRoute, /XERO_PURGE_UNSUPPORTED/)
+  assert.doesNotMatch(disconnectRoute, /async function purgeTenantData/)
+  assert.doesNotMatch(disconnectRoute, /\.from\('canonical_organisations'\)\.delete/)
 })
 
 test('support email metadata scaffolding is absent from schema and code', async () => {

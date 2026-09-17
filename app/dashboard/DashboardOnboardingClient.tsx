@@ -17,6 +17,11 @@ import {
   type XeroConnectionStatus,
 } from '@/lib/xero/account-status'
 import { triggerXeroAutoSyncOnEntry } from '@/lib/xero/auto-sync-client'
+import {
+  observeFirstXeroSyncCompletion,
+  shouldObserveFirstXeroSync,
+  type XeroFirstSyncFeedbackState,
+} from '@/lib/xero/first-sync-feedback'
 import { getXeroCallbackNotice } from '@/lib/xero/oauth-return'
 
 function removeQueryParams(names: string[]) {
@@ -36,6 +41,9 @@ export default function DashboardOnboardingClient() {
   const [xeroStatus, setXeroStatus] = useState<XeroConnectionStatus | null>(null)
   const [xeroStatusError, setXeroStatusError] = useState<string | null>(null)
   const [xeroLoading, setXeroLoading] = useState(true)
+  const [firstSyncFeedback, setFirstSyncFeedback] = useState<
+    XeroFirstSyncFeedbackState | 'idle'
+  >('idle')
 
   const loadXeroStatus = useCallback(async () => {
     setXeroLoading(true)
@@ -44,23 +52,27 @@ export default function DashboardOnboardingClient() {
     try {
       const status = await fetchXeroConnectionStatus(tenantId)
       setXeroStatus(status)
+      return status
     } catch (error) {
       if (error instanceof XeroStatusRequestError && error.status === 401) {
         router.replace(buildLoginPath('/dashboard', 'session_expired'))
-        return
+        return null
       }
       setXeroStatusError(XERO_STATUS_UNAVAILABLE_MESSAGE)
+      return null
     } finally {
       setXeroLoading(false)
     }
   }, [router, tenantId])
 
   useEffect(() => {
+    const controller = new AbortController()
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session) router.replace(buildLoginPath('/dashboard', 'session_expired'))
     })
 
     const run = async () => {
+      setFirstSyncFeedback('idle')
       const { data } = await supabase.auth.getUser()
 
       if (!data.user) {
@@ -68,16 +80,38 @@ export default function DashboardOnboardingClient() {
         return
       }
 
-      triggerXeroAutoSyncOnEntry({
+      const initialStatus = await loadXeroStatus()
+      if (!initialStatus || controller.signal.aborted) return
+
+      if (!initialStatus.connected || initialStatus.canSync === false) return
+
+      if (!shouldObserveFirstXeroSync(initialStatus)) {
+        void triggerXeroAutoSyncOnEntry({
+          surface: 'dashboard',
+          tenantId,
+        })
+        return
+      }
+
+      setFirstSyncFeedback('preparing')
+      const autoSyncResult = await triggerXeroAutoSyncOnEntry({
         surface: 'dashboard',
         tenantId,
       })
-      await loadXeroStatus()
+      const feedback = await observeFirstXeroSyncCompletion({
+        autoSyncResult,
+        loadStatus: loadXeroStatus,
+        signal: controller.signal,
+      })
+      if (!controller.signal.aborted) {
+        setFirstSyncFeedback(feedback.state)
+      }
     }
 
     void run()
 
     return () => {
+      controller.abort()
       sub.subscription.unsubscribe()
     }
   }, [loadXeroStatus, router, tenantId])
@@ -158,7 +192,48 @@ export default function DashboardOnboardingClient() {
         />
       )}
 
-      {(xeroViewState === 'connected' || xeroViewState === 'temporary_issue') && (
+      {(xeroViewState === 'connected' || xeroViewState === 'temporary_issue') &&
+        firstSyncFeedback === 'preparing' && (
+          <Card>
+            <h1 className="text-xl font-semibold text-gray-900">
+              Preparing your collection priorities
+            </h1>
+            <p className="mt-2 text-sm text-gray-600">
+              We&apos;re securely importing and validating your Xero data. This can take a few
+              minutes.
+            </p>
+          </Card>
+        )}
+
+      {(xeroViewState === 'connected' || xeroViewState === 'temporary_issue') &&
+        firstSyncFeedback === 'failed' && (
+          <Card>
+            <div className="space-y-3">
+              <div>
+                <h1 className="text-xl font-semibold text-gray-900">
+                  We couldn&apos;t prepare your Xero data
+                </h1>
+                <p className="mt-2 text-sm text-gray-600">
+                  Your connection is still available. Review it in Account, where you can retry
+                  the sync or reconnect if Xero asks you to.
+                </p>
+              </div>
+              <Button
+                onClick={() =>
+                  router.push(
+                    `/account${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`
+                  )
+                }
+              >
+                Review Xero connection
+              </Button>
+            </div>
+          </Card>
+        )}
+
+      {(xeroViewState === 'connected' || xeroViewState === 'temporary_issue') &&
+        firstSyncFeedback !== 'preparing' &&
+        firstSyncFeedback !== 'failed' && (
         <CollectionActionsClient embedded showTable={false} tenantId={tenantId} />
       )}
     </div>

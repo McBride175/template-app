@@ -11,7 +11,7 @@ export const XERO_REQUIRED_OAUTH_SCOPES = [
   'accounting.payments.read',
 ] as const
 
-// Kept as an explicit alias for the inactive importer contract introduced in Phase 4.
+// Kept as an explicit alias for the authoritative generation-import contract.
 export const XERO_GENERATION_IMPORT_TARGET_SCOPES = XERO_REQUIRED_OAUTH_SCOPES
 
 export type XeroRequiredCapability =

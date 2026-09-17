@@ -69,7 +69,11 @@ The final Xero design contains only:
 
 - `xero_oauth_grants`: encrypted grant-scoped tokens and refresh locks
 - `xero_connections_public`: per-user/per-tenant public connection metadata, grant linkage, auth state, and tenant auto-sync locks
-- `xero_raw`: user/tenant-scoped raw API snapshots
+- `xero_sync_tenant_state`: authoritative per-user/per-tenant active and latest generation pointers and successful-sync freshness
+- `xero_sync_runs`: fenced generation ownership, lifecycle, and promotion history
+- `xero_sync_run_steps`: trusted resource, mapping, and validation manifest evidence
+- `xero_sync_run_validations`: versioned promotion-readiness evidence bound to a run and fence
+- `xero_raw`: immutable user/tenant/run-scoped provider snapshots, plus transitional legacy rows
 - `canonical_organisations`: explicit Xero organisation identity, base currency, country, timezone, and source retrieval metadata
 - `canonical_customers`, `canonical_invoices`, and `canonical_payments`: normalized accounting data
 - `customer_overrides`: user-controlled collection priority overrides
@@ -86,8 +90,16 @@ pointer uses only the transitional legacy `sync_run_id IS NULL` rows. An invalid
 fails closed and never falls back to legacy data. The resolved snapshot is held for the full logical
 read so concurrent promotion cannot mix generations. Status freshness follows
 `last_successful_sync_at` for promoted generations and the latest legacy raw fetch only in legacy
-mode. The current manual, automatic, and scheduled sync executors still write the legacy cache;
-migrating those execution paths to the validated generation lifecycle is a separate phase.
+mode.
+
+Manual, automatic, and scheduled synchronization use one authoritative generation lifecycle. A
+sync acquires a tenant-scoped fenced run, imports a complete immutable raw snapshot, maps a
+generation-scoped canonical snapshot, passes `collections_readiness_v2`, records current-fence
+validation evidence, and atomically promotes the run. Success is reported only after promotion.
+Normal sync never dual-writes the transitional legacy cache. Any failure before promotion leaves
+the previous active generation authoritative; for a tenant with no active generation, only explicit
+legacy `sync_run_id IS NULL` data can act as the transitional fallback. The same-run
+reacquisition/revalidation operator is recovery tooling and is not part of normal sync execution.
 
 Xero token, auto-sync, and scheduler RPCs are `SECURITY DEFINER`, have a fixed `pg_catalog, public` search path, and are executable only by `service_role`. The scheduled candidate RPC is the final stale-aware three-argument version.
 
@@ -95,7 +107,7 @@ Xero token, auto-sync, and scheduler RPCs are `SECURITY DEFINER`, have a fixed `
 
 Transaction/native currency, organisation base currency, and SaaS subscription billing currency are separate concepts. Xero invoice amounts remain available in their transaction currency, while derived base-currency amounts use the connected organisation's explicit ISO currency code.
 
-Sync retrieves both Xero `Organisation` metadata and `Organisation/Actions`; the latter records `UseMulticurrency` for diagnostics but never gates currency-safe processing. Xero `CurrencyRate` is transaction-currency units per one organisation base-currency unit, so a foreign invoice is converted with `base = native / CurrencyRate`. If transaction and base currency match, conversion is identity and no rate is required or invented. A foreign invoice with a missing, zero, negative, or otherwise unusable rate retains its native data but has null base amounts and an explicit incomplete conversion reason. A foreign rate of exactly one is valid and is not rejected merely for being unusual.
+Normal generation sync retrieves Xero `Organisation` metadata as the authoritative organisation and base-currency source. The retained legacy sync can also retrieve `Organisation/Actions` for a `UseMulticurrency` diagnostic, but that diagnostic is neither part of normal generation ingestion nor a currency-safety gate. Xero `CurrencyRate` is transaction-currency units per one organisation base-currency unit, so a foreign invoice is converted with `base = native / CurrencyRate`. If transaction and base currency match, conversion is identity and no rate is required or invented. A foreign invoice with a missing, zero, negative, or otherwise unusable rate retains its native data but has null base amounts and an explicit incomplete conversion reason. A foreign rate of exactly one is valid and is not rejected merely for being unusual.
 
 Canonical conversion preserves native decimal precision and rounds foreign-derived base amounts to eight decimal places using half-away-from-zero rounding. Conversion is deterministic from the raw invoice plus canonical organisation metadata and does not use an external or current-market FX provider. It does not attempt to recreate Xero's realised or unrealised gain/loss accounting.
 
@@ -115,7 +127,7 @@ RLS is enabled on every application table. Grants are explicit rather than relyi
 |---|---|
 | Authenticated user SELECT | `subscriptions`, `xero_connections_public` |
 | Authenticated user CRUD | `notes` |
-| Service role only | `stripe_customers`, `support_tickets`, all privacy tables, `xero_oauth_grants`, `xero_scheduled_sync_runs`, `billing_usage_days`, `xero_raw`, canonical Xero tables, `customer_overrides`, `collection_actions` |
+| Service role only | `stripe_customers`, `support_tickets`, all privacy tables, `xero_oauth_grants`, `xero_scheduled_sync_runs`, `xero_sync_tenant_state`, `xero_sync_runs`, `xero_sync_run_steps`, `xero_sync_run_validations`, `billing_usage_days`, `xero_raw`, canonical Xero tables, `customer_overrides`, `collection_actions` |
 | Anonymous browser | No direct application-table access |
 
 User-accessible tables have `auth.uid() = user_id` policies. Server-only tables have RLS enabled, no browser policies, and explicit revocation from `anon` and `authenticated`. Service-role credentials are server-only and bypass RLS. Billable server routes authenticate the user, atomically claim/check the current UTC usage date, and only then query service-role-only product data with explicit `user_id` and `tenant_id` filters.
@@ -163,7 +175,12 @@ Xero OAuth uses `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET`, `XERO_REDIRECT_URI`, and
 
 The code supports one Xero configuration per deployment environment. Preview and Production may intentionally share one Xero developer application if that application's redirect configuration supports both environments. Separate applications are not assumed or required by the code.
 
-Manual and scheduled synchronization use service-role database access. Internal sync endpoints require an internal/cron secret, and scheduled sync is disabled unless explicitly enabled.
+Manual, Dashboard automatic, and scheduled synchronization all call the authoritative generation-sync orchestrator with service-role database access. Internal sync endpoints require an internal/cron secret, and scheduled sync is disabled unless explicitly enabled. Fenced ownership, current-contract validation evidence, and promotion targets are server/database controlled rather than browser supplied.
+
+Public Xero disconnect revokes the selected connection/grant linkage but does not purge accounting
+snapshots or generation history. The route explicitly rejects `purgeData: true`; a future purge
+would require a separate atomic contract covering generation state, validation evidence,
+collection metadata, and both generation and legacy snapshots.
 
 ## Resend
 

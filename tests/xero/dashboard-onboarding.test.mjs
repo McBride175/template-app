@@ -59,6 +59,10 @@ test('Dashboard keeps existing auto-sync entry behavior and does not add sync or
 
   assert.match(source, /triggerXeroAutoSyncOnEntry\(\{/)
   assert.match(source, /surface: 'dashboard'/)
+  assert.match(source, /observeFirstXeroSyncCompletion/)
+  assert.match(source, /Preparing your collection priorities/)
+  assert.match(source, /We couldn&apos;t prepare your Xero data/)
+  assert.match(source, /controller\.abort\(\)/)
   assert.doesNotMatch(source, /api\/xero\/sync/)
   assert.doesNotMatch(source, /setInterval/)
 })

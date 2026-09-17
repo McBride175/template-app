@@ -23,33 +23,6 @@ function parseBoolean(value: unknown) {
   return value === true
 }
 
-async function purgeTenantData(params: {
-  userId: string
-  tenantId: string
-  supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>
-}) {
-  const tenantScopedTables = [
-    'xero_raw',
-    'canonical_organisations',
-    'canonical_customers',
-    'canonical_invoices',
-    'canonical_payments',
-    'customer_overrides',
-  ] as const
-
-  for (const table of tenantScopedTables) {
-    const { error } = await params.supabaseAdmin
-      .from(table)
-      .delete()
-      .eq('user_id', params.userId)
-      .eq('tenant_id', params.tenantId)
-
-    if (error) {
-      throw new Error(`Failed to purge ${table}: ${error.message}`)
-    }
-  }
-}
-
 async function deleteGrantIfUnused(params: {
   userId: string
   grantId: string
@@ -96,6 +69,19 @@ export async function POST(request: Request) {
     const tenantId = parseTenantId(payload?.tenantId)
     const disconnectAll = parseBoolean(payload?.disconnectAll)
     const purgeData = parseBoolean(payload?.purgeData)
+
+    // A complete purge must atomically cover generation state, evidence, snapshots, and
+    // collection metadata. Until that contract exists, the public disconnect route rejects it.
+    if (purgeData) {
+      return NextResponse.json(
+        {
+          error: 'Xero data purge is not supported by this endpoint',
+          code: 'XERO_PURGE_UNSUPPORTED',
+        },
+        { status: 400 }
+      )
+    }
+
     const supabaseAdmin = createSupabaseAdminClient()
 
     if (!disconnectAll && !tenantId) {
@@ -106,7 +92,7 @@ export async function POST(request: Request) {
     }
 
     if (disconnectAll) {
-      const { data: existingConnections, error: existingConnectionsError } = await supabaseAdmin
+      const { error: existingConnectionsError } = await supabaseAdmin
         .from('xero_connections_public')
         .select('tenant_id, grant_id')
         .eq('user_id', user.id)
@@ -119,8 +105,6 @@ export async function POST(request: Request) {
         })
         return NextResponse.json({ error: 'Failed to disconnect Xero' }, { status: 500 })
       }
-
-      const connectionRows = (existingConnections ?? []) as XeroConnectionRow[]
 
       const { error: publicUpdateError } = await supabaseAdmin
         .from('xero_connections_public')
@@ -155,29 +139,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Failed to disconnect Xero' }, { status: 500 })
       }
 
-      if (purgeData) {
-        const tenantIds = Array.from(
-          new Set(connectionRows.map((row) => row.tenant_id).filter((value) => typeof value === 'string'))
-        )
-
-        try {
-          for (const tenantIdForPurge of tenantIds) {
-            await purgeTenantData({
-              userId: user.id,
-              tenantId: tenantIdForPurge,
-              supabaseAdmin,
-            })
-          }
-        } catch (purgeError) {
-          console.error('[xero.disconnect] Failed to purge tenant data after disconnect all', {
-            message: purgeError instanceof Error ? purgeError.message : 'Unknown error',
-            user_id: user.id,
-          })
-          return NextResponse.json({ error: 'Failed to purge Xero data' }, { status: 500 })
-        }
-      }
-
-      return NextResponse.json({ ok: true, disconnectAll: true, purgedData: purgeData })
+      return NextResponse.json({ ok: true, disconnectAll: true, purgedData: false })
     }
 
     if (!tenantId) {
@@ -250,28 +212,11 @@ export async function POST(request: Request) {
       }
     }
 
-    if (purgeData) {
-      try {
-        await purgeTenantData({
-          userId: user.id,
-          tenantId,
-          supabaseAdmin,
-        })
-      } catch (purgeError) {
-        console.error('[xero.disconnect] Failed to purge tenant-scoped data', {
-          message: purgeError instanceof Error ? purgeError.message : 'Unknown error',
-          user_id: user.id,
-          tenant_id: tenantId,
-        })
-        return NextResponse.json({ error: 'Failed to purge Xero data' }, { status: 500 })
-      }
-    }
-
     return NextResponse.json({
       ok: true,
       tenantId,
       disconnectAll: false,
-      purgedData: purgeData,
+      purgedData: false,
     })
   } catch (error) {
     console.error('[xero.disconnect] Unexpected error', {

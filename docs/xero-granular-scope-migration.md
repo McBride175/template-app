@@ -29,8 +29,8 @@ scope-string equality:
 - `reauth_required`: existing token/auth evidence says the credentials are
   revoked, expired, disconnected, or otherwise unusable.
 - `scope_metadata_unknown`: an older stored grant has no authoritative scope
-  metadata. Legacy live sync may continue to try it, but the generation importer
-  rejects it and it must be re-authorised before launch.
+  metadata. The authoritative generation sync rejects it and it must be
+  re-authorised before launch.
 
 Xero allows broad and granular scopes to coexist during migration. Scopes are
 additive on re-authorisation, so a transition grant may contain both. A grant is
@@ -50,41 +50,41 @@ scope metadata is not copied to browser-readable connection rows.
 | Endpoint | Application purpose | Previous capability | Target capability | Disposition |
 | --- | --- | --- | --- | --- |
 | `GET /Organisation` | Organisation identity and base currency | `accounting.settings.read` | `accounting.settings.read` | Keep |
-| `GET /Organisation/Actions` | Legacy multicurrency diagnostic | `accounting.settings.read` | `accounting.settings.read` | Keep during legacy transition |
+| `GET /Organisation/Actions` | Retained legacy multicurrency diagnostic | `accounting.settings.read` | None for normal sync | Legacy primitive only; normal generation sync does not call it |
 | `GET /Contacts` | Customer identity, status, and archive state | `accounting.contacts.read` | `accounting.contacts.read` | Keep |
 | `GET /Invoices` | Open receivables and paid-invoice history | `accounting.transactions.read` | `accounting.invoices.read` | Keep |
 | `GET /Payments` | Independent receivable-payment history | `accounting.transactions.read` | `accounting.payments.read` | Keep |
-| `GET /Accounts` | Legacy raw import only; unused by prioritisation | `accounting.settings.read` | `accounting.settings.read` | Legacy call remains compatible; omit from future importer |
+| `GET /Accounts` | Retained legacy raw import only; unused by prioritisation | `accounting.settings.read` | None for normal sync | Legacy primitive only; normal generation sync does not call it |
 | Accounting reports | No repository call | `accounting.reports.read` | None | Scope removed |
 | Bank Transactions | No repository call | Included in broad transactions scope | None | Do not request |
 | Manual Journals | No repository call | Included in broad transactions scope | None | Do not request |
 
-The still-live legacy sync continues fetching Accounts and Organisation Actions.
-Both are covered by the already-required `accounting.settings.read`, so the scope
-cutover does not require changing that sync path.
+Normal manual, automatic, and scheduled synchronization uses the generation
+lifecycle and does not fetch Accounts or Organisation Actions. The retained
+legacy helper still contains those calls for rollback/forensic compatibility;
+it is not reachable from normal sync entry points. No additional scope is
+requested for either legacy-only endpoint.
 
-## Test re-authorisation sequence
+## Implemented launch state
 
-Do not treat an existing Test grant as granular merely because it continues to
-work with the retiring broad scope.
+Do not treat a grant as granular merely because it continues to work with the
+retiring broad scope. The implemented operational contract is:
 
-1. Deploy Phase 5A application code to Preview.
-2. Apply the already-reviewed Phase 2/3 migrations to Test, preserving the Phase
-   3 code-before-migration constraint below.
-3. Reauthorise the Test Xero connection through the updated Connect flow. Xero
-   requires explicit user consent; it does not silently add granular scopes to
-   existing tokens.
-4. Verify the stored grant classification is `granular_ready`. Revoke/reconnect
-   a broad Test grant if clean granular-only evidence is required, because Xero
-   authorization scopes are additive.
-5. Exercise the inactive generation importer against Test and inspect the
-   complete manifest. Do not promote until the promotion phase is separately
-   reviewed.
-6. Launch with granular scopes only.
+1. Connect/reconnect requests only the five least-privilege scopes listed above.
+2. The callback stores Xero's authoritative normalized granted scopes on the
+   encrypted grant and derives capabilities server-side.
+3. Normal sync requires a usable grant with all generation-import capabilities.
+4. Manual, Dashboard automatic, and scheduled sync all import an immutable
+   generation, map it, pass `collections_readiness_v2`, and atomically promote
+   it under the current fence.
+5. Readers use the exact `active_sync_run_id`; legacy null-generation data is a
+   fallback only when no active generation exists.
+6. The recovery operator can inspect/reacquire/revalidate a prepared run, but is
+   deliberately separate from normal sync and promotion authorization.
 
-No hosted re-authorisation or migration was performed in Phase 5A. No new schema
-migration is required: `xero_oauth_grants.scopes` already provides the protected,
-per-grant storage needed for authoritative scope metadata.
+No scope-specific schema migration is required:
+`xero_oauth_grants.scopes` provides the protected, per-grant storage needed for
+authoritative scope metadata.
 
 Phase 3 application code must be deployed before
 `20260915064459_xero_generation_persistence_transition.sql` is applied to a
@@ -93,7 +93,7 @@ database serving the application.
 ## Source-consistency boundary
 
 Xero does not expose transactional snapshot isolation for these collection APIs.
-The inactive importer performs complete, immutable-ID-ordered primary traversals,
+The generation importer performs complete, immutable-ID-ordered primary traversals,
 then repeats Contacts, ACCREC Invoices, and ACCRECPAYMENT Payments with
 `If-Modified-Since` from five seconds before the run started. Versions are merged
 by source ID and `UpdatedDateUTC`; ambiguous conflicts fail the generation.

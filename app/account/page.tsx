@@ -182,7 +182,7 @@ export default function AccountPage() {
           loadXeroStatus(initialTenantId),
           loadBillingEntitlement(initialTenantId),
         ])
-        triggerXeroAutoSyncOnEntry({
+        void triggerXeroAutoSyncOnEntry({
           surface: 'account',
           tenantId: initialTenantId,
         })

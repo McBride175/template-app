@@ -86,6 +86,18 @@ export function buildLoginPath(nextPath?: string | null, errorCode?: string | nu
   return `${login.pathname}${login.search}`
 }
 
+export function buildAuthFailurePath(nextPath: string | null | undefined, errorCode: string) {
+  const safeNext = sanitizeAuthRedirectPath(nextPath)
+  const destination = new URL(safeNext, AUTH_REDIRECT_BASE)
+
+  if (destination.pathname === '/start') {
+    destination.searchParams.set('authError', errorCode)
+    return `${destination.pathname}${destination.search}${destination.hash}`
+  }
+
+  return buildLoginPath(safeNext, errorCode)
+}
+
 export function buildAuthSwitchPath(
   pathname: '/login' | '/signup',
   nextPath?: string | null,

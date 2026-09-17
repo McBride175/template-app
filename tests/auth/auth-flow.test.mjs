@@ -57,6 +57,17 @@ test('known callback failures produce plain-English guidance', () => {
   assert.equal(authFlow.getAuthPageErrorMessage('attacker-controlled-code'), null)
 })
 
+test('first-value callback failures return to the unified Auth shell', () => {
+  assert.equal(
+    authFlow.buildAuthFailurePath('/start', 'oauth_cancelled'),
+    '/start?authError=oauth_cancelled'
+  )
+  assert.equal(
+    authFlow.buildAuthFailurePath('/customers', 'oauth_cancelled'),
+    '/login?next=%2Fcustomers&error=oauth_cancelled'
+  )
+})
+
 test('configured CAPTCHA blocks a missing token and accepts a completed challenge', () => {
   assert.match(authCaptcha.getAuthCaptchaValidationError('turnstile-site-key', null), /security check/i)
   assert.equal(

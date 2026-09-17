@@ -2,7 +2,7 @@ const XERO_RETURN_BASE = 'https://xero-return.invalid'
 
 export const DEFAULT_XERO_RETURN_PATH = '/dashboard'
 
-const ALLOWED_XERO_RETURN_PATHS = new Set(['/account', '/dashboard'])
+const ALLOWED_XERO_RETURN_PATHS = new Set(['/account', '/dashboard', '/start'])
 
 function firstString(value: string | string[] | null | undefined) {
   if (Array.isArray(value)) return value[0] ?? null
@@ -40,6 +40,11 @@ export function buildXeroConnectPath(returnTo?: string | null) {
     returnTo: sanitizeXeroReturnPath(returnTo),
   })
   return `/api/xero/connect?${params.toString()}`
+}
+
+export function getXeroReturnTenantId(returnTo?: string | null) {
+  const destination = new URL(sanitizeXeroReturnPath(returnTo), XERO_RETURN_BASE)
+  return destination.searchParams.get('tenantId')?.trim() || null
 }
 
 export function buildXeroCallbackDestination(params: {

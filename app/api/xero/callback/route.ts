@@ -13,7 +13,14 @@ import {
   type XeroConnection,
   type XeroTokenResponse,
 } from '@/lib/xero/server'
-import { buildXeroCallbackDestination } from '@/lib/xero/oauth-return'
+import {
+  buildXeroCallbackDestination,
+  getXeroReturnTenantId,
+} from '@/lib/xero/oauth-return'
+import {
+  getXeroAuthenticationEventId,
+  resolveXeroIntendedTenantId,
+} from '@/lib/xero/tenant-intent'
 import {
   classifyXeroGrant,
   deriveXeroCapabilities,
@@ -240,7 +247,6 @@ export async function GET(request: NextRequest) {
     }
 
     const grantId = grantRow.id
-    const tenantIds = tenantRows.map((tenant) => tenant.tenantId)
     const { data: existingRows, error: existingRowsError } = await supabaseAdmin
       .from('xero_connections_public')
       .select('tenant_id')
@@ -306,10 +312,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const primaryTenantId = tenantIds[0] ?? tenantRows[0]?.tenantId
-    if (!primaryTenantId) {
-      return redirectWithErrorAndClear(request, 'no_tenant_found')
-    }
+    const storedReturnTo = request.cookies.get(XERO_RETURN_COOKIE_NAME)?.value
+    const intendedTenantId = resolveXeroIntendedTenantId({
+      connections,
+      authenticationEventId: getXeroAuthenticationEventId(accessToken),
+      explicitReturnTenantId: getXeroReturnTenantId(storedReturnTo),
+    })
 
     const hasRequiredProductCapabilities =
       grantClassification === 'granular_ready' ||
@@ -318,12 +326,12 @@ export async function GET(request: NextRequest) {
       buildXeroCallbackDestination(
         hasRequiredProductCapabilities
           ? {
-              returnTo: request.cookies.get(XERO_RETURN_COOKIE_NAME)?.value,
+              returnTo: intendedTenantId ? storedReturnTo : '/start',
               result: 'connected',
-              tenantId: primaryTenantId,
+              tenantId: intendedTenantId,
             }
           : {
-              returnTo: request.cookies.get(XERO_RETURN_COOKIE_NAME)?.value,
+              returnTo: storedReturnTo,
               result: 'error',
               reason: 'permission_upgrade_required',
             }

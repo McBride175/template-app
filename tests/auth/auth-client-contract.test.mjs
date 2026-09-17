@@ -65,6 +65,31 @@ test('email sign-in links cannot create accounts accidentally', async () => {
   assert.equal(received.options.captchaToken, 'captcha-magic-link')
 })
 
+test('first-value email continuation safely creates or restores an email identity', async () => {
+  let received
+  const auth = loadAuthWithClient({
+    async signInWithOtp(input) {
+      received = input
+      return { data: { session: null, user: null }, error: null }
+    },
+  })
+
+  await auth.continueWithEmail(
+    'new@example.test',
+    'https://preview.example/auth/callback?next=%2Fstart',
+    'captcha-start'
+  )
+
+  assert.deepEqual(received, {
+    email: 'new@example.test',
+    options: {
+      emailRedirectTo: 'https://preview.example/auth/callback?next=%2Fstart',
+      shouldCreateUser: true,
+      captchaToken: 'captcha-start',
+    },
+  })
+})
+
 test('signup confirmation and password recovery use explicit Preview-aware redirects', async () => {
   const calls = []
   const auth = loadAuthWithClient({

@@ -104,8 +104,8 @@ export default function Nav() {
               <Link href="/login" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
                 Log in
               </Link>
-              <Link href="/signup" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
-                Sign up
+              <Link href="/start" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
+                Try Yuohme
               </Link>
             </>
           )}

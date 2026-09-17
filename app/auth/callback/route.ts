@@ -11,7 +11,7 @@ import { createServerClient } from '@supabase/ssr'
 import type { EmailOtpType } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import {
-  buildLoginPath,
+  buildAuthFailurePath,
   getAuthErrorCode,
   mapCallbackQueryError,
   sanitizeAuthRedirectPath,
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
   const next = sanitizeAuthRedirectPath(rawNext, defaultNext)
 
   const loginRedirect = (errorCode: string) =>
-    NextResponse.redirect(new URL(buildLoginPath(next, errorCode), origin))
+    NextResponse.redirect(new URL(buildAuthFailurePath(next, errorCode), origin))
 
   if (providerError || providerErrorCode) {
     return loginRedirect(mapCallbackQueryError(providerError, providerErrorCode))

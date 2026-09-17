@@ -74,6 +74,16 @@ test('OAuth cancellation returns to a useful login error', async () => {
   assert.equal(location.searchParams.get('error'), 'oauth_cancelled')
 })
 
+test('first-value Auth cancellation returns to the unified identity retry', async () => {
+  const callback = loadCallback()
+  const response = await callback.GET(
+    request('https://preview.example/auth/callback?error=access_denied&next=%2Fstart')
+  )
+  const location = new URL(response.headers.get('location'))
+  assert.equal(location.pathname, '/start')
+  assert.equal(location.searchParams.get('authError'), 'oauth_cancelled')
+})
+
 test('expired PKCE and recovery links get stable user-facing error codes', async () => {
   const pkce = loadCallback({ exchangeError: { code: 'flow_state_expired' } })
   const pkceResponse = await pkce.GET(

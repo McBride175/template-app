@@ -25,6 +25,9 @@ export async function GET(request: NextRequest) {
     } = await supabase.auth.getUser()
 
     if (userError || !user) {
+      if (new URL(returnTo, request.url).pathname === '/start') {
+        return NextResponse.redirect(new URL('/start', request.url))
+      }
       return NextResponse.redirect(
         new URL(buildLoginPath(buildXeroConnectPath(returnTo)), request.url)
       )

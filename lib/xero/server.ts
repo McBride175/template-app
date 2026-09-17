@@ -22,6 +22,7 @@ export interface XeroTokenResponse {
 
 export interface XeroConnection {
   id: string
+  authEventId?: string
   tenantId: string
   tenantName: string
   tenantType: string

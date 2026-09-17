@@ -7,7 +7,12 @@ const projectFile = (path) => new URL(`../../${path}`, import.meta.url)
 const oauthReturn = loadTypeScriptModule(projectFile('lib/xero/oauth-return.ts'))
 const authFlow = loadTypeScriptModule(projectFile('lib/auth-flow.ts'))
 
-test('Xero return intent accepts only Dashboard or Account and preserves a tenant selection', () => {
+test('Xero return intent accepts Start, Dashboard, or Account and preserves a tenant selection', () => {
+  assert.equal(oauthReturn.sanitizeXeroReturnPath('/start'), '/start')
+  assert.equal(
+    oauthReturn.sanitizeXeroReturnPath('/start?tenantId=tenant-start&ignored=value'),
+    '/start?tenantId=tenant-start'
+  )
   assert.equal(oauthReturn.sanitizeXeroReturnPath('/dashboard'), '/dashboard')
   assert.equal(
     oauthReturn.sanitizeXeroReturnPath('/dashboard?tenantId=tenant-1&checkout=success'),
@@ -93,6 +98,9 @@ test('Xero routes bind return intent to the existing state flow without exposing
   assert.ok(stateValidationIndex >= 0 && stateValidationIndex < providerErrorIndex)
   assert.match(callbackSource, /providerError === 'access_denied' \? 'cancelled'/)
   assert.match(callbackSource, /buildXeroCallbackDestination/)
+  assert.match(callbackSource, /getXeroAuthenticationEventId\(accessToken\)/)
+  assert.match(callbackSource, /resolveXeroIntendedTenantId/)
+  assert.doesNotMatch(callbackSource, /tenantIds\[0\]/)
   assert.match(callbackSource, /encryptXeroToken\(accessToken\)/)
   assert.match(callbackSource, /encryptXeroToken\(refreshToken\)/)
   assert.doesNotMatch(callbackSource, /searchParams\.set\(['"]access_token/)

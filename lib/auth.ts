@@ -41,6 +41,21 @@ export function signInWithEmailOtp(
   })
 }
 
+export function continueWithEmail(
+  email: string,
+  emailRedirectTo: string,
+  captchaToken?: string
+) {
+  return supabase.auth.signInWithOtp({
+    email,
+    options: {
+      emailRedirectTo,
+      shouldCreateUser: true,
+      captchaToken,
+    },
+  })
+}
+
 export function signInWithGoogle(redirectTo: string) {
   return supabase.auth.signInWithOAuth({
     provider: 'google',

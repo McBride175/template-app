@@ -59,18 +59,21 @@ export default function Home() {
         </p>
         <div className="mt-10 flex flex-wrap items-center gap-4">
           <Link
-            href="/pricing"
+            href="/start"
             className="inline-flex min-h-11 items-center justify-center rounded-xl bg-gray-900 px-6 py-3 text-sm font-medium text-white transition hover:bg-gray-800"
           >
-            Start prioritising
+            Try Yuohme
           </Link>
           <Link
-            href="/login"
+            href="/start"
             className="inline-flex min-h-11 items-center justify-center rounded-xl border border-gray-300 bg-white px-6 py-3 text-sm font-medium text-gray-900 transition hover:bg-gray-50"
           >
-            Open dashboard
+            Open Yuohme
           </Link>
         </div>
+        <p className="mt-4 text-sm text-gray-600">
+          No card required for your first five collection days. Xero access is read-only.
+        </p>
       </section>
 
       <section className="grid gap-6 sm:grid-cols-3">

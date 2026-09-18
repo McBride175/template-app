@@ -77,7 +77,7 @@ export default function FirstValuePreparation({ tenantId, initialStatus }: Props
     const retry = observation.retry
 
     if (initialFeedback === 'ready') {
-      router.replace(`/dashboard?tenantId=${encodeURIComponent(tenantId)}`)
+      router.replace(`/start/result?tenantId=${encodeURIComponent(tenantId)}`)
       return () => controller.abort()
     }
 
@@ -127,7 +127,7 @@ export default function FirstValuePreparation({ tenantId, initialStatus }: Props
       }
       setFeedback(result.state)
       if (result.state === 'ready') {
-        router.replace(`/dashboard?tenantId=${encodeURIComponent(tenantId)}`)
+        router.replace(`/start/result?tenantId=${encodeURIComponent(tenantId)}`)
       }
     })
 

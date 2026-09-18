@@ -116,5 +116,5 @@ test('public and Auth entry surfaces use the first-value resolver without changi
   assert.match(startAuth, /\/login\?next=%2Fstart/)
   assert.doesNotMatch(startAuth, /\/pricing|checkout/i)
   assert.match(startJourneySource, /buildXeroConnectPath\('\/start'\)/)
-  assert.match(startJourneySource, /\/dashboard\?tenantId=/)
+  assert.match(startJourneySource, /\/start\/result\?tenantId=/)
 })

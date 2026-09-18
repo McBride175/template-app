@@ -80,7 +80,10 @@ test('first-value preparation keeps focused chrome and uses only server-backed p
 
   assert.match(navSource, /pathname === '\/start'/)
   assert.match(navSource, />YUOHME</)
-  assert.match(footerSource, /if \(pathname === '\/start'\) return null/)
+  assert.match(
+    footerSource,
+    /pathname === '\/start' \|\| pathname\.startsWith\('\/start\/'\)/
+  )
   assert.match(preparationSource, /status\.preparation\?\.active/)
   assert.match(preparationSource, /PROLONGED_PREPARATION_MS = 30_000/)
   assert.doesNotMatch(preparationSource, /setInterval|progressPercent|estimated time|% complete/i)

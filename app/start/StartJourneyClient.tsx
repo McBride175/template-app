@@ -60,7 +60,7 @@ export default function StartJourneyClient({
     if (!decision) return
 
     if (decision.kind === 'continue') {
-      router.replace(`/dashboard?tenantId=${encodeURIComponent(decision.tenantId)}`)
+      router.replace(`/start/result?tenantId=${encodeURIComponent(decision.tenantId)}`)
       return
     }
 

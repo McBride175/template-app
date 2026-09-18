@@ -7,6 +7,7 @@ import {
   type CustomerOverrideLevel,
   prioritiseCustomer,
 } from '@/lib/collections/prioritization'
+import { buildFirstValueReasons } from '@/lib/collections/first-value'
 import {
   buildRelativeLatenessContext,
 } from '@/lib/collections/relative-lateness'
@@ -258,6 +259,7 @@ export async function GET(request: NextRequest) {
     const todayDateIso = entitlement.usageDate
 
     const { data: overrideRows, error: overrideError } = overridesResult.value
+    const hasPriorOverrideActivity = (overrideRows?.length ?? 0) > 0
 
     if (overrideError) {
       if (!isMissingRelationError(overrideError, 'customer_overrides')) {
@@ -273,6 +275,8 @@ export async function GET(request: NextRequest) {
     }
 
     const { data: actionRows, error: actionError } = actionsResult.value
+    const hasPriorActionActivity = (actionRows?.length ?? 0) > 0
+    const hasPriorCollectionActivity = hasPriorOverrideActivity || hasPriorActionActivity
 
     if (actionError) {
       if (!isMissingRelationError(actionError, 'collection_actions')) {
@@ -328,6 +332,7 @@ export async function GET(request: NextRequest) {
         currencyHealth,
         reviewRequiredCustomers,
         snapshot,
+        experience: { hasPriorCollectionActivity },
         rows: [],
         actionsTakenByCustomerId: {},
         portfolio: null,
@@ -361,6 +366,25 @@ export async function GET(request: NextRequest) {
       ? queueEligibleRows.filter((row) => row.overdue_outstanding_base > 0)
       : queueEligibleRows
     const suppressedCustomerCount = scopeRows.length - filteredRows.length
+    let postponedCustomerCount = 0
+    let promisedToPayCustomerCount = 0
+    let nextReturnDate: string | null = null
+    for (const row of scopeRows) {
+      const latestAction = latestActionByCustomerSourceId.get(row.customer_source_id)
+      if (!shouldSuppressCustomerFromQueue(latestAction, todayDateIso)) continue
+
+      if (latestAction?.outcome === 'promised_to_pay') {
+        promisedToPayCustomerCount += 1
+      } else {
+        postponedCustomerCount += 1
+      }
+      if (
+        latestAction?.nextActionDate &&
+        (nextReturnDate === null || latestAction.nextActionDate < nextReturnDate)
+      ) {
+        nextReturnDate = latestAction.nextActionDate
+      }
+    }
     const actionedTodayCount = filteredRows.filter(
       (row) => actionsTakenByCustomerId[row.customer_source_id]
     ).length
@@ -381,6 +405,7 @@ export async function GET(request: NextRequest) {
     }
 
     const overdueRows = filteredRows.filter((row) => row.overdue_outstanding_base > 0)
+    const analysedOverdueRows = scopeRows.filter((row) => row.overdue_outstanding_base > 0)
     const relativeLatenessContext = buildRelativeLatenessContext(
       overdueRows.map((row) => ({
         overdueOutstandingBase: row.overdue_outstanding_base,
@@ -390,6 +415,9 @@ export async function GET(request: NextRequest) {
     const totalOverdueOutstandingBaseDecimal = sumDecimalValues(
       filteredRows.map((row) => row.overdue_outstanding_base_decimal)
     )
+    const analysedOverdueBaseDecimal = sumDecimalValues(
+      analysedOverdueRows.map((row) => row.overdue_outstanding_base_decimal)
+    )
     const maxOverdueOutstandingBaseDecimal = filteredRows.reduce((max, row) => {
       return compareDecimalValues(row.overdue_outstanding_base_decimal, max) === 1
         ? row.overdue_outstanding_base_decimal
@@ -398,10 +426,15 @@ export async function GET(request: NextRequest) {
     const totalOverdueOutstandingBase = decimalValueToFiniteNumber(
       totalOverdueOutstandingBaseDecimal
     )
+    const analysedOverdueBase = decimalValueToFiniteNumber(analysedOverdueBaseDecimal)
     const maxOverdueOutstandingBase = decimalValueToFiniteNumber(
       maxOverdueOutstandingBaseDecimal
     )
-    if (totalOverdueOutstandingBase === null || maxOverdueOutstandingBase === null) {
+    if (
+      totalOverdueOutstandingBase === null ||
+      analysedOverdueBase === null ||
+      maxOverdueOutstandingBase === null
+    ) {
       throw new Error('Base-currency portfolio totals exceeded the supported calculation range')
     }
     const overallWeightedAvgOverdueDays =
@@ -493,7 +526,10 @@ export async function GET(request: NextRequest) {
           weighted_avg_overdue_days: row.weighted_avg_overdue_days,
           relative_lateness_days: row.relative_lateness_days,
           relative_lateness_score: row.relative_lateness_score,
+          urgency_score: row.urgency_score,
+          payment_recency_score: row.payment_recency_score,
           last_payment_date: row.last_payment_date,
+          last_payment_days_ago: row.last_payment_days_ago,
           exposure_score: row.exposure_score,
           exposure_share_percent: row.exposure_share_percent,
           exposure_relative_to_largest_percent:
@@ -506,6 +542,9 @@ export async function GET(request: NextRequest) {
           recommended_action: row.recommended_action,
           reason: row.reason,
           score_breakdown_lines: row.score_breakdown_lines,
+          first_value_reasons: buildFirstValueReasons(row, {
+            eligibleCustomerCount: filteredRows.length,
+          }),
           organisation_base_currency_code: organisationBaseCurrency,
           currency_code: organisationBaseCurrency,
           native_currency_breakdown: row.native_currency_breakdown,
@@ -544,6 +583,7 @@ export async function GET(request: NextRequest) {
       currencyHealth,
       reviewRequiredCustomers,
       snapshot,
+      experience: { hasPriorCollectionActivity },
       rows: prioritizedRows,
       actionsTakenByCustomerId,
       portfolio:
@@ -552,6 +592,9 @@ export async function GET(request: NextRequest) {
           : {
               totalOverdueBase: totalOverdueOutstandingBase,
               totalOverdueBaseDecimal: totalOverdueOutstandingBaseDecimal,
+              analysedOverdueBase,
+              analysedOverdueBaseDecimal,
+              analysedOverdueCustomerCount: analysedOverdueRows.length,
               largestCustomerOverdueBase: maxOverdueOutstandingBase,
               largestCustomerOverdueBaseDecimal: maxOverdueOutstandingBaseDecimal,
               weightedAverageOverdueDays: overallWeightedAvgOverdueDays,
@@ -565,6 +608,11 @@ export async function GET(request: NextRequest) {
         mappedPaymentCount: sourceCounts.payments,
         eligibleCustomerCount: scopeRows.length,
         suppressedCustomerCount,
+        suppression: {
+          postponedCustomerCount,
+          promisedToPayCustomerCount,
+          nextReturnDate,
+        },
         actionedTodayCount,
         remainingCustomerCount,
         returnedCustomerCount: prioritizedRows.length,

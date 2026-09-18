@@ -24,7 +24,7 @@ export default function Footer() {
     }
   }, [])
 
-  if (pathname === '/start') return null
+  if (pathname === '/start' || pathname.startsWith('/start/')) return null
 
   return (
     <footer className="border-t border-gray-200 bg-white/80">

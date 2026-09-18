@@ -52,7 +52,7 @@ export default function Nav() {
     }
   }
 
-  if (pathname === '/start') {
+  if (pathname === '/start' || pathname.startsWith('/start/')) {
     return (
       <header className="border-b border-gray-200 bg-white/95">
         <div className="mx-auto flex max-w-4xl items-center px-6 py-4">

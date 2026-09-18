@@ -309,6 +309,10 @@ test('mapped overdue data returns an eligible collections customer', async () =>
   assert.equal(payload.currencyAccess.allowed, true)
   assert.deepEqual(payload.reviewRequiredCustomers, [])
   assert.equal(payload.portfolio.totalOverdueBase, 500)
+  assert.equal(payload.portfolio.analysedOverdueBase, 500)
+  assert.equal(payload.portfolio.analysedOverdueCustomerCount, 1)
+  assert.equal(payload.experience.hasPriorCollectionActivity, false)
+  assert.equal(payload.rows[0].first_value_reasons.length >= 1, true)
 })
 
 for (const organisationBaseCurrency of ['USD', 'AUD']) {
@@ -764,8 +768,12 @@ test('future postpone and promise dates still suppress customers without becomin
 
   assert.deepEqual(payload.rows.map((row) => row.customer_source_id), ['called'])
   assert.equal(payload.queue.suppressedCustomerCount, 2)
+  assert.equal(payload.queue.suppression.postponedCustomerCount, 1)
+  assert.equal(payload.queue.suppression.promisedToPayCustomerCount, 1)
+  assert.equal(payload.queue.suppression.nextReturnDate, tomorrow)
   assert.equal(payload.queue.remainingCustomerCount, 1)
   assert.equal(payload.queue.status, 'ready')
+  assert.equal(payload.experience.hasPriorCollectionActivity, true)
 })
 
 test('queue UI renders degraded review and unavailable states without hiding safe rows', async () => {

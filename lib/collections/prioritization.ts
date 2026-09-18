@@ -68,7 +68,9 @@ export interface PrioritizedCustomerRow extends PrioritizationCustomerRow {
   exposure_score: number
   exposure_share_percent: number
   exposure_relative_to_largest_percent: number
+  urgency_score: number
   relative_lateness_score: number
+  payment_recency_score: number
   override_level: CustomerOverrideLevel
   override_multiplier: number
   base_score: number
@@ -602,7 +604,9 @@ export function prioritiseCustomer(
     exposure_score: exposureScore,
     exposure_share_percent: exposureSharePercent,
     exposure_relative_to_largest_percent: exposureRelativeToLargestPercent,
+    urgency_score: urgencyScore,
     relative_lateness_score: relativeLatenessScore,
+    payment_recency_score: behaviourScore,
     override_level: normalizedOverrideLevel,
     override_multiplier: overrideMultiplier,
     base_score: baseScore,

@@ -2,6 +2,7 @@ import type { XeroConnectionStatus, XeroConnectionSummary } from '@/lib/xero/acc
 
 export type StartJourneyDecision =
   | { kind: 'connect' }
+  | { kind: 'prepare'; tenantId: string }
   | { kind: 'continue'; tenantId: string }
   | { kind: 'select_organisation'; connections: XeroConnectionSummary[] }
   | { kind: 'invalid_selection'; connections: XeroConnectionSummary[] }
@@ -18,6 +19,12 @@ function needsReconnect(connection: XeroConnectionSummary) {
     connection.authState === 'error' ||
     connection.syncState === 'reconnect_required'
   )
+}
+
+function nextUsableConnectionStep(status: XeroConnectionStatus, tenantId: string) {
+  return status.tenantId === tenantId && status.lastSyncedAt
+    ? { kind: 'continue' as const, tenantId }
+    : { kind: 'prepare' as const, tenantId }
 }
 
 export function resolveStartJourney(
@@ -48,7 +55,7 @@ export function resolveStartJourney(
     }
 
     if (isUsableConnection(requestedConnection)) {
-      return { kind: 'continue', tenantId: requestedConnection.tenantId }
+      return nextUsableConnectionStep(status, requestedConnection.tenantId)
     }
   }
 
@@ -66,7 +73,7 @@ export function resolveStartJourney(
     ) {
       return { kind: 'permission_upgrade', tenantId: connection.tenantId }
     }
-    return { kind: 'continue', tenantId: connection.tenantId }
+    return nextUsableConnectionStep(status, connection.tenantId)
   }
 
   const reconnectConnection = status.connections.find(needsReconnect)

@@ -3,12 +3,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Button from '@/app/components/Button'
-import { fetchXeroConnectionStatus } from '@/lib/xero/account-status'
+import {
+  fetchXeroConnectionStatus,
+  type XeroConnectionStatus,
+} from '@/lib/xero/account-status'
 import { buildXeroConnectPath, getXeroCallbackNotice } from '@/lib/xero/oauth-return'
 import {
   resolveStartJourney,
   type StartJourneyDecision,
 } from '@/lib/xero/start-journey'
+import FirstValuePreparation from './FirstValuePreparation'
 
 type Props = {
   requestedTenantId: string | null
@@ -23,6 +27,7 @@ export default function StartJourneyClient({
 }: Props) {
   const router = useRouter()
   const [decision, setDecision] = useState<StartJourneyDecision | null>(null)
+  const [status, setStatus] = useState<XeroConnectionStatus | null>(null)
   const [statusError, setStatusError] = useState<string | null>(null)
   const [selectionError, setSelectionError] = useState<string | null>(null)
   const [selectingTenantId, setSelectingTenantId] = useState<string | null>(null)
@@ -37,7 +42,10 @@ export default function StartJourneyClient({
 
     fetchXeroConnectionStatus(requestedTenantId)
       .then((status) => {
-        if (active) setDecision(resolveStartJourney(status, requestedTenantId))
+        if (active) {
+          setStatus(status)
+          setDecision(resolveStartJourney(status, requestedTenantId))
+        }
       })
       .catch(() => {
         if (active) setStatusError('We could not check your Xero connection. Try again.')
@@ -99,6 +107,14 @@ export default function StartJourneyClient({
 
   if (!decision || decision.kind === 'continue') {
     return <FocusedState title="Preparing your next step" message="Checking your secure Xero connection…" />
+  }
+
+  if (decision.kind === 'prepare') {
+    return status ? (
+      <FirstValuePreparation tenantId={decision.tenantId} initialStatus={status} />
+    ) : (
+      <FocusedState title="Preparing your next step" message="Checking your secure Xero connection…" />
+    )
   }
 
   if (decision.kind === 'connect') {

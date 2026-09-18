@@ -1,11 +1,13 @@
 'use client'
 
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 
 export default function Footer() {
+  const pathname = usePathname()
   const [user, setUser] = useState<User | null>(null)
 
   useEffect(() => {
@@ -21,6 +23,8 @@ export default function Footer() {
       listener.subscription.unsubscribe()
     }
   }, [])
+
+  if (pathname === '/start') return null
 
   return (
     <footer className="border-t border-gray-200 bg-white/80">

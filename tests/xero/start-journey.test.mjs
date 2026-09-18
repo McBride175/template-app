@@ -40,10 +40,10 @@ test('new authenticated users move directly to Xero', () => {
   assert.deepEqual(startJourney.resolveStartJourney(status([]), null), { kind: 'connect' })
 })
 
-test('one active organisation continues without a selection screen', () => {
+test('one active organisation enters focused preparation without a selection screen', () => {
   assert.deepEqual(
     startJourney.resolveStartJourney(status([connection('tenant-1')]), null),
-    { kind: 'continue', tenantId: 'tenant-1' }
+    { kind: 'prepare', tenantId: 'tenant-1' }
   )
 })
 
@@ -64,12 +64,13 @@ test('foreign or stale tenant requests fail closed', () => {
   assert.equal(decision.kind, 'invalid_selection')
 })
 
-test('running preparation and active generations both continue into the existing workspace', () => {
+test('running preparation resumes while an authoritative result continues into the workspace', () => {
   const running = connection('tenant-1', { syncState: 'sync_in_progress' })
-  assert.equal(startJourney.resolveStartJourney(status([running]), null).kind, 'continue')
+  assert.equal(startJourney.resolveStartJourney(status([running]), null).kind, 'prepare')
   assert.equal(
     startJourney.resolveStartJourney(
       status([connection('tenant-1')], {
+        lastSyncedAt: '2026-09-17T12:30:00Z',
         snapshot: { mode: 'generation', syncRunId: 'generation-1' },
       }),
       null

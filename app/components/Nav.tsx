@@ -1,12 +1,14 @@
 'use client'
 
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import Button from './Button'
 
 export default function Nav() {
+  const pathname = usePathname()
   const [loading, setLoading] = useState(true)
   const [user, setUser] = useState<User | null>(null)
   const [signingOut, setSigningOut] = useState(false)
@@ -48,6 +50,16 @@ export default function Nav() {
     } finally {
       setSigningOut(false)
     }
+  }
+
+  if (pathname === '/start') {
+    return (
+      <header className="border-b border-gray-200 bg-white/95">
+        <div className="mx-auto flex max-w-4xl items-center px-6 py-4">
+          <span className="text-sm font-semibold tracking-wide text-gray-900">YUOHME</span>
+        </div>
+      </header>
+    )
   }
 
   if (loading) return null // prevents flicker

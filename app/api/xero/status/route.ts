@@ -14,6 +14,12 @@ import {
   type XeroSnapshotReference,
 } from '@/lib/xero/authoritative-snapshot'
 import { classifyXeroGrant, type XeroGrantClassification } from '@/lib/xero/scopes'
+import {
+  resolveXeroPreparationStatus,
+  type XeroPreparationStatus,
+  type XeroPreparationStep,
+} from '@/lib/xero/preparation-status'
+import { XERO_SYNC_RUN_REQUIRED_STEPS } from '@/lib/xero/generation-run'
 
 interface XeroConnectionRow {
   tenant_id: string
@@ -38,6 +44,14 @@ interface XeroSyncRunStatusRow {
   tenant_id: string
   status: 'running' | 'succeeded' | 'failed' | 'abandoned'
   lease_expires_at: string | null
+  started_at: string
+  error_code: string | null
+}
+
+interface XeroSyncRunStepStatusRow {
+  step_key: string
+  status: 'pending' | 'succeeded'
+  record_count: number | string | null
 }
 
 interface XeroConnectionStatusSummary {
@@ -134,6 +148,33 @@ function parseTenantId(value: string | null) {
   if (!value) return null
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : null
+}
+
+function parsePreparationStep(row: XeroSyncRunStepStatusRow): XeroPreparationStep {
+  const recordCount =
+    row.record_count === null
+      ? null
+      : typeof row.record_count === 'number'
+        ? row.record_count
+        : /^\d+$/.test(row.record_count)
+          ? Number(row.record_count)
+          : Number.NaN
+
+  if (
+    !XERO_SYNC_RUN_REQUIRED_STEPS.includes(
+      row.step_key as (typeof XERO_SYNC_RUN_REQUIRED_STEPS)[number]
+    ) ||
+    (row.status !== 'pending' && row.status !== 'succeeded') ||
+    !(recordCount === null || (Number.isSafeInteger(recordCount) && recordCount >= 0))
+  ) {
+    throw new Error('malformed preparation step')
+  }
+
+  return {
+    stepKey: row.step_key as (typeof XERO_SYNC_RUN_REQUIRED_STEPS)[number],
+    status: row.status,
+    recordCount,
+  }
 }
 
 function hasTemporaryRefreshIssue(connection: { syncState: XeroSyncState }) {
@@ -238,7 +279,12 @@ export async function GET(request: NextRequest) {
     let lastSyncedAt: string | null = null
     let snapshot: XeroSnapshotReference | null = null
     let grantClassification: XeroGrantClassification | null = null
-    let latestAttempt: { runId: string; state: Exclude<XeroGenerationAttemptState, 'none'> } | null = null
+    let latestAttempt: {
+      runId: string
+      state: Exclude<XeroGenerationAttemptState, 'none'>
+      startedAt: string | null
+    } | null = null
+    let preparation: XeroPreparationStatus | null = null
 
     if (selectedConnection) {
       const supabaseAdmin = createSupabaseAdminClient()
@@ -281,7 +327,7 @@ export async function GET(request: NextRequest) {
         if (tenantStateData?.latest_sync_run_id) {
           const { data: latestRunData, error: latestRunError } = await supabaseAdmin
             .from('xero_sync_runs')
-            .select('id, user_id, tenant_id, status, lease_expires_at')
+            .select('id, user_id, tenant_id, status, lease_expires_at, started_at, error_code')
             .eq('id', tenantStateData.latest_sync_run_id)
             .eq('user_id', user.id)
             .eq('tenant_id', selectedConnection.tenant_id)
@@ -302,8 +348,45 @@ export async function GET(request: NextRequest) {
           } else {
             attemptState = 'failed'
           }
-          latestAttempt = { runId: latestRunData.id, state: attemptState }
+          const runStartedAt =
+            typeof latestRunData.started_at === 'string' ? latestRunData.started_at : null
+          const runErrorCode =
+            typeof latestRunData.error_code === 'string' ? latestRunData.error_code : null
+          latestAttempt = {
+            runId: latestRunData.id,
+            state: attemptState,
+            startedAt: runStartedAt,
+          }
+
+          let steps: XeroPreparationStep[] = []
+          if (attemptState === 'running') {
+            const { data: stepData, error: stepError } = await supabaseAdmin
+              .from('xero_sync_run_steps')
+              .select('step_key, status, record_count')
+              .eq('sync_run_id', latestRunData.id)
+              .order('step_key', { ascending: true })
+            if (stepError) throw stepError
+            steps = ((stepData ?? []) as XeroSyncRunStepStatusRow[]).map(parsePreparationStep)
+          }
+
+          preparation = resolveXeroPreparationStatus({
+            snapshot,
+            lastSyncedAt,
+            attempt: {
+              state: attemptState,
+              startedAt: runStartedAt,
+              errorCode: runErrorCode,
+            },
+            steps,
+          })
         }
+
+        preparation ??= resolveXeroPreparationStatus({
+          snapshot,
+          lastSyncedAt,
+          attempt: null,
+          steps: [],
+        })
       } catch (error) {
         logXeroStatusFailure({
           stage: 'sync_status_query',
@@ -345,6 +428,7 @@ export async function GET(request: NextRequest) {
       snapshot,
       grantClassification,
       latestSyncAttempt: latestAttempt,
+      preparation,
       connections,
       canAccessInternalTools,
       diagnostics:

@@ -65,6 +65,35 @@ async function releaseAutoSyncLock(params: {
   }
 }
 
+async function canRetryInterruptedFirstPreparation(params: {
+  supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>
+  userId: string
+  tenantId: string
+}) {
+  const { data: tenantState, error: tenantStateError } = await params.supabaseAdmin
+    .from('xero_sync_tenant_state')
+    .select('latest_sync_run_id')
+    .eq('user_id', params.userId)
+    .eq('tenant_id', params.tenantId)
+    .maybeSingle<{ latest_sync_run_id: string | null }>()
+  if (tenantStateError || !tenantState?.latest_sync_run_id) return false
+
+  const { data: run, error: runError } = await params.supabaseAdmin
+    .from('xero_sync_runs')
+    .select('status, lease_expires_at')
+    .eq('id', tenantState.latest_sync_run_id)
+    .eq('user_id', params.userId)
+    .eq('tenant_id', params.tenantId)
+    .maybeSingle<{ status: string; lease_expires_at: string | null }>()
+  if (runError || !run) return false
+  if (run.status === 'failed' || run.status === 'abandoned') return true
+  return (
+    run.status === 'running' &&
+    typeof run.lease_expires_at === 'string' &&
+    Date.parse(run.lease_expires_at) <= Date.now()
+  )
+}
+
 export async function POST(request: Request) {
   try {
     const supabase = await createServerSupabaseClient()
@@ -78,11 +107,12 @@ export async function POST(request: Request) {
     }
 
     const payload = (await request.json().catch(() => null)) as
-      | { tenantId?: unknown; surface?: unknown }
+      | { tenantId?: unknown; surface?: unknown; retry?: unknown }
       | null
 
     const requestedTenantId = parseTenantId(payload?.tenantId)
     const surface = typeof payload?.surface === 'string' ? payload.surface : null
+    const retryFirstPreparation = payload?.retry === true
     const supabaseAdmin = createSupabaseAdminClient()
 
     const { data: connectionData, error: connectionError } = await supabaseAdmin
@@ -161,7 +191,19 @@ export async function POST(request: Request) {
       })
     }
 
-    if (isWithinXeroAutoSyncCooldown(selectedConnection.last_auto_sync_triggered_at)) {
+    const retryAllowed =
+      retryFirstPreparation &&
+      lastSyncedAt === null &&
+      await canRetryInterruptedFirstPreparation({
+        supabaseAdmin,
+        userId: user.id,
+        tenantId: selectedConnection.tenant_id,
+      })
+
+    if (
+      isWithinXeroAutoSyncCooldown(selectedConnection.last_auto_sync_triggered_at) &&
+      !retryAllowed
+    ) {
       return NextResponse.json({
         ok: true,
         triggered: false,

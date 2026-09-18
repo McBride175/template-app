@@ -382,9 +382,108 @@ test('Xero status reports promoted freshness and never consults legacy raw fresh
   assert.equal(response.status, 200)
   assert.equal(payload.lastSyncedAt, PROMOTED_AT)
   assert.deepEqual(payload.snapshot, { mode: 'generation', syncRunId: RUN_A })
+  assert.equal(payload.preparation.stage, 'ready')
   assert.equal(
     adminDatabase.state.calls.some((call) => call.table === 'xero_raw'),
     false
+  )
+})
+
+test('Xero status reconstructs safe preparation counts from the owned running manifest', async () => {
+  const publicDatabase = createDatabase({
+    xero_connections_public: [
+      {
+        user_id: USER_ID,
+        tenant_id: TENANT_ID,
+        tenant_name: 'Test tenant',
+        auth_state: 'active',
+        last_refresh_error: null,
+        reauth_required_at: null,
+        updated_at: '2026-09-17T12:00:00.000Z',
+        grant_id: 'grant-a',
+      },
+    ],
+  })
+  const adminDatabase = createDatabase({
+    xero_oauth_grants: [{ id: 'grant-a', user_id: USER_ID, scopes: ['accounting.transactions.read'] }],
+    xero_sync_tenant_state: [{
+      user_id: USER_ID,
+      tenant_id: TENANT_ID,
+      active_sync_run_id: null,
+      latest_sync_run_id: RUN_A,
+      last_successful_sync_at: null,
+    }],
+    xero_sync_runs: [{
+      id: RUN_A,
+      user_id: USER_ID,
+      tenant_id: TENANT_ID,
+      status: 'running',
+      lease_expires_at: '2099-09-17T12:10:00.000Z',
+      started_at: '2026-09-17T12:00:00.000Z',
+      error_code: null,
+    }],
+    xero_sync_run_steps: [
+      { sync_run_id: RUN_A, step_key: 'contacts', status: 'succeeded', record_count: 54 },
+      { sync_run_id: RUN_A, step_key: 'authorised_accrec_invoices', status: 'succeeded', record_count: 20 },
+      { sync_run_id: RUN_A, step_key: 'paid_accrec_invoices', status: 'succeeded', record_count: 27 },
+      { sync_run_id: RUN_A, step_key: 'authorised_accrec_payments', status: 'succeeded', record_count: 32 },
+      { sync_run_id: RUN_A, step_key: 'canonical_mapping', status: 'pending', record_count: null },
+    ],
+  })
+  const { GET } = loadTypeScriptModule('app/api/xero/status/route.ts', {
+    mocks: {
+      'next/server': {
+        NextResponse: {
+          json(body, init = {}) {
+            return new Response(JSON.stringify(body), {
+              status: init.status ?? 200,
+              headers: { 'content-type': 'application/json' },
+            })
+          },
+        },
+      },
+      '@/lib/supabase-server': {
+        async createServerSupabaseClient() {
+          return {
+            ...publicDatabase.client,
+            auth: {
+              async getUser() {
+                return { data: { user: { id: USER_ID, email: 'test@example.com' } }, error: null }
+              },
+            },
+          }
+        },
+      },
+      '@/lib/supabase-admin': {
+        createSupabaseAdminClient() {
+          return adminDatabase.client
+        },
+      },
+      '@/lib/xero/internal-access': {
+        canAccessInternalXeroTools() {
+          return false
+        },
+      },
+    },
+  })
+
+  const response = await GET({
+    nextUrl: new URL(`http://localhost/api/xero/status?tenantId=${TENANT_ID}`),
+  })
+  const payload = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.preparation.stage, 'analysing_receivables')
+  assert.deepEqual(payload.preparation.counts, { contacts: 54, invoices: 47, payments: 32 })
+  assert.equal(payload.preparation.active, true)
+  assert.ok(
+    adminDatabase.state.calls.some(
+      (call) =>
+        call.table === 'xero_sync_run_steps' &&
+        call.operator === 'eq' &&
+        call.column === 'sync_run_id' &&
+        call.value === RUN_A
+    )
   )
 })
 

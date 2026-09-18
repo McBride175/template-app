@@ -17,16 +17,21 @@ function nextServerMock() {
   }
 }
 
-function createHarness({ syncDelayMs = 0 } = {}) {
+function createHarness({
+  syncDelayMs = 0,
+  withinCooldown = false,
+  lastSyncedAt = '2026-09-16T12:00:00Z',
+  latestRunStatus = 'failed',
+} = {}) {
   let locked = false
   const syncCalls = []
   const supabaseAdmin = {
     from(table) {
-      assert.equal(table, 'xero_connections_public')
       const query = {
         select() { return query },
         eq() { return query },
         order() {
+          assert.equal(table, 'xero_connections_public')
           return Promise.resolve({
             data: [{
               tenant_id: 'tenant-1',
@@ -36,6 +41,21 @@ function createHarness({ syncDelayMs = 0 } = {}) {
             }],
             error: null,
           })
+        },
+        maybeSingle() {
+          if (table === 'xero_sync_tenant_state') {
+            return Promise.resolve({ data: { latest_sync_run_id: 'run-failed' }, error: null })
+          }
+          if (table === 'xero_sync_runs') {
+            return Promise.resolve({
+              data: {
+                status: latestRunStatus,
+                lease_expires_at: '2026-09-17T10:00:00Z',
+              },
+              error: null,
+            })
+          }
+          throw new Error(`unexpected maybeSingle table ${table}`)
         },
       }
       return query
@@ -66,7 +86,7 @@ function createHarness({ syncDelayMs = 0 } = {}) {
         XERO_AUTO_SYNC_LOCK_TTL_SECONDS: 180,
         XERO_AUTO_SYNC_STALE_MINUTES: 60,
         isXeroDataStale: () => true,
-        isWithinXeroAutoSyncCooldown: () => false,
+        isWithinXeroAutoSyncCooldown: () => withinCooldown,
       },
       '@/lib/xero/sync': {
         parseTenantId(value) { return typeof value === 'string' && value ? value : null },
@@ -78,9 +98,11 @@ function createHarness({ syncDelayMs = 0 } = {}) {
       },
       '@/lib/xero/authoritative-snapshot': {
         async resolveXeroAuthoritativeSnapshot() {
-          return { mode: 'generation', syncRunId: 'generation-a', lastSuccessfulSyncAt: '2026-09-16T12:00:00Z' }
+          return lastSyncedAt
+            ? { mode: 'generation', syncRunId: 'generation-a', lastSuccessfulSyncAt: lastSyncedAt }
+            : { mode: 'legacy', syncRunId: null, lastSuccessfulSyncAt: null }
         },
-        async loadXeroAuthoritativeFreshness() { return '2026-09-16T12:00:00Z' },
+        async loadXeroAuthoritativeFreshness() { return lastSyncedAt },
         toXeroSnapshotReference(snapshot) {
           return { mode: snapshot.mode, syncRunId: snapshot.syncRunId }
         },
@@ -104,11 +126,11 @@ function createHarness({ syncDelayMs = 0 } = {}) {
   return { route, syncCalls }
 }
 
-function request() {
+function request(overrides = {}) {
   return new Request('http://localhost/api/xero/sync/auto', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ tenantId: 'tenant-1', surface: 'dashboard' }),
+    body: JSON.stringify({ tenantId: 'tenant-1', surface: 'dashboard', ...overrides }),
   })
 }
 
@@ -137,4 +159,24 @@ test('two Dashboard requests cannot start two same-tenant generation imports', a
   assert.equal(firstPayload.syncSucceeded, true)
   assert.equal(secondPayload.reason, 'auto_sync_in_progress')
   assert.equal(harness.syncCalls.length, 1)
+})
+
+test('focused retry bypasses cooldown only for a failed first preparation', async () => {
+  const harness = createHarness({ withinCooldown: true, lastSyncedAt: null })
+  const response = await harness.route.POST(request({ surface: 'start', retry: true }))
+  const payload = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.triggered, true)
+  assert.equal(harness.syncCalls.length, 1)
+})
+
+test('ordinary observation cannot bypass the server cooldown', async () => {
+  const harness = createHarness({ withinCooldown: true, lastSyncedAt: null })
+  const response = await harness.route.POST(request({ surface: 'start' }))
+  const payload = await response.json()
+
+  assert.equal(payload.triggered, false)
+  assert.equal(payload.reason, 'auto_sync_cooldown_active')
+  assert.equal(harness.syncCalls.length, 0)
 })

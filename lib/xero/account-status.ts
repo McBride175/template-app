@@ -52,6 +52,30 @@ export interface XeroConnectionStatus {
   latestSyncAttempt?: {
     runId: string
     state: 'running' | 'failed' | 'interrupted' | 'promoted'
+    startedAt?: string | null
+  } | null
+  preparation?: {
+    stage:
+      | 'connected'
+      | 'reading_xero'
+      | 'analysing_receivables'
+      | 'building_priorities'
+      | 'ready'
+      | 'failed'
+      | 'interrupted'
+    active: boolean
+    startedAt: string | null
+    counts: {
+      contacts: number
+      invoices: number
+      payments: number
+    } | null
+    failureKind:
+      | 'reconnect_required'
+      | 'permission_upgrade_required'
+      | 'provider_failure'
+      | 'preparation_failure'
+      | null
   } | null
   connections: XeroConnectionSummary[]
   diagnostics?: {

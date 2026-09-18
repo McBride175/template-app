@@ -1,6 +1,6 @@
 'use client'
 
-type XeroAutoSyncSurface = 'account' | 'dashboard'
+type XeroAutoSyncSurface = 'account' | 'dashboard' | 'start'
 
 export type XeroAutoSyncResult =
   | {
@@ -37,6 +37,7 @@ function normalizeTenantId(tenantId: string | null | undefined) {
 export function triggerXeroAutoSyncOnEntry(params: {
   surface: XeroAutoSyncSurface
   tenantId?: string | null
+  retry?: boolean
   fetcher?: AutoSyncFetcher
 }): Promise<XeroAutoSyncResult> {
   const tenantId = normalizeTenantId(params.tenantId)
@@ -49,7 +50,7 @@ export function triggerXeroAutoSyncOnEntry(params: {
     return inFlight
   }
 
-  if (previousTriggerAt && now - previousTriggerAt < LOCAL_DEBOUNCE_MS) {
+  if (!params.retry && previousTriggerAt && now - previousTriggerAt < LOCAL_DEBOUNCE_MS) {
     const previousResult = lastResultByKey.get(dedupeKey)
     if (previousResult) return Promise.resolve(previousResult)
   }
@@ -66,6 +67,7 @@ export function triggerXeroAutoSyncOnEntry(params: {
     body: JSON.stringify({
       tenantId,
       surface: params.surface,
+      retry: params.retry === true,
     }),
   })
     .then(async (response): Promise<XeroAutoSyncResult> => {

@@ -51,20 +51,39 @@ test('collections missing-tenant race and not-ready data render intentional reco
   assert.doesNotMatch(source, /Sync Xero to load and map customer and invoice data/)
 })
 
-test('Dashboard keeps existing auto-sync entry behavior and does not add sync orchestration', async () => {
-  const source = await readFile(
-    projectFile('app/dashboard/DashboardOnboardingClient.tsx'),
-    'utf8'
-  )
+test('Dashboard redirects unfinished first value to focused preparation and retains mature auto-sync', async () => {
+  const [source, preparationSource] = await Promise.all([
+    readFile(projectFile('app/dashboard/DashboardOnboardingClient.tsx'), 'utf8'),
+    readFile(projectFile('app/start/FirstValuePreparation.tsx'), 'utf8'),
+  ])
 
   assert.match(source, /triggerXeroAutoSyncOnEntry\(\{/)
   assert.match(source, /surface: 'dashboard'/)
-  assert.match(source, /observeFirstXeroSyncCompletion/)
-  assert.match(source, /Preparing your collection priorities/)
-  assert.match(source, /We couldn&apos;t prepare your Xero data/)
+  assert.match(source, /shouldObserveFirstXeroSync/)
+  assert.match(source, /router\.replace\(/)
+  assert.match(source, /`\/start\?tenantId=/)
   assert.match(source, /controller\.abort\(\)/)
   assert.doesNotMatch(source, /api\/xero\/sync/)
   assert.doesNotMatch(source, /setInterval/)
+  assert.match(preparationSource, /observeFirstXeroSyncCompletion/)
+  assert.match(preparationSource, /Preparing your chase priorities/)
+  assert.match(preparationSource, /Retry preparation/)
+  assert.doesNotMatch(preparationSource, /Check again|Review Xero connection|href=.*account/)
+})
+
+test('first-value preparation keeps focused chrome and uses only server-backed progress', async () => {
+  const [preparationSource, navSource, footerSource] = await Promise.all([
+    readFile(projectFile('app/start/FirstValuePreparation.tsx'), 'utf8'),
+    readFile(projectFile('app/components/Nav.tsx'), 'utf8'),
+    readFile(projectFile('app/components/Footer.tsx'), 'utf8'),
+  ])
+
+  assert.match(navSource, /pathname === '\/start'/)
+  assert.match(navSource, />YUOHME</)
+  assert.match(footerSource, /if \(pathname === '\/start'\) return null/)
+  assert.match(preparationSource, /status\.preparation\?\.active/)
+  assert.match(preparationSource, /PROLONGED_PREPARATION_MS = 30_000/)
+  assert.doesNotMatch(preparationSource, /setInterval|progressPercent|estimated time|% complete/i)
 })
 
 test('Checkout return banner polls server state and never treats the query as entitlement', async () => {

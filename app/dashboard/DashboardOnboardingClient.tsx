@@ -17,11 +17,7 @@ import {
   type XeroConnectionStatus,
 } from '@/lib/xero/account-status'
 import { triggerXeroAutoSyncOnEntry } from '@/lib/xero/auto-sync-client'
-import {
-  observeFirstXeroSyncCompletion,
-  shouldObserveFirstXeroSync,
-  type XeroFirstSyncFeedbackState,
-} from '@/lib/xero/first-sync-feedback'
+import { shouldObserveFirstXeroSync } from '@/lib/xero/first-sync-feedback'
 import { getXeroCallbackNotice } from '@/lib/xero/oauth-return'
 
 function removeQueryParams(names: string[]) {
@@ -41,9 +37,6 @@ export default function DashboardOnboardingClient() {
   const [xeroStatus, setXeroStatus] = useState<XeroConnectionStatus | null>(null)
   const [xeroStatusError, setXeroStatusError] = useState<string | null>(null)
   const [xeroLoading, setXeroLoading] = useState(true)
-  const [firstSyncFeedback, setFirstSyncFeedback] = useState<
-    XeroFirstSyncFeedbackState | 'idle'
-  >('idle')
 
   const loadXeroStatus = useCallback(async () => {
     setXeroLoading(true)
@@ -72,7 +65,6 @@ export default function DashboardOnboardingClient() {
     })
 
     const run = async () => {
-      setFirstSyncFeedback('idle')
       const { data } = await supabase.auth.getUser()
 
       if (!data.user) {
@@ -85,27 +77,20 @@ export default function DashboardOnboardingClient() {
 
       if (!initialStatus.connected || initialStatus.canSync === false) return
 
-      if (!shouldObserveFirstXeroSync(initialStatus)) {
-        void triggerXeroAutoSyncOnEntry({
-          surface: 'dashboard',
-          tenantId,
-        })
+      if (shouldObserveFirstXeroSync(initialStatus)) {
+        const preparationTenantId = initialStatus.tenantId ?? tenantId
+        router.replace(
+          preparationTenantId
+            ? `/start?tenantId=${encodeURIComponent(preparationTenantId)}`
+            : '/start'
+        )
         return
       }
 
-      setFirstSyncFeedback('preparing')
-      const autoSyncResult = await triggerXeroAutoSyncOnEntry({
+      void triggerXeroAutoSyncOnEntry({
         surface: 'dashboard',
         tenantId,
       })
-      const feedback = await observeFirstXeroSyncCompletion({
-        autoSyncResult,
-        loadStatus: loadXeroStatus,
-        signal: controller.signal,
-      })
-      if (!controller.signal.aborted) {
-        setFirstSyncFeedback(feedback.state)
-      }
     }
 
     void run()
@@ -121,12 +106,23 @@ export default function DashboardOnboardingClient() {
     status: xeroStatus,
     statusError: xeroStatusError,
   })
+  const firstValuePreparationRequired = Boolean(
+    xeroStatus && shouldObserveFirstXeroSync(xeroStatus)
+  )
 
   return (
     <div className="space-y-6">
-      <SubscriptionStatus checkoutOnly loginNextPath="/dashboard" />
+      {!firstValuePreparationRequired && (
+        <SubscriptionStatus checkoutOnly loginNextPath="/dashboard" />
+      )}
 
-      {xeroNotice && (
+      {firstValuePreparationRequired && (
+        <Card>
+          <p className="text-sm text-gray-600">Returning to your Xero preparation…</p>
+        </Card>
+      )}
+
+      {!firstValuePreparationRequired && xeroNotice && (
         <Card
           className={
             xeroNotice.kind === 'success'
@@ -157,13 +153,13 @@ export default function DashboardOnboardingClient() {
         </Card>
       )}
 
-      {xeroViewState === 'loading' && (
+      {!firstValuePreparationRequired && xeroViewState === 'loading' && (
         <Card>
           <p className="text-sm text-gray-600">Preparing your dashboard…</p>
         </Card>
       )}
 
-      {xeroViewState === 'error' && (
+      {!firstValuePreparationRequired && xeroViewState === 'error' && (
         <Card>
           <div className="space-y-3">
             <div>
@@ -181,59 +177,19 @@ export default function DashboardOnboardingClient() {
         </Card>
       )}
 
-      {xeroViewState === 'disconnected' && (
+      {!firstValuePreparationRequired && xeroViewState === 'disconnected' && (
         <DashboardXeroConnectionCard state="disconnected" />
       )}
 
-      {xeroViewState === 'reconnect_required' && (
+      {!firstValuePreparationRequired && xeroViewState === 'reconnect_required' && (
         <DashboardXeroConnectionCard
           state="reconnect_required"
           tenantId={xeroStatus?.tenantId ?? tenantId}
         />
       )}
 
-      {(xeroViewState === 'connected' || xeroViewState === 'temporary_issue') &&
-        firstSyncFeedback === 'preparing' && (
-          <Card>
-            <h1 className="text-xl font-semibold text-gray-900">
-              Preparing your collection priorities
-            </h1>
-            <p className="mt-2 text-sm text-gray-600">
-              We&apos;re securely importing and validating your Xero data. This can take a few
-              minutes.
-            </p>
-          </Card>
-        )}
-
-      {(xeroViewState === 'connected' || xeroViewState === 'temporary_issue') &&
-        firstSyncFeedback === 'failed' && (
-          <Card>
-            <div className="space-y-3">
-              <div>
-                <h1 className="text-xl font-semibold text-gray-900">
-                  We couldn&apos;t prepare your Xero data
-                </h1>
-                <p className="mt-2 text-sm text-gray-600">
-                  Your connection is still available. Review it in Account, where you can retry
-                  the sync or reconnect if Xero asks you to.
-                </p>
-              </div>
-              <Button
-                onClick={() =>
-                  router.push(
-                    `/account${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`
-                  )
-                }
-              >
-                Review Xero connection
-              </Button>
-            </div>
-          </Card>
-        )}
-
-      {(xeroViewState === 'connected' || xeroViewState === 'temporary_issue') &&
-        firstSyncFeedback !== 'preparing' &&
-        firstSyncFeedback !== 'failed' && (
+      {!firstValuePreparationRequired &&
+        (xeroViewState === 'connected' || xeroViewState === 'temporary_issue') && (
         <CollectionActionsClient embedded showTable={false} tenantId={tenantId} />
       )}
     </div>

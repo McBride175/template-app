@@ -155,6 +155,29 @@ test('concurrent and repeated auto-sync triggers share one request and one resul
   assert.equal(requestCount, 1)
 })
 
+test('an explicit recovery retry bypasses only the browser debounce and marks the server request', async () => {
+  const autoSync = loadTypeScriptModule(AUTO_SYNC_PATH)
+  const bodies = []
+  const fetcher = async (_url, init) => {
+    bodies.push(JSON.parse(init.body))
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return { triggered: true, syncSucceeded: true, syncStatus: 200 }
+      },
+    }
+  }
+  const params = { surface: 'start', tenantId: 'tenant-retry', fetcher }
+
+  await autoSync.triggerXeroAutoSyncOnEntry(params)
+  await autoSync.triggerXeroAutoSyncOnEntry({ ...params, retry: true })
+
+  assert.equal(bodies.length, 2)
+  assert.equal(bodies[0].retry, false)
+  assert.equal(bodies[1].retry, true)
+})
+
 test('component abort stops cross-tab status polling without another request loop', async () => {
   const feedback = loadTypeScriptModule(FEEDBACK_PATH)
   const controller = new AbortController()
@@ -187,7 +210,7 @@ test('component abort stops cross-tab status polling without another request loo
   assert.equal(waits, 1)
 })
 
-test('cross-tab status polling is bounded and fails instead of preparing forever', async () => {
+test('active server work keeps polling until authoritative promotion without a client timeout failure', async () => {
   const feedback = loadTypeScriptModule(FEEDBACK_PATH)
   let statusLoads = 0
   const result = await feedback.observeFirstXeroSyncCompletion({
@@ -198,9 +221,15 @@ test('cross-tab status polling is bounded and fails instead of preparing forever
       reason: 'auto_sync_in_progress',
     },
     signal: new AbortController().signal,
-    maxStatusChecks: 3,
     async loadStatus() {
       statusLoads += 1
+      if (statusLoads === 6) {
+        return status({
+          lastSyncedAt: '2026-09-17T10:00:00Z',
+          snapshot: { mode: 'generation', syncRunId: 'generation-running' },
+          latestSyncAttempt: { runId: 'generation-running', state: 'promoted' },
+        })
+      }
       return status({
         syncState: 'sync_in_progress',
         latestSyncAttempt: { runId: 'generation-running', state: 'running' },
@@ -209,6 +238,32 @@ test('cross-tab status polling is bounded and fails instead of preparing forever
     async wait() {},
   })
 
-  assert.equal(result.state, 'failed')
-  assert.equal(statusLoads, 3)
+  assert.equal(result.state, 'ready')
+  assert.equal(statusLoads, 6)
+})
+
+test('transient status failures are reported but do not become generation failure', async () => {
+  const feedback = loadTypeScriptModule(FEEDBACK_PATH)
+  const observations = []
+  let statusLoads = 0
+  const result = await feedback.observeFirstXeroSyncCompletion({
+    autoSyncResult: successfulAutoSync,
+    signal: new AbortController().signal,
+    async loadStatus() {
+      statusLoads += 1
+      if (statusLoads <= 2) throw new Error('temporary network failure')
+      return status({
+        lastSyncedAt: '2026-09-17T10:00:00Z',
+        snapshot: { mode: 'generation', syncRunId: 'generation-after-reconnect' },
+        latestSyncAttempt: { runId: 'generation-after-reconnect', state: 'promoted' },
+      })
+    },
+    onObservation(observation) {
+      observations.push(observation.state)
+    },
+    async wait() {},
+  })
+
+  assert.equal(result.state, 'ready')
+  assert.deepEqual(observations, ['status_unavailable', 'status_unavailable', 'ready'])
 })

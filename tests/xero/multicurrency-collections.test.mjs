@@ -139,7 +139,7 @@ async function loadSummary({ baseCurrency = 'GBP', customers, invoices, payments
   return loadCustomerCollectionsSummaryWithMetadata(supabase, USER_ID, TENANT_ID)
 }
 
-async function requestCustomerApi(summary) {
+async function requestCustomerApi(summary, overrides = []) {
   const { GET } = loadTypeScriptModule('app/api/collections/customers/route.ts', {
     mocks: {
       'next/server': {
@@ -165,7 +165,14 @@ async function requestCustomerApi(summary) {
       },
       '@/lib/supabase-admin': {
         createSupabaseAdminClient() {
-          return {}
+          return {
+            from(table) {
+              if (table !== 'customer_overrides') {
+                throw new Error(`Unexpected table: ${table}`)
+              }
+              return createQuery(overrides)
+            },
+          }
         },
       },
       '@/lib/billing/entitlements': {
@@ -362,9 +369,30 @@ test('one broken foreign invoice degrades aggregation while safe customers remai
     },
   ])
 
-  const { response, payload } = await requestCustomerApi(result)
+  const { response, payload } = await requestCustomerApi(result, [
+    {
+      user_id: USER_ID,
+      tenant_id: TENANT_ID,
+      customer_source_id: 'customer-a',
+      override_level: 'priority',
+    },
+    {
+      user_id: 'another-user',
+      tenant_id: TENANT_ID,
+      customer_source_id: 'customer-b',
+      override_level: 'safe',
+    },
+  ])
   assert.equal(response.status, 200)
   assert.equal(payload.rows.length, 2)
+  assert.equal(
+    payload.rows.find((row) => row.customer_source_id === 'customer-a').override_level,
+    'priority'
+  )
+  assert.equal(
+    payload.rows.find((row) => row.customer_source_id === 'customer-b').override_level,
+    'normal'
+  )
   assert.equal(payload.reviewRequiredCustomers.length, 1)
   assert.equal(payload.organisationBaseCurrency, 'GBP')
   assert.equal(payload.currencyHealth.status, 'degraded')

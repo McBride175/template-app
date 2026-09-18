@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Card from '@/app/components/Card'
 import Button from '@/app/components/Button'
@@ -11,6 +11,10 @@ import {
   formatRelativeLateness,
 } from '@/lib/collections/payment-behavior-copy'
 import { buildLoginPath } from '@/lib/auth-flow'
+import {
+  FOUNDER_CONTEXT_OPTIONS,
+  type FounderContextLevel,
+} from '@/lib/collections/founder-context'
 
 type SortBy =
   | 'overdue_outstanding'
@@ -50,6 +54,7 @@ interface CustomerCollectionsSummaryRow {
     total_outstanding_native: string
     overdue_outstanding_native: string
   }>
+  override_level: FounderContextLevel
 }
 
 interface CollectionsCurrencyContext {
@@ -98,6 +103,12 @@ interface CollectionsApiResponse {
   currencyAccess?: CollectionsCurrencyAccess
   currencyHealth?: CollectionsCurrencyHealth
   reviewRequiredCustomers?: CurrencyReviewRequiredCustomer[]
+  error?: string
+}
+
+interface CollectionOverrideApiResponse {
+  ok?: boolean
+  code?: string
   error?: string
 }
 
@@ -191,9 +202,16 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
   const [overdueOnly, setOverdueOnly] = useState(false)
   const [sortOption, setSortOption] =
     useState<`${SortBy}:${SortDir}`>('overdue_outstanding:desc')
+  const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [contextError, setContextError] = useState<string | null>(null)
+  const [contextFeedback, setContextFeedback] = useState<string | null>(null)
+  const [updatingContextByCustomerId, setUpdatingContextByCustomerId] = useState<
+    Record<string, boolean>
+  >({})
+  const contextRequestsInFlight = useRef(new Set<string>())
   const [organisationBaseCurrency, setOrganisationBaseCurrency] = useState<string | null>(null)
   const [currencyContext, setCurrencyContext] = useState<CollectionsCurrencyContext | null>(null)
   const [currencyAccess, setCurrencyAccess] = useState<CollectionsCurrencyAccess | null>(null)
@@ -230,7 +248,7 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
 
         if (response.status === 401) {
           router.replace(buildLoginPath(loginNextPath, 'session_expired'))
-          return
+          return false
         }
 
         const payload = (await response.json().catch(() => null)) as CollectionsApiResponse | null
@@ -242,12 +260,12 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
           setCurrencyAccess(payload.currencyAccess ?? null)
           setCurrencyHealth(null)
           setReviewRequiredCustomers([])
-          return
+          return false
         }
 
         if (response.status === 402) {
           router.push('/pricing?reason=usage-limit')
-          return
+          return false
         }
 
         if (!response.ok || !payload?.ok) {
@@ -260,12 +278,14 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
         setCurrencyAccess(payload.currencyAccess ?? null)
         setCurrencyHealth(payload.currencyHealth ?? null)
         setReviewRequiredCustomers(payload.reviewRequiredCustomers ?? [])
+        return true
       } catch (fetchError) {
         setError(
           fetchError instanceof Error
             ? fetchError.message
             : 'Failed to load customer collections summary.'
         )
+        return false
       } finally {
         setLoading(false)
         setRefreshing(false)
@@ -278,6 +298,98 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
     void loadRows(false)
   }, [loadRows])
 
+  const handleFounderContextChange = useCallback(
+    async (
+      row: CustomerCollectionsSummaryRow,
+      overrideLevel: FounderContextLevel
+    ) => {
+      if (overrideLevel === row.override_level) return
+      if (contextRequestsInFlight.current.has(row.customer_source_id)) return
+
+      if (overrideLevel === 'do_not_chase') {
+        const confirmed = window.confirm(
+          `Do not chase removes ${row.customer_name} from the chase queue until you change the setting. Use Postpone or a payment promise for a temporary delay. Continue?`
+        )
+        if (!confirmed) return
+      }
+
+      contextRequestsInFlight.current.add(row.customer_source_id)
+
+      setUpdatingContextByCustomerId((current) => ({
+        ...current,
+        [row.customer_source_id]: true,
+      }))
+      setContextError(null)
+      setContextFeedback(null)
+
+      try {
+        const response = await fetch('/api/collections/override', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            customer_source_id: row.customer_source_id,
+            override_level: overrideLevel,
+            tenant_id: tenantId,
+          }),
+        })
+
+        if (response.status === 401) {
+          router.replace(buildLoginPath(loginNextPath, 'session_expired'))
+          return
+        }
+
+        const payload = (await response.json().catch(() => null)) as
+          | CollectionOverrideApiResponse
+          | null
+
+        if (response.status === 402) {
+          router.push(
+            payload?.code === 'MULTI_CURRENCY_REQUIRES_PRO'
+              ? '/pricing?reason=multi-currency'
+              : '/pricing?reason=usage-limit'
+          )
+          return
+        }
+
+        if (!response.ok || !payload?.ok) {
+          throw new Error(payload?.error || 'Failed to save customer context.')
+        }
+
+        const refreshed = await loadRows(true)
+        if (!refreshed) {
+          setContextError(
+            'Customer context was saved, but the current list could not be refreshed. Try Refresh.'
+          )
+          return
+        }
+
+        const label =
+          FOUNDER_CONTEXT_OPTIONS.find((option) => option.value === overrideLevel)?.label ??
+          'Customer context'
+        setContextFeedback(
+          overrideLevel === 'normal'
+            ? `${row.customer_name} returned to Normal. Yuohme will use the accounting data alone.`
+            : `${row.customer_name} marked ${label}. Today’s queue will use this context.`
+        )
+      } catch (updateError) {
+        setContextError(
+          updateError instanceof Error
+            ? updateError.message
+            : 'Failed to save customer context.'
+        )
+      } finally {
+        contextRequestsInFlight.current.delete(row.customer_source_id)
+        setUpdatingContextByCustomerId((current) => {
+          const next = { ...current }
+          delete next[row.customer_source_id]
+          return next
+        })
+      }
+    },
+    [loadRows, loginNextPath, router, tenantId]
+  )
+
   const multiCurrencyPlanRequired = Boolean(
     currencyAccess?.requiresPro && !currencyAccess.allowed
   )
@@ -285,17 +397,28 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
     currencyAccess?.allowed && currencyContext?.mode === 'multi_currency'
   )
 
+  const visibleRows = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLocaleLowerCase()
+    if (!normalizedQuery) return rows
+
+    return rows.filter((row) =>
+      `${row.customer_name} ${row.customer_email ?? ''}`
+        .toLocaleLowerCase()
+        .includes(normalizedQuery)
+    )
+  }, [rows, searchQuery])
+
   const description = useMemo(() => {
     if (loading) return 'Loading customer aggregation…'
     if (currencyHealth?.status === 'unavailable') return 'Collections ranking is unavailable.'
     if (currencyHealth?.status === 'degraded' && rows.length === 0) {
       return `No safely valued customers shown · ${reviewRequiredCustomers.length} need review`
     }
-    if (rows.length === 0) return 'No customer rows matched the current filters.'
-    const rankedDescription = `${rows.length} customer${rows.length === 1 ? '' : 's'} shown`
+    if (visibleRows.length === 0) return 'No customer rows matched the current filters.'
+    const rankedDescription = `${visibleRows.length} customer${visibleRows.length === 1 ? '' : 's'} shown`
     if (currencyHealth?.status !== 'degraded') return rankedDescription
     return `${rankedDescription} · ${reviewRequiredCustomers.length} need review`
-  }, [currencyHealth?.status, loading, reviewRequiredCustomers.length, rows.length])
+  }, [currencyHealth?.status, loading, reviewRequiredCustomers.length, rows.length, visibleRows.length])
 
   const totals = useMemo(() => {
     let outstandingBase = 0
@@ -303,7 +426,7 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
     let overdueInvoicesCount = 0
     let oldestOverdueDaysSum = 0
 
-    for (const row of rows) {
+    for (const row of visibleRows) {
       outstandingBase += row.total_outstanding_base
       overdueOutstandingBase += row.overdue_outstanding_base
       overdueInvoicesCount += row.overdue_invoices_count
@@ -316,7 +439,7 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
       overdueInvoicesCount,
       oldestOverdueDaysSum,
     }
-  }, [rows])
+  }, [visibleRows])
 
   return (
     <div className="space-y-6">
@@ -329,8 +452,36 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
         </div>
       </div>
 
+      {!multiCurrencyPlanRequired && (
+        <Card>
+          <div id="customer-context" className="scroll-mt-6">
+            <h2 className="text-lg font-semibold text-gray-900">Customer context</h2>
+            <p className="mt-1 max-w-3xl text-sm leading-relaxed text-gray-600">
+              Yuohme ranks customers from Xero first. If you know something the accounting data
+              cannot show, you can optionally set Priority, Safe, or Do not chase here. Normal is
+              the default and needs no action.
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-gray-500">
+              Customer context stays in place until you change it. Use Postpone, a payment promise,
+              or an action log for temporary collection workflow.
+            </p>
+          </div>
+        </Card>
+      )}
+
       {!multiCurrencyPlanRequired && <Card>
         <div className="flex flex-wrap items-end gap-4">
+          <label className="flex min-w-64 flex-1 flex-col gap-1 text-sm text-gray-700">
+            <span>Find a customer</span>
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search name or email"
+              className="min-h-11 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-900"
+            />
+          </label>
+
           <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-700">
             <input
               type="checkbox"
@@ -363,6 +514,16 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
       </Card>}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {contextError && (
+        <p className="text-sm text-red-600" role="alert">
+          {contextError}
+        </p>
+      )}
+      {contextFeedback && (
+        <p className="text-sm text-green-700" role="status" aria-live="polite">
+          {contextFeedback}
+        </p>
+      )}
       {!error && !multiCurrencyPlanRequired && (
         <p className="text-sm text-gray-600">{description}</p>
       )}
@@ -478,7 +639,7 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
         !multiCurrencyPlanRequired &&
         !loading &&
         currencyHealth?.status !== 'unavailable' &&
-        rows.length > 0 && (
+        visibleRows.length > 0 && (
         <div className="space-y-3">
           <div className="grid gap-3 rounded-md border border-gray-200 bg-gray-50 p-3 text-sm text-gray-800 sm:grid-cols-2 lg:grid-cols-4">
             <div>
@@ -520,11 +681,12 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
                 <th className="px-4 py-3 font-medium">Oldest overdue (days)</th>
                 <th className="px-4 py-3 font-medium">Last payment date</th>
                 <th className="px-4 py-3 font-medium">Payment behaviour</th>
+                <th className="px-4 py-3 font-medium">Customer context</th>
                 <th className="px-4 py-3 font-medium">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 text-gray-800">
-              {rows.map((row) => (
+              {visibleRows.map((row) => (
                 <tr key={row.customer_source_id}>
                   <td className="px-4 py-3">
                     <p className="font-medium text-gray-900">{row.customer_name}</p>
@@ -596,6 +758,32 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
                         </dd>
                       </div>
                     </dl>
+                  </td>
+                  <td className="min-w-48 px-4 py-3">
+                    <label className="sr-only" htmlFor={`customer-context-${row.customer_source_id}`}>
+                      Customer context for {row.customer_name}
+                    </label>
+                    <select
+                      id={`customer-context-${row.customer_source_id}`}
+                      value={row.override_level}
+                      onChange={(event) =>
+                        void handleFounderContextChange(
+                          row,
+                          event.target.value as FounderContextLevel
+                        )
+                      }
+                      disabled={Boolean(updatingContextByCustomerId[row.customer_source_id])}
+                      className="min-h-11 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {FOUNDER_CONTEXT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 min-h-4 text-xs text-gray-500" aria-live="polite">
+                      {updatingContextByCustomerId[row.customer_source_id] ? 'Saving…' : ''}
+                    </p>
                   </td>
                   <td className="px-4 py-3">
                     <span

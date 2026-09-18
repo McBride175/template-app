@@ -12,6 +12,11 @@ import {
 } from '@/lib/billing/collections-access'
 import { logCollectionsCurrencyHealth } from '@/lib/collections/currency-health'
 import { compareDecimalValues } from '@/lib/money/currency'
+import { isMissingRelationError } from '@/lib/collections/tenant-context'
+import {
+  DEFAULT_FOUNDER_CONTEXT_LEVEL,
+  type FounderContextLevel,
+} from '@/lib/collections/founder-context'
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 200
@@ -23,6 +28,16 @@ type SortBy =
   | 'customer_name'
 
 type SortDir = 'asc' | 'desc'
+
+interface CustomerOverrideRow {
+  customer_source_id: string
+  override_level: FounderContextLevel
+}
+
+function parseFounderContextLevel(value: unknown): FounderContextLevel {
+  if (value === 'priority' || value === 'safe' || value === 'do_not_chase') return value
+  return DEFAULT_FOUNDER_CONTEXT_LEVEL
+}
 
 function parseLimit(value: string | null) {
   const parsed = Number.parseInt(value ?? '', 10)
@@ -180,6 +195,29 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    const { data: overrideRows, error: overrideError } = await supabaseAdmin
+      .from('customer_overrides')
+      .select('customer_source_id, override_level')
+      .eq('user_id', user.id)
+      .eq('tenant_id', tenantId)
+
+    if (overrideError) {
+      if (isMissingRelationError(overrideError, 'customer_overrides')) {
+        return NextResponse.json(
+          { error: 'Customer context is unavailable until database migrations are applied.' },
+          { status: 503 }
+        )
+      }
+      throw overrideError
+    }
+
+    const overrideLevelByCustomerSourceId = new Map(
+      ((overrideRows ?? []) as CustomerOverrideRow[]).map((row) => [
+        row.customer_source_id,
+        parseFounderContextLevel(row.override_level),
+      ])
+    )
+
     const filteredRows = overdueOnly
       ? rows.filter((row) => row.overdue_invoices_count > 0)
       : rows
@@ -195,7 +233,12 @@ export async function GET(request: NextRequest) {
       currencyHealth,
       reviewRequiredCustomers,
       snapshot,
-      rows: filteredRows.slice(0, limit),
+      rows: filteredRows.slice(0, limit).map((row) => ({
+        ...row,
+        override_level:
+          overrideLevelByCustomerSourceId.get(row.customer_source_id) ??
+          DEFAULT_FOUNDER_CONTEXT_LEVEL,
+      })),
     })
   } catch (error) {
     console.error('[collections.customers.get] Failed to aggregate collections customers', {

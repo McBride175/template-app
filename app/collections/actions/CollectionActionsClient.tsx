@@ -1,13 +1,29 @@
 'use client'
 
 import Link from 'next/link'
-import { Fragment, useCallback, useEffect, useMemo, useState, type TouchEvent } from 'react'
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type TouchEvent,
+} from 'react'
 import { useRouter } from 'next/navigation'
 import Card from '@/app/components/Card'
 import Button from '@/app/components/Button'
 import MultiCurrencyPlanGate from '@/app/collections/MultiCurrencyPlanGate'
 import DashboardXeroConnectionCard from '@/app/dashboard/DashboardXeroConnectionCard'
+import FounderContextControl from '@/app/collections/FounderContextControl'
 import { buildLoginPath } from '@/lib/auth-flow'
+import {
+  FOUNDER_CONTEXT_OPTIONS,
+  buildFounderContextConsequence,
+  resolveFounderContextQueueIndex,
+  selectActionableFounderContextRows,
+  type FounderContextLevel,
+} from '@/lib/collections/founder-context'
 
 interface CollectionActionRow {
   customer_source_id: string
@@ -58,6 +74,11 @@ interface CollectionActionsApiResponse {
   currencyHealth?: CollectionsCurrencyHealth
   reviewRequiredCustomers?: CurrencyReviewRequiredCustomer[]
   error?: string
+}
+
+interface LoadedCollectionActions {
+  rows: CollectionActionRow[]
+  actionsTakenByCustomerId: Record<string, ActionTakenLog>
 }
 
 type CollectionQueueStatus =
@@ -170,7 +191,7 @@ interface CollectionActionsClientProps {
 type ActionType = 'called' | 'emailed' | 'postponed'
 type ActionOutcome = 'no_response' | 'spoke_to_customer' | 'promised_to_pay' | 'disputed'
 type DetailPanel = 'none' | 'call_outcome' | 'detail_postpone'
-type OverrideLevel = 'safe' | 'normal' | 'priority' | 'do_not_chase'
+type OverrideLevel = FounderContextLevel
 
 interface ActionTakenLog {
   type: ActionType
@@ -323,13 +344,6 @@ const OUTCOME_OPTIONS: Array<{
   { value: 'disputed', label: 'Disputed' },
 ]
 
-const OVERRIDE_OPTIONS: Array<{ value: OverrideLevel; label: string }> = [
-  { value: 'safe', label: 'Safe' },
-  { value: 'normal', label: 'Normal' },
-  { value: 'priority', label: 'Priority' },
-  { value: 'do_not_chase', label: 'Do not chase' },
-]
-
 function formatMoney(amount: number, currencyCode: string | null) {
   const normalizedCurrencyCode = currencyCode?.trim() || null
 
@@ -401,14 +415,6 @@ function getRecommendedActionClasses(action: CollectionActionRow['recommended_ac
   }
 
   return 'bg-gray-100 text-gray-700'
-}
-
-function getOverridePillClasses(selected: boolean) {
-  if (selected) {
-    return 'bg-gray-100 text-gray-900'
-  }
-
-  return 'bg-white text-gray-600 hover:bg-gray-50'
 }
 
 function getActionLabel(actionType: ActionType) {
@@ -520,6 +526,7 @@ export default function CollectionActionsClient({
   const [updatingOverrideByCustomerId, setUpdatingOverrideByCustomerId] = useState<
     Record<string, boolean>
   >({})
+  const overrideRequestsInFlight = useRef(new Set<string>())
   const [queueCardIndex, setQueueCardIndex] = useState(0)
   const [queueFeedback, setQueueFeedback] = useState<string | null>(null)
   const [touchStartX, setTouchStartX] = useState<number | null>(null)
@@ -596,7 +603,7 @@ export default function CollectionActionsClient({
 
         if (response.status === 401) {
           router.replace(buildLoginPath(effectiveLoginNextPath, 'session_expired'))
-          return
+          return null
         }
 
         const payload = (await response.json().catch(() => null)) as CollectionActionsApiResponse | null
@@ -614,7 +621,7 @@ export default function CollectionActionsClient({
           setCurrencyHealth(null)
           setReviewRequiredCustomers([])
           setUsageLimitReached(false)
-          return
+          return null
         }
 
         if (payload?.code === 'ACTION_USAGE_LIMIT_REACHED') {
@@ -627,7 +634,7 @@ export default function CollectionActionsClient({
           setCurrencyHealth(null)
           setReviewRequiredCustomers([])
           setUsageLimitReached(true)
-          return
+          return null
         }
 
         if (payload?.code === 'NO_XERO_TENANT') {
@@ -641,7 +648,7 @@ export default function CollectionActionsClient({
           setReviewRequiredCustomers([])
           setUsageLimitReached(false)
           setXeroConnectionMissing(true)
-          return
+          return null
         }
 
         if (!response.ok || !payload?.ok) {
@@ -655,20 +662,24 @@ export default function CollectionActionsClient({
         setCurrencyHealth(payload.currencyHealth ?? null)
         setReviewRequiredCustomers(payload.reviewRequiredCustomers ?? [])
         const nextRows = payload.rows ?? []
-        setRows(
-          effectiveOverdueOnly
-            ? nextRows.filter(
-                (row) =>
-                  row.overdue_invoices_count > 0 || row.overdue_outstanding_base > 0
-              )
-            : nextRows
-        )
-        setActionsTakenByCustomerId(payload.actionsTakenByCustomerId ?? {})
+        const visibleRows = effectiveOverdueOnly
+          ? nextRows.filter(
+              (row) => row.overdue_invoices_count > 0 || row.overdue_outstanding_base > 0
+            )
+          : nextRows
+        const nextActionsTakenByCustomerId = payload.actionsTakenByCustomerId ?? {}
+        setRows(visibleRows)
+        setActionsTakenByCustomerId(nextActionsTakenByCustomerId)
         setQueueInfo(payload.queue ?? null)
+        return {
+          rows: visibleRows,
+          actionsTakenByCustomerId: nextActionsTakenByCustomerId,
+        } satisfies LoadedCollectionActions
       } catch (fetchError) {
         setError(
           fetchError instanceof Error ? fetchError.message : 'Failed to load collection actions.'
         )
+        return null
       } finally {
         setLoading(false)
         setRefreshing(false)
@@ -682,7 +693,7 @@ export default function CollectionActionsClient({
   }, [loadRows])
 
   const queueRows = useMemo(
-    () => rows.filter((row) => !actionsTakenByCustomerId[row.customer_source_id]),
+    () => selectActionableFounderContextRows(rows, actionsTakenByCustomerId),
     [actionsTakenByCustomerId, rows]
   )
   const todayActionSummary = useMemo(() => {
@@ -1160,22 +1171,40 @@ export default function CollectionActionsClient({
     async (
       customerSourceId: string,
       overrideLevel: OverrideLevel,
-      currentOverrideLevel: OverrideLevel
+      currentOverrideLevel: OverrideLevel,
+      persistentExclusionConfirmed = false
     ) => {
       if (overrideLevel === currentOverrideLevel) return
+      if (overrideRequestsInFlight.current.has(customerSourceId)) return
 
-      if (overrideLevel === 'do_not_chase' && currentOverrideLevel !== 'do_not_chase') {
+      if (
+        overrideLevel === 'do_not_chase' &&
+        currentOverrideLevel !== 'do_not_chase' &&
+        !persistentExclusionConfirmed
+      ) {
         const confirmed = window.confirm(
-          'Mark this customer as "Do not chase"? This sets their priority score to 0 and moves them to the bottom.'
+          'Do not chase removes this customer from the chase queue until you change the setting. Use Postpone or a payment promise for a temporary delay. Continue?'
         )
         if (!confirmed) return
       }
+
+      const customerName =
+        rows.find((row) => row.customer_source_id === customerSourceId)?.customer_name ??
+        'This customer'
+      const previousIndex = queueRows.findIndex(
+        (row) => row.customer_source_id === customerSourceId
+      )
+      const previousPosition = previousIndex >= 0 ? previousIndex + 1 : null
+      const previousCardIndex = queueCardIndex
+
+      overrideRequestsInFlight.current.add(customerSourceId)
 
       setUpdatingOverrideByCustomerId((prev) => ({
         ...prev,
         [customerSourceId]: true,
       }))
       setError(null)
+      setQueueFeedback(null)
 
       try {
         const response = await fetch('/api/collections/override', {
@@ -1217,12 +1246,44 @@ export default function CollectionActionsClient({
           throw new Error(payload?.error || 'Failed to update customer override.')
         }
 
-        await loadRows(true)
+        const refreshed = await loadRows(true)
+        if (!refreshed) {
+          setQueueFeedback(
+            `${FOUNDER_CONTEXT_OPTIONS.find((option) => option.value === overrideLevel)?.label ?? 'Customer context'} saved, but Yuohme could not refresh the queue. Try refreshing again.`
+          )
+          return
+        }
+
+        const nextQueueRows = selectActionableFounderContextRows(
+          refreshed.rows,
+          refreshed.actionsTakenByCustomerId
+        )
+        const nextPositionIndex = nextQueueRows.findIndex(
+          (row) => row.customer_source_id === customerSourceId
+        )
+        const nextPosition = nextPositionIndex >= 0 ? nextPositionIndex + 1 : null
+
+        setQueueCardIndex(
+          resolveFounderContextQueueIndex({
+            customerSourceId,
+            previousIndex: previousCardIndex,
+            nextQueueRows,
+          })
+        )
+        setQueueFeedback(
+          buildFounderContextConsequence({
+            customerName,
+            level: overrideLevel,
+            previousPosition,
+            nextPosition,
+          })
+        )
       } catch (updateError) {
         setError(
           updateError instanceof Error ? updateError.message : 'Failed to update customer override.'
         )
       } finally {
+        overrideRequestsInFlight.current.delete(customerSourceId)
         setUpdatingOverrideByCustomerId((prev) => {
           const next = { ...prev }
           delete next[customerSourceId]
@@ -1230,12 +1291,13 @@ export default function CollectionActionsClient({
         })
       }
     },
-    [effectiveLoginNextPath, loadRows, router, tenantId]
+    [effectiveLoginNextPath, loadRows, queueCardIndex, queueRows, router, rows, tenantId]
   )
 
   const customersHref = tenantId
     ? `/customers?tenantId=${encodeURIComponent(tenantId)}`
     : '/customers'
+  const founderContextHref = `${customersHref}#customer-context`
   const disputesHref = tenantId
     ? `/disputes?tenantId=${encodeURIComponent(tenantId)}`
     : '/disputes'
@@ -1247,7 +1309,12 @@ export default function CollectionActionsClient({
       ? `Free collection days used: ${entitlement.usageDaysConsumed} / ${entitlement.freeUsageDaysLimit}`
       : null
 
-  const disableQueueActions = submittingAction || undoingAction
+  const disableQueueActions =
+    submittingAction ||
+    undoingAction ||
+    Boolean(
+      currentQueueRow && updatingOverrideByCustomerId[currentQueueRow.customer_source_id]
+    )
 
   if (xeroConnectionMissing) {
     return (
@@ -1477,6 +1544,22 @@ export default function CollectionActionsClient({
                 <p className="text-sm text-gray-600">
                   No mapped customers currently meet the collection queue criteria.
                 </p>
+              </div>
+            ) : !loading && rows.some((row) => row.override_level === 'do_not_chase') ? (
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  No customers need chasing from this queue
+                </h3>
+                <p className="text-sm text-gray-600">
+                  Customers marked Do not chase remain excluded until you change their customer
+                  context.
+                </p>
+                <Link
+                  href={founderContextHref}
+                  className="inline-flex min-h-11 items-center text-sm font-semibold text-gray-900 underline underline-offset-4"
+                >
+                  Manage customer context
+                </Link>
               </div>
             ) : !loading ? (
               <div>
@@ -1795,44 +1878,31 @@ export default function CollectionActionsClient({
                   </div>
                 )}
 
-                <div className="space-y-1 pt-0.5">
-                  <p className="text-xs text-gray-500">Adjust priority</p>
-                  <div className="flex items-center gap-1">
-                    {OVERRIDE_OPTIONS.map((option) => {
-                      const selected = currentQueueRow.override_level === option.value
-                      const updating = Boolean(
-                        updatingOverrideByCustomerId[currentQueueRow.customer_source_id]
-                      )
-
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          onClick={() =>
-                            void handleOverrideChange(
-                              currentQueueRow.customer_source_id,
-                              option.value,
-                              currentQueueRow.override_level
-                            )
-                          }
-                          disabled={updating}
-                          className={`inline-flex flex-1 items-center justify-center rounded px-2 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${getOverridePillClasses(selected)}`}
-                        >
-                          {option.label}
-                        </button>
-                      )
-                    })}
-                  </div>
-                  <p className="min-h-4 text-xs text-gray-500">
-                    {updatingOverrideByCustomerId[currentQueueRow.customer_source_id]
-                      ? 'Updating priority…'
-                      : ' '}
-                  </p>
-                </div>
+                <FounderContextControl
+                  customerName={currentQueueRow.customer_name}
+                  value={currentQueueRow.override_level}
+                  saving={Boolean(
+                    updatingOverrideByCustomerId[currentQueueRow.customer_source_id]
+                  )}
+                  disabled={submittingAction || undoingAction}
+                  manageHref={founderContextHref}
+                  onChange={(level, persistentExclusionConfirmed) =>
+                    void handleOverrideChange(
+                      currentQueueRow.customer_source_id,
+                      level,
+                      currentQueueRow.override_level,
+                      persistentExclusionConfirmed
+                    )
+                  }
+                />
               </div>
             )}
 
-            {queueFeedback && <p className="text-sm text-green-700">{queueFeedback}</p>}
+            {queueFeedback && (
+              <p className="text-sm text-green-700" role="status" aria-live="polite">
+                {queueFeedback}
+              </p>
+            )}
           </div>
         </Card>
       )}
@@ -1856,7 +1926,7 @@ export default function CollectionActionsClient({
                 <th className="px-4 py-3 font-medium">Last payment date</th>
                 <th className="px-4 py-3 font-medium">Priority score</th>
                 <th className="px-4 py-3 font-medium">Score-based prompt</th>
-                <th className="px-4 py-3 font-medium">Override</th>
+                <th className="px-4 py-3 font-medium">Customer context</th>
                 <th className="px-4 py-3 font-medium">Reasoning</th>
               </tr>
             </thead>
@@ -1901,7 +1971,8 @@ export default function CollectionActionsClient({
                     <td className="px-4 py-3">
                       <select
                         id={`table-override-${row.customer_source_id}`}
-                        className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
+                        aria-label={`Customer context for ${row.customer_name}`}
+                        className="min-h-11 rounded-md border border-gray-300 bg-white px-2 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
                         value={row.override_level}
                         onChange={(event) =>
                           void handleOverrideChange(
@@ -1912,7 +1983,7 @@ export default function CollectionActionsClient({
                         }
                         disabled={Boolean(updatingOverrideByCustomerId[row.customer_source_id])}
                       >
-                        {OVERRIDE_OPTIONS.map((option) => (
+                        {FOUNDER_CONTEXT_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>
                             {option.label}
                           </option>

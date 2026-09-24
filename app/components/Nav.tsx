@@ -93,14 +93,9 @@ export default function Nav() {
           )}
 
           {user && (
-            <>
-              <Link href="/account" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
-                Account
-              </Link>
-              <Link href="/admin" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
-                Admin
-              </Link>
-            </>
+            <Link href="/account" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
+              Account
+            </Link>
           )}
 
           <Link href="/blog" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">

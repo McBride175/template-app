@@ -24,6 +24,11 @@ import {
   selectActionableFounderContextRows,
   type FounderContextLevel,
 } from '@/lib/collections/founder-context'
+import {
+  resolveFreeUsageGuidance,
+  shouldShowFirstActionGuidance,
+  type CollectionExperienceState,
+} from '@/lib/collections/progressive-guidance'
 
 interface CollectionActionRow {
   customer_source_id: string
@@ -73,6 +78,7 @@ interface CollectionActionsApiResponse {
   currencyAccess?: CollectionsCurrencyAccess
   currencyHealth?: CollectionsCurrencyHealth
   reviewRequiredCustomers?: CurrencyReviewRequiredCustomer[]
+  experience?: CollectionExperienceState
   error?: string
 }
 
@@ -545,6 +551,7 @@ export default function CollectionActionsClient({
   const [usageLimitReached, setUsageLimitReached] = useState(false)
   const [xeroConnectionMissing, setXeroConnectionMissing] = useState(false)
   const [queueInfo, setQueueInfo] = useState<CollectionQueueInfo | null>(null)
+  const [experience, setExperience] = useState<CollectionExperienceState | null>(null)
   const [organisationBaseCurrency, setOrganisationBaseCurrency] = useState<string | null>(null)
   const [currencyContext, setCurrencyContext] = useState<CollectionsCurrencyContext | null>(null)
   const [currencyAccess, setCurrencyAccess] = useState<CollectionsCurrencyAccess | null>(null)
@@ -620,6 +627,7 @@ export default function CollectionActionsClient({
           setCurrencyAccess(payload.currencyAccess ?? null)
           setCurrencyHealth(null)
           setReviewRequiredCustomers([])
+          setExperience(payload.experience ?? null)
           setUsageLimitReached(false)
           return null
         }
@@ -633,6 +641,7 @@ export default function CollectionActionsClient({
           setCurrencyAccess(null)
           setCurrencyHealth(null)
           setReviewRequiredCustomers([])
+          setExperience(payload.experience ?? null)
           setUsageLimitReached(true)
           return null
         }
@@ -646,6 +655,7 @@ export default function CollectionActionsClient({
           setCurrencyAccess(null)
           setCurrencyHealth(null)
           setReviewRequiredCustomers([])
+          setExperience(payload.experience ?? null)
           setUsageLimitReached(false)
           setXeroConnectionMissing(true)
           return null
@@ -661,6 +671,7 @@ export default function CollectionActionsClient({
         setCurrencyAccess(payload.currencyAccess ?? null)
         setCurrencyHealth(payload.currencyHealth ?? null)
         setReviewRequiredCustomers(payload.reviewRequiredCustomers ?? [])
+        setExperience(payload.experience ?? null)
         const nextRows = payload.rows ?? []
         const visibleRows = effectiveOverdueOnly
           ? nextRows.filter(
@@ -949,6 +960,7 @@ export default function CollectionActionsClient({
         actionId,
         customerSourceId,
       })
+      setExperience({ hasPriorCollectionActivity: true })
 
       const baseLabel = getActionLabel(actionType)
       const outcomeSuffix = outcome ? ` (${getOutcomeLabel(outcome)})` : ''
@@ -1298,16 +1310,15 @@ export default function CollectionActionsClient({
     ? `/customers?tenantId=${encodeURIComponent(tenantId)}`
     : '/customers'
   const founderContextHref = `${customersHref}#customer-context`
-  const disputesHref = tenantId
-    ? `/disputes?tenantId=${encodeURIComponent(tenantId)}`
-    : '/disputes'
   const accountHref = tenantId
     ? `/account?tenantId=${encodeURIComponent(tenantId)}`
     : '/account'
-  const freeUsageIndicator =
-    entitlement && !entitlement.isPaid && !usageLimitReached
-      ? `Free collection days used: ${entitlement.usageDaysConsumed} / ${entitlement.freeUsageDaysLimit}`
-      : null
+  const startHref = tenantId
+    ? `/start?tenantId=${encodeURIComponent(tenantId)}`
+    : '/start'
+  const freeUsageGuidance = resolveFreeUsageGuidance(entitlement)
+  const showFirstActionGuidance = shouldShowFirstActionGuidance(experience)
+  const showManualQueueRefresh = experience?.hasPriorCollectionActivity === true
 
   const disableQueueActions =
     submittingAction ||
@@ -1351,8 +1362,16 @@ export default function CollectionActionsClient({
         </div>
       )}
 
-      {freeUsageIndicator && (
-        <p className="text-xs font-medium text-gray-500">{freeUsageIndicator}</p>
+      {freeUsageGuidance && !usageLimitReached && (
+        <p className="text-xs text-gray-600">
+          {freeUsageGuidance.message}{' '}
+          <Link
+            href="/pricing"
+            className="font-semibold text-gray-800 underline decoration-gray-300 underline-offset-4 hover:text-gray-950"
+          >
+            {freeUsageGuidance.actionLabel}
+          </Link>
+        </p>
       )}
 
       {usageLimitReached && entitlement && (
@@ -1437,14 +1456,16 @@ export default function CollectionActionsClient({
                     Score-based prompts show review urgency, not a prescribed contact method.
                   </p>
                 </div>
-                <Button
-                  onClick={() => void loadRows(true)}
-                  variant="secondary"
-                  size="sm"
-                  disabled={refreshing}
-                >
-                  {refreshing ? 'Refreshing…' : 'Refresh'}
-                </Button>
+                {showManualQueueRefresh && (
+                  <Button
+                    onClick={() => void loadRows(true)}
+                    variant="secondary"
+                    size="sm"
+                    disabled={refreshing}
+                  >
+                    {refreshing ? 'Refreshing…' : 'Refresh priorities'}
+                  </Button>
+                )}
                 <div className="flex items-center gap-2">
                   {queueRows.length > 1 && (
                     <p className="text-xs text-gray-500">
@@ -1511,25 +1532,16 @@ export default function CollectionActionsClient({
                     Preparing your collection priorities
                   </h3>
                   <p className="mt-1 text-sm text-gray-600">
-                    Your Xero connection is ready. We&apos;re preparing the information needed to
-                    show who to chase first. Check again shortly.
+                    Your Xero connection is ready. Yuohme is preparing the information needed to
+                    show who to chase first automatically.
                   </p>
                 </div>
-                <Button
-                  onClick={() => void loadRows(true)}
-                  variant="secondary"
-                  size="sm"
-                  disabled={refreshing}
+                <Link
+                  href={startHref}
+                  className="inline-flex min-h-11 items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50"
                 >
-                  {refreshing ? 'Checking…' : 'Check again'}
-                </Button>
-                <p className="text-xs text-gray-500">
-                  If your priorities do not appear after a few minutes, review the connection in{' '}
-                  <Link href={accountHref} className="underline underline-offset-2">
-                    Account
-                  </Link>
-                  .
-                </p>
+                  Resume preparation
+                </Link>
               </div>
             ) : !loading && queueInfo?.status === 'no_overdue_customers' ? (
               <div>
@@ -1566,7 +1578,9 @@ export default function CollectionActionsClient({
                 <h3 className="text-lg font-semibold text-gray-900">
                   No collection actions available
                 </h3>
-                <p className="text-sm text-gray-600">Refresh to check for queue updates.</p>
+                <p className="text-sm text-gray-600">
+                  No customers need action from the current authoritative queue.
+                </p>
               </div>
             ) : null}
 
@@ -1586,25 +1600,20 @@ export default function CollectionActionsClient({
                   </p>
                 </div>
 
-                <div className="space-y-3 rounded-md border border-green-300 bg-white px-3 py-3">
-                  <p className="text-base font-semibold text-green-900">Next steps</p>
-                  <p className="text-sm text-green-800">
-                    Review customer summary and disputes section before ending today&apos;s run.
+                <div className="space-y-2 rounded-md border border-green-300 bg-white px-3 py-3">
+                  <p className="text-base font-semibold text-green-900">
+                    You&apos;re done for today
                   </p>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <Link
-                      href={customersHref}
-                      className="inline-flex min-h-11 items-center justify-center rounded-md border border-green-400 bg-green-50 px-3 py-2 text-sm font-semibold text-green-900 hover:bg-green-100"
-                    >
-                      Review customer summary
-                    </Link>
-                    <Link
-                      href={disputesHref}
-                      className="inline-flex min-h-11 items-center justify-center rounded-md border border-green-400 bg-green-50 px-3 py-2 text-sm font-semibold text-green-900 hover:bg-green-100"
-                    >
-                      Review disputes section
-                    </Link>
-                  </div>
+                  <p className="text-sm text-green-800">
+                    When you return, Yuohme will show the current actionable queue. Postponed
+                    customers and payment promises remain out until their chosen date.
+                  </p>
+                  <Link
+                    href={customersHref}
+                    className="inline-flex min-h-11 items-center text-sm font-semibold text-green-900 underline decoration-green-300 underline-offset-4 hover:text-green-950"
+                  >
+                    Browse customers
+                  </Link>
                 </div>
               </div>
             )}
@@ -1691,6 +1700,16 @@ export default function CollectionActionsClient({
                   </p>
                 </div>
 
+                {showFirstActionGuidance && (
+                  <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-3 text-sm text-sky-950">
+                    <p className="font-semibold">Work the priority, then record what happened.</p>
+                    <p className="mt-1 text-sky-900">
+                      Yuohme moves recorded work out of today&apos;s queue. Postponed customers and
+                      payment promises return on the date you choose.
+                    </p>
+                  </div>
+                )}
+
                 <div className="grid gap-3 pt-2 sm:grid-cols-2">
                   <div className="space-y-2 rounded-md border border-gray-200 bg-gray-50 p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Fast actions</p>
@@ -1768,7 +1787,9 @@ export default function CollectionActionsClient({
                   <div className="space-y-3 rounded-md border border-gray-200 bg-gray-50 p-3">
                     <div>
                       <p className="text-sm font-semibold text-gray-900">Postpone + date</p>
-                      <p className="text-xs text-gray-600">Choose the next action date.</p>
+                      <p className="text-xs text-gray-600">
+                        Choose when this customer should return to the queue.
+                      </p>
                     </div>
                     <QuickDatePicker
                       selectedDate={null}
@@ -1847,7 +1868,8 @@ export default function CollectionActionsClient({
                         />
                         {selectedOutcomeDate && (
                           <p className="text-xs text-gray-600">
-                            Selected date: {formatDate(selectedOutcomeDate)}
+                            This customer will return to the queue on{' '}
+                            {formatDate(selectedOutcomeDate)}.
                           </p>
                         )}
                       </div>

@@ -47,7 +47,9 @@ test('collections missing-tenant race and not-ready data render intentional reco
   assert.match(source, /<DashboardXeroConnectionCard state="disconnected"/)
   assert.match(source, /queueInfo\?\.status === 'no_mapped_data'/)
   assert.match(source, /Preparing your collection priorities/)
-  assert.match(source, /Check again/)
+  assert.match(source, /Resume preparation/)
+  assert.match(source, /\/start\?tenantId=/)
+  assert.doesNotMatch(source, /Check again/)
   assert.doesNotMatch(source, /Sync Xero to load and map customer and invoice data/)
 })
 

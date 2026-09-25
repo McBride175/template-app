@@ -182,8 +182,8 @@ export default function FirstValuePreparation({ tenantId, initialStatus }: Props
               : 'Yuohme could not finish preparing your priorities'}
         </h1>
         <p className="mt-4 text-gray-600">
-          Your existing Xero information has not been changed. Retry preparation to safely start a
-          new fenced attempt for this organisation.
+          Your existing Xero information has not been changed. Retry preparation to safely continue
+          the analysis for this organisation.
         </p>
         <Button
           className="mt-7 min-h-12 px-6"

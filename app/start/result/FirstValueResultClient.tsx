@@ -129,7 +129,7 @@ export default function FirstValueResultClient({ tenantId }: Props) {
       <FocusedResultState
         eyebrow="Analysis complete"
         title="Opening your priorities"
-        message="Yuohme is loading the result from your authoritative Xero snapshot."
+        message="Yuohme is loading your priorities from the latest Xero data."
       />
     )
   }
@@ -169,7 +169,7 @@ export default function FirstValueResultClient({ tenantId }: Props) {
       <FocusedResultState
         eyebrow="Checking result"
         title="Opening your priorities"
-        message="Yuohme is checking the latest authoritative result."
+        message="Yuohme is checking your latest priorities."
       />
     )
   }

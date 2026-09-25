@@ -1579,7 +1579,7 @@ export default function CollectionActionsClient({
                   No collection actions available
                 </h3>
                 <p className="text-sm text-gray-600">
-                  No customers need action from the current authoritative queue.
+                  No customers need action from the current chase queue.
                 </p>
               </div>
             ) : null}

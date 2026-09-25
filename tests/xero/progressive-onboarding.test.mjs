@@ -86,6 +86,7 @@ test('operational UI stays contextual and avoids a dedicated onboarding checklis
   assert.doesNotMatch(client, /Review disputes section/)
   assert.doesNotMatch(client, /Check again/)
   assert.doesNotMatch(client, /Free collection days used:/)
+  assert.doesNotMatch(client, /current authoritative queue/i)
   assert.doesNotMatch(nav, /href="\/admin"/)
 })
 

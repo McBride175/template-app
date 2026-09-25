@@ -4,7 +4,7 @@ import { getSafeAuthUser } from '@/lib/privacy-utils.mjs'
 export async function buildUserExportBundle(userId: string) {
   const admin = createSupabaseAdminClient()
 
-  const [authUserResult, preferencesResult, notesResult, subscriptionsResult, stripeCustomersResult, supportTicketsResult] =
+  const [authUserResult, preferencesResult, notesResult, subscriptionsResult, stripeCustomersResult, supportTicketsResult, invoiceDisputesResult] =
     await Promise.all([
       admin.auth.admin.getUserById(userId),
       admin
@@ -30,6 +30,11 @@ export async function buildUserExportBundle(userId: string) {
         .select('id, email, subject, message, status, created_at')
         .eq('user_id', userId)
         .order('created_at', { ascending: false }),
+      admin
+        .from('invoice_disputes')
+        .select('id, tenant_id, source_system, invoice_source_id, dispute_mode, recorded_disputed_amount_native, amount_due_at_last_review_native, note, is_active, resolved_at, created_at, updated_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false }),
     ])
 
   if (authUserResult.error) {
@@ -41,6 +46,7 @@ export async function buildUserExportBundle(userId: string) {
   if (subscriptionsResult.error) throw subscriptionsResult.error
   if (stripeCustomersResult.error) throw stripeCustomersResult.error
   if (supportTicketsResult.error) throw supportTicketsResult.error
+  if (invoiceDisputesResult.error) throw invoiceDisputesResult.error
 
   const safeAuthUser = getSafeAuthUser(authUserResult.data.user)
 
@@ -53,6 +59,7 @@ export async function buildUserExportBundle(userId: string) {
       subscriptions: subscriptionsResult.data ?? [],
       stripe_customers: stripeCustomersResult.data ?? [],
       support_tickets: supportTicketsResult.data ?? [],
+      invoice_disputes: invoiceDisputesResult.data ?? [],
     },
     metadata: {
       formatVersion: '1.0',
@@ -64,6 +71,7 @@ export async function buildUserExportBundle(userId: string) {
         'subscriptions',
         'stripe_customers',
         'support_tickets',
+        'invoice_disputes',
       ],
       excludes: [
         'password_hash',

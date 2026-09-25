@@ -77,10 +77,18 @@ The final Xero design contains only:
 - `canonical_organisations`: explicit Xero organisation identity, base currency, country, timezone, and source retrieval metadata
 - `canonical_customers`, `canonical_invoices`, and `canonical_payments`: normalized accounting data
 - `customer_overrides`: user-controlled collection priority overrides
+- `invoice_disputes`: user-authored invoice dispute state keyed by user, tenant, provider, and provider invoice ID independently of Xero sync generations
 - `xero_scheduled_sync_runs`: internal scheduler lock and cadence state
 - `collection_actions`: user-owned action history
 
 The legacy `xero_connections`, transient `xero_connection_secrets`, tenant-scoped refresh-lock RPCs, and orphaned `set_updated_at_xero_connections()` function are not part of the final architecture.
+
+An invoice dispute is not attached to a generation-specific `canonical_invoices.id`. Its
+recorded native amount and last-reviewed native balance persist independently;
+effective disputed and collectible amounts are derived from the current
+authoritative invoice snapshot. A zero or absent current invoice does not
+automatically resolve the user-authored dispute. Scoring integration is a
+separate implementation phase.
 
 Canonical application reads resolve one authoritative snapshot per user and tenant. A non-null
 `xero_sync_tenant_state.active_sync_run_id` is authoritative only when it references that exact

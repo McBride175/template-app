@@ -281,8 +281,8 @@ test('customer parent keeps save outcome visible while stale balances and action
       react: h.react,
       'react/jsx-runtime': h.jsxRuntime,
       'next/navigation': { useRouter: () => ({ replace() {}, push() {} }) },
-      '@/app/components/Card': () => null,
-      '@/app/components/Button': () => null,
+      '@/app/components/ui/Card': () => null,
+      '@/app/components/ui/Button': () => null,
       '@/app/collections/customers/CustomerInvoiceDisputes': InvoiceControl,
       '@/app/collections/MultiCurrencyPlanGate': () => null,
       '@/lib/collections/payment-behavior-copy': {

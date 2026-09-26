@@ -7,7 +7,7 @@
 'use client'
 
 import { useState } from 'react'
-import Button from './Button'
+import Button from './ui/Button'
 
 export default function ManageSubscriptionButton() {
   const [loading, setLoading] = useState(false)

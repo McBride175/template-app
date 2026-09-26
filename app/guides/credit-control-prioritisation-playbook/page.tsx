@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import Card from '@/app/components/Card'
+import Card from '@/app/components/ui/Card'
 import { getSiteUrl } from '@/lib/site-url'
 import PrioritisationPlaybook from './PrioritisationPlaybook'
 

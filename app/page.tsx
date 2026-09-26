@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Suspense } from 'react'
 import { getSiteUrl } from '@/lib/site-url'
-import Card from '@/app/components/Card'
+import Card from '@/app/components/ui/Card'
 import HomePageClient from './HomePageClient'
 const siteUrl = getSiteUrl()
 

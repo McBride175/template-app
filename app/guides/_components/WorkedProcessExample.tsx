@@ -1,4 +1,4 @@
-import Card from '@/app/components/Card'
+import Card from '@/app/components/ui/Card'
 import type { WorkedProcessExample as WorkedProcessExampleData } from '@/content/seo-pages'
 
 interface WorkedProcessExampleProps {
@@ -6,9 +6,9 @@ interface WorkedProcessExampleProps {
 }
 
 const exampleTextColors = {
-  heading: { color: 'var(--gray-900)' },
-  body: { color: 'var(--gray-700)' },
-  muted: { color: 'var(--gray-600)' },
+  heading: { color: 'var(--color-gray-900)' },
+  body: { color: 'var(--color-gray-700)' },
+  muted: { color: 'var(--color-gray-600)' },
 } as const
 
 export default function WorkedProcessExample({

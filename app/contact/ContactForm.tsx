@@ -1,9 +1,11 @@
 'use client'
 
 import { FormEvent, useState } from 'react'
-import Button from '@/app/components/Button'
-import Input from '@/app/components/Input'
-import Card from '@/app/components/Card'
+import Button from '@/app/components/ui/Button'
+import Input from '@/app/components/ui/Input'
+import Card from '@/app/components/ui/Card'
+import Textarea from '@/app/components/ui/Textarea'
+import Field from '@/app/components/ui/Field'
 
 type ContactFormProps = {
   initialEmail?: string
@@ -97,21 +99,16 @@ export default function ContactForm({ initialEmail = '' }: ContactFormProps) {
             />
           </div>
 
-          <div>
-            <label htmlFor="message" className="block text-sm font-medium text-gray-800 mb-1">
-              Message
-            </label>
-            <textarea
-              id="message"
-              required
+          <Field id="message" label="Message" required>
+            {(controlProps) => <Textarea
+              {...controlProps}
               maxLength={4000}
               value={message}
               onChange={(event) => setMessage(event.target.value)}
               rows={8}
-              className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-md placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               placeholder="Tell us what you need."
-            />
-          </div>
+            />}
+          </Field>
 
           <div className="absolute left-[-9999px] top-auto w-px h-px overflow-hidden" aria-hidden="true">
             <label htmlFor="company">Company</label>

@@ -1,4 +1,4 @@
-import Card from '@/app/components/Card'
+import Card from '@/app/components/ui/Card'
 import type { CustomerRisk, WorkedExample } from '@/content/seo-pages'
 
 interface WorkedPrioritisationExampleProps {
@@ -31,7 +31,7 @@ export default function WorkedPrioritisationExample({
 
   return (
     <div className="mt-4">
-      <p className="leading-7 text-gray-700" style={{ color: 'var(--gray-700)' }}>
+      <p className="leading-7 text-gray-700" style={{ color: 'var(--color-gray-700)' }}>
         {example.introduction}
       </p>
 
@@ -42,7 +42,7 @@ export default function WorkedPrioritisationExample({
               <div className="flex items-start justify-between gap-3">
                 <h3
                   className="text-base font-semibold leading-6 text-gray-900"
-                  style={{ color: 'var(--gray-900)', fontSize: '1rem', lineHeight: '1.5rem' }}
+                  style={{ color: 'var(--color-gray-900)', fontSize: '1rem', lineHeight: '1.5rem' }}
                 >
                   {customer.name}
                 </h3>
@@ -85,7 +85,7 @@ export default function WorkedPrioritisationExample({
               {customer.founderRiskReason && (
                 <p
                   className="mt-4 border-t border-gray-200 pt-3 text-xs leading-5 text-gray-600"
-                  style={{ color: 'var(--gray-600)' }}
+                  style={{ color: 'var(--color-gray-600)' }}
                 >
                   <span className="font-semibold text-gray-700">Current context:</span>{' '}
                   {customer.founderRiskReason}
@@ -94,7 +94,7 @@ export default function WorkedPrioritisationExample({
 
               <p
                 className="mt-3 text-sm leading-6 text-gray-700"
-                style={{ color: 'var(--gray-700)' }}
+                style={{ color: 'var(--color-gray-700)' }}
               >
                 <span className="font-semibold text-gray-900">Why rank {customer.rank}:</span>{' '}
                 {customer.rankReason}
@@ -104,7 +104,7 @@ export default function WorkedPrioritisationExample({
         ))}
       </ol>
 
-      <p className="mt-5 leading-7 text-gray-700" style={{ color: 'var(--gray-700)' }}>
+      <p className="mt-5 leading-7 text-gray-700" style={{ color: 'var(--color-gray-700)' }}>
         {example.conclusion}
       </p>
     </div>

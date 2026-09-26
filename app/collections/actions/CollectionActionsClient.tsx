@@ -11,8 +11,8 @@ import {
   type TouchEvent,
 } from 'react'
 import { useRouter } from 'next/navigation'
-import Card from '@/app/components/Card'
-import Button from '@/app/components/Button'
+import Card from '@/app/components/ui/Card'
+import Button from '@/app/components/ui/Button'
 import MultiCurrencyPlanGate from '@/app/collections/MultiCurrencyPlanGate'
 import DashboardXeroConnectionCard from '@/app/dashboard/DashboardXeroConnectionCard'
 import FounderContextControl from '@/app/collections/FounderContextControl'

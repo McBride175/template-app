@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import Card from '@/app/components/Card'
+import Card from '@/app/components/ui/Card'
 import type {
   SeoGuideCategory,
   SeoProblemOutcomePage,
@@ -17,12 +17,12 @@ interface ProblemOutcomeGuideProps {
 }
 
 const guideTextColors = {
-  heading: { color: 'var(--gray-900)' },
-  body: { color: 'var(--gray-700)' },
-  muted: { color: 'var(--gray-600)' },
+  heading: { color: 'var(--color-gray-900)' },
+  body: { color: 'var(--color-gray-700)' },
+  muted: { color: 'var(--color-gray-600)' },
   inverseHeading: { color: '#ffffff' },
-  inverseBody: { color: 'var(--gray-300)' },
-  inverseCta: { color: 'var(--gray-900)' },
+  inverseBody: { color: 'var(--color-gray-300)' },
+  inverseCta: { color: 'var(--color-gray-900)' },
 } as const
 
 const defaultHeadings = {

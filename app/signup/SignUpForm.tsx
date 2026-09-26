@@ -6,9 +6,9 @@ import { useRouter } from 'next/navigation'
 import AuthScaffold from '@/app/components/AuthScaffold'
 import AuthLegalNotice from '@/app/components/AuthLegalNotice'
 import AuthSocialButton from '@/app/components/AuthSocialButton'
-import Button from '@/app/components/Button'
+import Button from '@/app/components/ui/Button'
 import GoogleIcon from '@/app/components/GoogleIcon'
-import Input from '@/app/components/Input'
+import Input from '@/app/components/ui/Input'
 import PasswordToggleButton from '@/app/components/PasswordToggleButton'
 import TurnstileCaptcha, {
   type TurnstileCaptchaHandle,

@@ -6,7 +6,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import Button from './Button'
+import Button from './ui/Button'
 
 export default function SubscribeButton() {
   const router = useRouter()

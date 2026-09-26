@@ -3,9 +3,9 @@
 import Link from 'next/link'
 import { useRef, useState, type FormEvent } from 'react'
 import AuthSocialButton from '@/app/components/AuthSocialButton'
-import Button from '@/app/components/Button'
+import Button from '@/app/components/ui/Button'
 import GoogleIcon from '@/app/components/GoogleIcon'
-import Input from '@/app/components/Input'
+import Input from '@/app/components/ui/Input'
 import TurnstileCaptcha, {
   type TurnstileCaptchaHandle,
 } from '@/app/components/TurnstileCaptcha'

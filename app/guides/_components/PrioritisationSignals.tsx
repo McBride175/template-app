@@ -18,13 +18,13 @@ export default function PrioritisationSignals({
           <li key={signal.key} className="rounded-xl border border-gray-200 bg-white p-4">
             <h3
               className="text-sm font-semibold text-gray-900"
-              style={{ color: 'var(--gray-900)', fontSize: '0.875rem', lineHeight: '1.5rem' }}
+              style={{ color: 'var(--color-gray-900)', fontSize: '0.875rem', lineHeight: '1.5rem' }}
             >
               {signal.label}
             </h3>
             <p
               className="mt-1 text-sm leading-6 text-gray-600"
-              style={{ color: 'var(--gray-600)' }}
+              style={{ color: 'var(--color-gray-600)' }}
             >
               {signal.explanation}
             </p>
@@ -35,7 +35,7 @@ export default function PrioritisationSignals({
       <div className="rounded-xl bg-gray-100 p-5">
         <p
           className="text-sm font-semibold text-gray-900"
-          style={{ color: 'var(--gray-900)' }}
+          style={{ color: 'var(--color-gray-900)' }}
         >
           {decisionRulesHeading}
         </p>

@@ -1,4 +1,4 @@
-import Card from '@/app/components/Card'
+import Card from '@/app/components/ui/Card'
 import { buildXeroConnectPath } from '@/lib/xero/oauth-return'
 
 interface DashboardXeroConnectionCardProps {

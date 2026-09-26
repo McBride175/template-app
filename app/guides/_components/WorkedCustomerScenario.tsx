@@ -1,4 +1,4 @@
-import Card from '@/app/components/Card'
+import Card from '@/app/components/ui/Card'
 import type { WorkedCustomerScenario as WorkedCustomerScenarioContent } from '@/content/seo-pages'
 
 interface WorkedCustomerScenarioProps {
@@ -12,7 +12,7 @@ export default function WorkedCustomerScenario({
     <Card className="mt-5 rounded-xl p-6 sm:p-8">
       <h3
         className="text-lg font-semibold text-gray-900"
-        style={{ color: 'var(--gray-900)' }}
+        style={{ color: 'var(--color-gray-900)' }}
       >
         {scenario.customer}
       </h3>

@@ -2,8 +2,8 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Card from '@/app/components/Card'
-import Button from '@/app/components/Button'
+import Card from '@/app/components/ui/Card'
+import Button from '@/app/components/ui/Button'
 import CustomerInvoiceDisputes from '@/app/collections/customers/CustomerInvoiceDisputes'
 import MultiCurrencyPlanGate from '@/app/collections/MultiCurrencyPlanGate'
 import {

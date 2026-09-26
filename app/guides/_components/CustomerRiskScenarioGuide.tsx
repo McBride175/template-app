@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import Card from '@/app/components/Card'
+import Card from '@/app/components/ui/Card'
 import type {
   SeoCustomerRiskScenarioPage,
   SeoGuideCategory,
@@ -14,12 +14,12 @@ interface CustomerRiskScenarioGuideProps {
 }
 
 const guideTextColors = {
-  heading: { color: 'var(--gray-900)' },
-  body: { color: 'var(--gray-700)' },
-  muted: { color: 'var(--gray-600)' },
+  heading: { color: 'var(--color-gray-900)' },
+  body: { color: 'var(--color-gray-700)' },
+  muted: { color: 'var(--color-gray-600)' },
   inverseHeading: { color: '#ffffff' },
-  inverseBody: { color: 'var(--gray-300)' },
-  inverseCta: { color: 'var(--gray-900)' },
+  inverseBody: { color: 'var(--color-gray-300)' },
+  inverseCta: { color: 'var(--color-gray-900)' },
 } as const
 
 const defaultHeadings = {
@@ -96,7 +96,7 @@ export default function CustomerRiskScenarioGuide({
                 <Card className="h-full rounded-xl p-5">
                   <h3
                     className="text-sm font-semibold text-gray-900"
-                    style={{ color: 'var(--gray-900)' }}
+                    style={{ color: 'var(--color-gray-900)' }}
                   >
                     {explanation.possibility}
                   </h3>
@@ -131,7 +131,7 @@ export default function CustomerRiskScenarioGuide({
                 <Card className="rounded-xl p-5">
                   <h3
                     className="text-sm font-semibold text-gray-900"
-                    style={{ color: 'var(--gray-900)' }}
+                    style={{ color: 'var(--color-gray-900)' }}
                   >
                     {factor.label}
                   </h3>

@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import Button from './Button'
+import Button from './ui/Button'
 
 export default function Nav() {
   const pathname = usePathname()

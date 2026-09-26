@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { Session } from '@supabase/supabase-js'
-import Card from '@/app/components/Card'
-import Button from '@/app/components/Button'
+import Card from '@/app/components/ui/Card'
+import Button from '@/app/components/ui/Button'
 import { supabase } from '@/lib/supabase'
 
 type Plan = 'basic' | 'pro'

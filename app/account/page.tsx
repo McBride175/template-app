@@ -3,12 +3,12 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Card from '@/app/components/Card'
+import Card from '@/app/components/ui/Card'
 import ManageSubscriptionButton from '@/app/components/ManageSubscriptionButton'
 import ChangePasswordButton from '@/app/components/ChangePasswordButton'
 import SubscriptionStatus from '@/app/components/SubscriptionStatus'
-import Button from '@/app/components/Button'
-import Input from '@/app/components/Input'
+import Button from '@/app/components/ui/Button'
+import Input from '@/app/components/ui/Input'
 import { supabase } from '@/lib/supabase'
 import { buildLoginPath } from '@/lib/auth-flow'
 import {
@@ -888,9 +888,9 @@ export default function AccountPage() {
                 setDeleteError(null)
                 setDeleteExpanded(true)
               }}
-              variant="primary"
+              variant="destructive"
               size="md"
-              className="self-start bg-red-600 text-white hover:bg-red-700 active:bg-red-800 focus-visible:ring-red-700"
+              className="self-start"
             >
               Delete account and all data
             </Button>
@@ -916,10 +916,9 @@ export default function AccountPage() {
               <div className="flex flex-wrap gap-2">
                 <Button
                   onClick={handleDeleteAccount}
-                  variant="ghost"
+                  variant="destructive"
                   size="md"
                   disabled={deleteInput !== 'DELETE' || deleteLoading}
-                  className="text-red-600 hover:bg-red-50 hover:text-red-700 focus-visible:ring-red-700"
                 >
                   {deleteLoading ? 'Deleting…' : 'Confirm delete'}
                 </Button>

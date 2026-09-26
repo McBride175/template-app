@@ -1,0 +1,156 @@
+/*
+ * Yuohme's CSS-first visual source of truth. All values are replaceable defaults
+ * pending final brand decisions. Edit foundations here; map UI intent below.
+ * Keep domain-state decisions in features. No client theme state is required.
+ */
+:root {
+  /*
+   * Foundations use framework colours as an initial preset, not as brand policy.
+   * Replace any value here with a supplied brand value. Standard Tailwind colour
+   * namespaces remain untouched; semantic consumers use the roles below.
+   */
+  --brand-primary-100: var(--color-blue-100);
+  --brand-primary-600: var(--color-blue-600);
+  --brand-primary-700: var(--color-blue-700);
+  --brand-primary-800: var(--color-blue-800);
+  --brand-primary-900: var(--color-blue-900);
+
+  /* One neutral family for surfaces, text, borders and controls. */
+  --neutral-0: var(--color-white);
+  --neutral-50: var(--color-neutral-50);
+  --neutral-100: var(--color-neutral-100);
+  --neutral-200: var(--color-neutral-200);
+  --neutral-300: var(--color-neutral-300);
+  --neutral-600: var(--color-neutral-600);
+  --neutral-700: var(--color-neutral-700);
+  --neutral-900: var(--color-neutral-900);
+
+  /* Feedback is independent of brand and of feature-level domain states. */
+  --feedback-success-50: var(--color-green-50);
+  --feedback-success-200: var(--color-green-200);
+  --feedback-success-800: var(--color-green-800);
+  --feedback-warning-50: var(--color-amber-50);
+  --feedback-warning-200: var(--color-amber-200);
+  --feedback-warning-800: var(--color-amber-800);
+  --feedback-error-50: var(--color-red-50);
+  --feedback-error-200: var(--color-red-200);
+  --feedback-error-600: var(--color-red-600);
+  --feedback-error-700: var(--color-red-700);
+  --feedback-error-800: var(--color-red-800);
+  --feedback-info-50: var(--color-sky-50);
+  --feedback-info-200: var(--color-sky-200);
+  --feedback-info-800: var(--color-sky-800);
+
+  /* One interface family and one code family; no downloaded or display font. */
+  --font-family-interface: system-ui, sans-serif;
+  --font-family-code: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/*
+ * Foundations already understood by Tailwind use its native namespaces.
+ * Base CSS and existing utilities read this same scale. Unused framework steps,
+ * spacing, breakpoints and layout dimensions remain Tailwind defaults.
+ */
+@theme {
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+  --text-4xl: 2.25rem;
+  --text-5xl: 3rem;
+  --text-6xl: 3.75rem;
+
+  /* Size-paired ratios keep utility line heights proportional to font size. */
+  --text-xs--line-height: calc(1 / 0.75);
+  --text-sm--line-height: calc(1.25 / 0.875);
+  --text-base--line-height: 1.5;
+  --text-lg--line-height: calc(1.75 / 1.125);
+  --text-xl--line-height: calc(1.75 / 1.25);
+  --text-2xl--line-height: calc(2 / 1.5);
+  --text-3xl--line-height: calc(2.25 / 1.875);
+  --text-4xl--line-height: calc(2.5 / 2.25);
+  --text-5xl--line-height: 1;
+  --text-6xl--line-height: 1;
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+  --tracking-tight: -0.025em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.025em;
+  --tracking-wider: 0.05em;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --radius: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.5rem;
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --default-transition-duration: 150ms;
+  --default-transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/*
+ * Semantic roles. Colour utilities spell out their purpose: text-text-primary
+ * is a colour, while text-sm is a size. "on-*" is the paired foreground for an
+ * action/state background (e.g. bg-action-primary text-on-action-primary).
+ * @theme inline makes utilities reference the editable foundations directly.
+ */
+@theme inline {
+  --color-page: var(--neutral-50);
+  --color-surface: var(--neutral-0);
+  --color-surface-subtle: var(--neutral-100);
+  --color-surface-inverse: var(--neutral-900);
+  --color-text-primary: var(--neutral-900);
+  --color-text-secondary: var(--neutral-700);
+  --color-text-muted: var(--neutral-600);
+  --color-text-inverse: var(--neutral-0);
+  --color-border-default: var(--neutral-200);
+  --color-border-strong: var(--neutral-300);
+  --color-link: var(--brand-primary-700);
+  --color-link-hover: var(--brand-primary-800);
+  --color-focus: var(--brand-primary-600);
+  --color-action-primary: var(--brand-primary-600);
+  --color-action-primary-hover: var(--brand-primary-700);
+  --color-action-primary-active: var(--brand-primary-800);
+  --color-on-action-primary: var(--neutral-0);
+  --color-action-secondary: var(--neutral-0);
+  --color-action-secondary-hover: var(--neutral-100);
+  --color-action-secondary-active: var(--neutral-200);
+  --color-on-action-secondary: var(--neutral-900);
+  --color-action-destructive: var(--feedback-error-600);
+  --color-action-destructive-hover: var(--feedback-error-700);
+  --color-action-destructive-active: var(--feedback-error-800);
+  --color-on-action-destructive: var(--neutral-0);
+  --color-feedback-success: var(--feedback-success-800);
+  --color-feedback-success-surface: var(--feedback-success-50);
+  --color-feedback-success-border: var(--feedback-success-200);
+  --color-feedback-warning: var(--feedback-warning-800);
+  --color-feedback-warning-surface: var(--feedback-warning-50);
+  --color-feedback-warning-border: var(--feedback-warning-200);
+  --color-feedback-error: var(--feedback-error-800);
+  --color-feedback-error-surface: var(--feedback-error-50);
+  --color-feedback-error-border: var(--feedback-error-200);
+  --color-feedback-info: var(--feedback-info-800);
+  --color-feedback-info-surface: var(--feedback-info-50);
+  --color-feedback-info-border: var(--feedback-info-200);
+  --color-selected: var(--brand-primary-100);
+  --color-on-selected: var(--brand-primary-900);
+  --color-selection: var(--brand-primary-100);
+  --color-on-selection: var(--brand-primary-900);
+
+  --font-sans: var(--font-family-interface);
+  --font-mono: var(--font-family-code);
+  --radius-control: var(--radius-xl);
+  --radius-surface: var(--radius-md);
+  --radius-surface-large: var(--radius-3xl);
+
+}

@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import Button from '@/app/components/Button'
-import Card from '@/app/components/Card'
+import Button from '@/app/components/ui/Button'
+import Card from '@/app/components/ui/Card'
 import SubscriptionStatus from '@/app/components/SubscriptionStatus'
 import CollectionActionsClient from '@/app/collections/actions/CollectionActionsClient'
 import DashboardXeroConnectionCard from '@/app/dashboard/DashboardXeroConnectionCard'

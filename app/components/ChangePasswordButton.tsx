@@ -1,8 +1,8 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import Button from './Button'
-import Input from './Input'
+import Button from './ui/Button'
+import Input from './ui/Input'
 import PasswordToggleButton from './PasswordToggleButton'
 import TurnstileCaptcha, { type TurnstileCaptchaHandle } from './TurnstileCaptcha'
 import { sendPasswordRecovery } from '@/lib/auth'

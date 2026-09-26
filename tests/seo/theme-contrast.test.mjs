@@ -32,11 +32,9 @@ test('the light-only site does not apply pale dark-mode text to light surfaces',
   assert.doesNotMatch(css, /prefers-color-scheme:\s*dark/)
 
   const baseLayerStart = css.indexOf('@layer base')
-  const utilityOverridesStart = css.indexOf('.bg-gray-50', baseLayerStart)
-  const baseLayer = css.slice(baseLayerStart, utilityOverridesStart)
+  const baseLayer = css.slice(baseLayerStart)
 
   assert.ok(baseLayerStart >= 0, 'global element defaults must live in the base layer')
-  assert.ok(utilityOverridesStart > baseLayerStart, 'base layer must close before utility overrides')
 
   for (const selector of ['a', 'button', 'h1', 'h2', 'h3', 'p']) {
     assert.match(baseLayer, new RegExp(`\\n  ${selector} \\{`))

@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { ReactNode } from 'react'
+import Alert from './ui/Alert'
 
 interface AuthScaffoldProps {
   title: string
@@ -44,18 +45,15 @@ export default function AuthScaffold({
         </header>
 
         {(error || status) && (
-          <div
-            className={`mt-6 rounded-2xl border px-4 py-3 text-sm ${
-              error
-                ? 'border-red-200 bg-red-50 text-red-800'
-                : 'border-green-200 bg-green-50 text-green-800'
-            }`}
+          <Alert
+            variant={error ? 'error' : 'success'}
+            className="mt-6"
             role={error ? 'alert' : 'status'}
             aria-live="polite"
           >
             <p className="text-sm text-inherit">{error ?? status}</p>
             {feedbackActions && <div className="mt-3 flex flex-wrap gap-3">{feedbackActions}</div>}
-          </div>
+          </Alert>
         )}
 
         <div className="mt-8 grid gap-3 sm:grid-cols-2">{socialActions}</div>

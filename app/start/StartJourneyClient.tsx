@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Button from '@/app/components/Button'
+import Button from '@/app/components/ui/Button'
 import {
   fetchXeroConnectionStatus,
   type XeroConnectionStatus,

@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Card from '@/app/components/Card'
+import Card from '@/app/components/ui/Card'
 import { buildLoginPath } from '@/lib/auth-flow'
 import { supabase } from '@/lib/supabase'
 

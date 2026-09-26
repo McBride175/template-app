@@ -109,6 +109,9 @@ test('revision and service-role bulk function commit all rows or roll back every
     ) values (
       '00000000-0000-4000-8000-00000000d011', 'tenant-a', 'xero', 'invoice-a',
       'partial', 2000, 8000, 'Old'
+    ), (
+      '00000000-0000-4000-8000-00000000d011', 'tenant-a', 'xero', 'invoice-c',
+      'partial', 1000, 6000, 'Keep me'
     );
     ${revisionMigration}
     do $$ begin
@@ -150,28 +153,35 @@ test('revision and service-role bulk function commit all rows or roll back every
         perform public.apply_invoice_disputes_bulk_full(
           '00000000-0000-4000-8000-00000000d011', 'tenant-a', 'xero',
           '[{"invoice_source_id":"invoice-a","amount_due_native":8000,"expected_revision":1},
-            {"invoice_source_id":"invoice-b","amount_due_native":5000,"expected_revision":null}]'::jsonb
+            {"invoice_source_id":"invoice-b","amount_due_native":5000,"expected_revision":null},
+            {"invoice_source_id":"invoice-c","amount_due_native":6000,"expected_revision":1}]'::jsonb
         );
       exception when sqlstate 'P0001' then rejected := true;
       end;
       if not rejected then raise exception 'stale bulk row was accepted'; end if;
       if exists (select 1 from public.invoice_disputes where invoice_source_id = 'invoice-b') or
          exists (select 1 from public.invoice_disputes where invoice_source_id = 'invoice-a'
-           and (revision <> 2 or note <> 'New' or dispute_mode <> 'partial')) then
+           and (revision <> 2 or note <> 'New' or dispute_mode <> 'partial')) or
+         exists (select 1 from public.invoice_disputes where invoice_source_id = 'invoice-c'
+           and (revision <> 1 or note <> 'Keep me' or dispute_mode <> 'partial'
+             or recorded_disputed_amount_native <> 1000)) then
         raise exception 'stale bulk call partially wrote rows';
       end if;
       begin
         perform public.apply_invoice_disputes_bulk_full(
           '00000000-0000-4000-8000-00000000d011', 'tenant-a', 'xero',
           '[{"invoice_source_id":"invoice-a","amount_due_native":8000,"expected_revision":2},
-            {"invoice_source_id":"invoice-b","amount_due_native":5000,"expected_revision":null}]'::jsonb
+            {"invoice_source_id":"invoice-b","amount_due_native":5000,"expected_revision":null},
+            {"invoice_source_id":"invoice-c","amount_due_native":6000,"expected_revision":1}]'::jsonb
         );
       exception when sqlstate 'P0002' then rolled_back := true;
       end;
       if not rolled_back then raise exception 'fixture did not reject second bulk write'; end if;
       if exists (select 1 from public.invoice_disputes where invoice_source_id = 'invoice-b') or
          exists (select 1 from public.invoice_disputes where invoice_source_id = 'invoice-a'
-           and revision <> 2) then
+           and revision <> 2) or
+         exists (select 1 from public.invoice_disputes where invoice_source_id = 'invoice-c'
+           and (revision <> 1 or note <> 'Keep me' or dispute_mode <> 'partial')) then
         raise exception 'late bulk failure did not roll back earlier update';
       end if;
     end $$;
@@ -180,7 +190,8 @@ test('revision and service-role bulk function commit all rows or roll back every
     select count(*) from public.apply_invoice_disputes_bulk_full(
       '00000000-0000-4000-8000-00000000d011', 'tenant-a', 'xero',
       '[{"invoice_source_id":"invoice-a","amount_due_native":8000,"expected_revision":2},
-        {"invoice_source_id":"invoice-b","amount_due_native":5000,"expected_revision":null}]'::jsonb
+        {"invoice_source_id":"invoice-b","amount_due_native":5000,"expected_revision":null},
+        {"invoice_source_id":"invoice-c","amount_due_native":6000,"expected_revision":1}]'::jsonb
     );
     reset role;
     do $$
@@ -189,7 +200,10 @@ test('revision and service-role bulk function commit all rows or roll back every
       if exists (select 1 from public.invoice_disputes where invoice_source_id = 'invoice-a'
         and (revision <> 3 or note <> 'New' or dispute_mode <> 'full')) or
          not exists (select 1 from public.invoice_disputes where invoice_source_id = 'invoice-b'
-        and revision = 1 and dispute_mode = 'full') then
+        and revision = 1 and dispute_mode = 'full') or
+         not exists (select 1 from public.invoice_disputes where invoice_source_id = 'invoice-c'
+        and revision = 2 and dispute_mode = 'full' and note = 'Keep me'
+        and recorded_disputed_amount_native = 6000) then
         raise exception 'valid bulk call did not atomically update and insert';
       end if;
       update public.invoice_disputes set is_active = false, resolved_at = now()

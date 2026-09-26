@@ -119,6 +119,9 @@ data is reloaded after mutation; a saved-but-unrefreshed state is retained above
 the customer list and hides stale mutation controls. No score is calculated in the browser. The
 priority queue links to customer invoice context. No customer-wide dispute
 record is created by this flow.
+The shared editor also reloads canonical data after a rejected stale accounting
+amount, non-open invoice, or unavailable invoice; it closes the rejected form
+without replaying its input or reporting a successful save.
 
 `/disputes` is an authenticated, non-indexable invoice dispute worklist. Its
 dedicated read endpoint holds one authoritative snapshot, loads tenant-owned

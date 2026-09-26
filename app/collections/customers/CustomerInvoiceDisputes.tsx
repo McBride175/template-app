@@ -130,8 +130,11 @@ export function InvoiceDisputeList({
         body: JSON.stringify({ operation, tenantId, ...fields }),
       })
       const body = await response.json().catch(() => null) as ApiResponse | null
-      if (response.status === 409 && body?.code === 'conflict') {
-        const message = body.error || 'This dispute changed. Review the latest version before saving.'
+      const changedAccounting = response.status === 409 &&
+        (body?.code === 'invalid_amount' || body?.code === 'invalid_invoice')
+      const missingInvoice = response.status === 404 && body?.code === 'not_found'
+      if ((response.status === 409 && body?.code === 'conflict') || changedAccounting || missingInvoice) {
+        const message = body?.error || 'This dispute or invoice changed. Review the latest version before saving.'
         onMutationPending(message)
         setEditingId(null)
         setNoteEditingId(null)

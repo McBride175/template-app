@@ -142,6 +142,49 @@ test('a revision conflict reloads current state without replaying the stale edit
   }
 })
 
+test('stale accounting rejection reloads the current balance without claiming a save or replaying input', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    for (const [status, code] of [[409, 'invalid_amount'], [409, 'invalid_invoice'], [404, 'not_found']]) {
+      const h = harness()
+      let posts = 0
+      let reloads = 0
+      const outcomes = []
+      globalThis.fetch = async (_url, options) => {
+        posts += 1
+        if (code === 'invalid_amount') {
+          assert.equal(JSON.parse(options.body).operation, 'partial')
+          assert.equal(JSON.parse(options.body).disputedAmountNative, '4000')
+        }
+        return { ok: false, status, json: async () => ({ code,
+          error: 'Accounting data changed. Refresh and check the current invoice balance.' }) }
+      }
+      const { InvoiceDisputeList: Component } = loadTypeScriptModule('app/collections/customers/CustomerInvoiceDisputes.tsx', {
+        mocks: { react: h.react, 'react/jsx-runtime': h.jsxRuntime },
+      })
+      const props = { tenantId: 'tenant-a', customerSourceId: 'customer-a', customerName: 'Customer A',
+        invoices: [invoice], reload: async () => { reloads += 1; return true }, onChanged: async () => true,
+        onMutationStarted() {}, onMutationPending() {},
+        onMutationResult: (refreshed, message) => outcomes.push([refreshed, message]) }
+      button(h.render(Component, props), 'Mark disputed').props.onClick()
+      if (code === 'invalid_amount') {
+        const form = h.render(Component, props)
+        nodes(form, (node) => node.type === 'input' && node.props.type === 'radio')[1].props.onChange()
+        nodes(h.render(Component, props), (node) => node.type === 'input' && node.props.inputMode === 'decimal')[0]
+          .props.onChange({ target: { value: '4000' } })
+      }
+      button(h.render(Component, props), 'Save dispute').props.onClick()
+      for (let attempt = 0; attempt < 10 && !outcomes.length; attempt++) await new Promise(setImmediate)
+      assert.equal(posts, 1)
+      assert.equal(reloads, 1, `${code} must refresh stale accounting state`)
+      assert.equal(outcomes[0][0], true)
+      assert.doesNotMatch(outcomes[0][1], /saved/i)
+      assert.match(outcomes[0][1], /current invoice balance/i)
+      assert.equal(h.states[2], null)
+    }
+  } finally { globalThis.fetch = originalFetch }
+})
+
 test('customer parent keeps save outcome visible while stale balances and actions are hidden', () => {
   const h = harness()
   const InvoiceControl = () => null

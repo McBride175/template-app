@@ -1,0 +1,390 @@
+{
+  "baselineCommit": "b63de215141318f07ca30912500920b0c38d2318",
+  "description": "Synthetic portfolio output captured from the pre-dispute-scoring customer summary and routes; only original contract fields, no calendar dates.",
+  "expected": {
+    "customers": [
+      {
+        "customer_source_id": "acme",
+        "total_outstanding_base_decimal": "12000",
+        "overdue_outstanding_base_decimal": "12000",
+        "total_outstanding_base": 12000,
+        "overdue_outstanding_base": 12000,
+        "total_outstanding": 12000,
+        "overdue_outstanding": 12000,
+        "open_invoices_count": 2,
+        "overdue_invoices_count": 2,
+        "weighted_avg_overdue_days": 60,
+        "relative_lateness_days": 40,
+        "last_payment_days_ago": 7,
+        "native_currency_breakdown": [
+          {
+            "currency_code": "GBP",
+            "total_outstanding_native": "12000",
+            "overdue_outstanding_native": "12000"
+          }
+        ],
+        "override_level": "normal",
+        "total_invoices_count": 2,
+        "oldest_overdue_days": 70,
+        "historical_paid_invoice_count": 3,
+        "historical_mean_days_late": 20,
+        "historical_normal_days_late": 20,
+        "has_recent_partial_payment": true
+      },
+      {
+        "customer_source_id": "delta",
+        "total_outstanding_base_decimal": "5000",
+        "overdue_outstanding_base_decimal": "5000",
+        "total_outstanding_base": 5000,
+        "overdue_outstanding_base": 5000,
+        "total_outstanding": 5000,
+        "overdue_outstanding": 5000,
+        "open_invoices_count": 1,
+        "overdue_invoices_count": 1,
+        "weighted_avg_overdue_days": 90,
+        "relative_lateness_days": null,
+        "last_payment_days_ago": null,
+        "native_currency_breakdown": [
+          {
+            "currency_code": "GBP",
+            "total_outstanding_native": "5000",
+            "overdue_outstanding_native": "5000"
+          }
+        ],
+        "override_level": "do_not_chase",
+        "total_invoices_count": 1,
+        "oldest_overdue_days": 90,
+        "historical_paid_invoice_count": 0,
+        "historical_mean_days_late": null,
+        "historical_normal_days_late": null,
+        "has_recent_partial_payment": false
+      },
+      {
+        "customer_source_id": "baker",
+        "total_outstanding_base_decimal": "4000",
+        "overdue_outstanding_base_decimal": "4000",
+        "total_outstanding_base": 4000,
+        "overdue_outstanding_base": 4000,
+        "total_outstanding": 4000,
+        "overdue_outstanding": 4000,
+        "open_invoices_count": 1,
+        "overdue_invoices_count": 1,
+        "weighted_avg_overdue_days": 45,
+        "relative_lateness_days": null,
+        "last_payment_days_ago": null,
+        "native_currency_breakdown": [
+          {
+            "currency_code": "USD",
+            "total_outstanding_native": "20000",
+            "overdue_outstanding_native": "20000"
+          }
+        ],
+        "override_level": "priority",
+        "total_invoices_count": 1,
+        "oldest_overdue_days": 45,
+        "historical_paid_invoice_count": 0,
+        "historical_mean_days_late": null,
+        "historical_normal_days_late": null,
+        "has_recent_partial_payment": false
+      },
+      {
+        "customer_source_id": "cedar",
+        "total_outstanding_base_decimal": "3000",
+        "overdue_outstanding_base_decimal": "3000",
+        "total_outstanding_base": 3000,
+        "overdue_outstanding_base": 3000,
+        "total_outstanding": 3000,
+        "overdue_outstanding": 3000,
+        "open_invoices_count": 1,
+        "overdue_invoices_count": 1,
+        "weighted_avg_overdue_days": 20,
+        "relative_lateness_days": null,
+        "last_payment_days_ago": null,
+        "native_currency_breakdown": [
+          {
+            "currency_code": "GBP",
+            "total_outstanding_native": "3000",
+            "overdue_outstanding_native": "3000"
+          }
+        ],
+        "override_level": "safe",
+        "total_invoices_count": 1,
+        "oldest_overdue_days": 20,
+        "historical_paid_invoice_count": 0,
+        "historical_mean_days_late": null,
+        "historical_normal_days_late": null,
+        "has_recent_partial_payment": false
+      }
+    ],
+    "queue": [
+      {
+        "customer_source_id": "acme",
+        "total_outstanding_base_decimal": "12000",
+        "overdue_outstanding_base_decimal": "12000",
+        "total_outstanding_base": 12000,
+        "overdue_outstanding_base": 12000,
+        "total_outstanding": 12000,
+        "overdue_outstanding": 12000,
+        "open_invoices_count": 2,
+        "overdue_invoices_count": 2,
+        "weighted_avg_overdue_days": 60,
+        "relative_lateness_days": 40,
+        "last_payment_days_ago": 7,
+        "native_currency_breakdown": [
+          {
+            "currency_code": "GBP",
+            "total_outstanding_native": "12000",
+            "overdue_outstanding_native": "12000"
+          }
+        ],
+        "override_level": "normal",
+        "exposure_score": 100,
+        "exposure_share_percent": 50,
+        "exposure_relative_to_largest_percent": 100,
+        "urgency_score": 57,
+        "relative_lateness_score": 100,
+        "payment_recency_score": 10,
+        "override_multiplier": 1,
+        "base_score": 80.3,
+        "final_score": 80.3,
+        "priority_score": 80.3,
+        "recommended_action": "Review now",
+        "reason": "Ranked for review now because this customer has £12,000 overdue, equal to 100.0% of the largest eligible overdue balance (50.0% of total overdue AR) and the current overdue position is 40 days later than this customer's recent normal payment timing.",
+        "score_breakdown_lines": [
+          "Exposure inputs: customer overdue AR = 12000.00; total overdue AR = 24000.00; share of total = 50.0%; largest customer overdue AR = 12000.00",
+          "Exposure: (12000.00 / 12000.00 = 100.0%) -> 100.0/100 × 0.50 = 50.0",
+          "Urgency inputs: customer weighted avg overdue days = 60.0; portfolio weighted avg overdue days = 58.8; portfolio max weighted avg overdue days = 90.0",
+          "Urgency: (52 + invoice bonus 5 = 57)/100 × 0.25 = 14.3",
+          "Customer-relative deterioration input: 40.0 days versus recent normal",
+          "Customer-relative deterioration: 100.0/100 × 0.15 = 15.0",
+          "Payment recency input: last payment = 7 days ago",
+          "Payment recency: 10/100 × 0.10 = 1.0",
+          "Total: 50.0 + 14.3 + 15.0 + 1.0 = 80.3 (rounded to 1 dp: 80.3)",
+          "Override: Normal",
+          "Multiplier: x1.00",
+          "Base score: 80.3",
+          "Final score: 80.3"
+        ],
+        "first_value_reasons": [
+          {
+            "kind": "exposure",
+            "text": "£12,000 overdue — the largest eligible overdue balance in the current queue."
+          },
+          {
+            "kind": "deterioration",
+            "text": "The current overdue position is 40 days later than this customer’s recent normal payment timing."
+          }
+        ]
+      },
+      {
+        "customer_source_id": "baker",
+        "total_outstanding_base_decimal": "4000",
+        "overdue_outstanding_base_decimal": "4000",
+        "total_outstanding_base": 4000,
+        "overdue_outstanding_base": 4000,
+        "total_outstanding": 4000,
+        "overdue_outstanding": 4000,
+        "open_invoices_count": 1,
+        "overdue_invoices_count": 1,
+        "weighted_avg_overdue_days": 45,
+        "relative_lateness_days": null,
+        "last_payment_days_ago": null,
+        "native_currency_breakdown": [
+          {
+            "currency_code": "USD",
+            "total_outstanding_native": "20000",
+            "overdue_outstanding_native": "20000"
+          }
+        ],
+        "override_level": "priority",
+        "exposure_score": 33.33333333333333,
+        "exposure_share_percent": 16.666666666666664,
+        "exposure_relative_to_largest_percent": 33.33333333333333,
+        "urgency_score": 38.297872340425535,
+        "relative_lateness_score": 0,
+        "payment_recency_score": 100,
+        "override_multiplier": 1.6,
+        "base_score": 36.2,
+        "final_score": 57.9,
+        "priority_score": 57.9,
+        "recommended_action": "Follow up",
+        "reason": "Ranked for prompt follow-up because this customer has £4,000 overdue, equal to 33.3% of the largest eligible overdue balance (16.7% of total overdue AR) and no payment history is available, so payment recency adds maximum priority. Your Priority adjustment then increases the accounting score.",
+        "score_breakdown_lines": [
+          "Exposure inputs: customer overdue AR = 4000.00; total overdue AR = 24000.00; share of total = 16.7%; largest customer overdue AR = 12000.00",
+          "Exposure: (4000.00 / 12000.00 = 33.3%) -> 33.3/100 × 0.50 = 16.7",
+          "Urgency inputs: customer weighted avg overdue days = 45.0; portfolio weighted avg overdue days = 58.8; portfolio max weighted avg overdue days = 90.0",
+          "Urgency: (38 + invoice bonus 0 = 38)/100 × 0.25 = 9.6",
+          "Customer-relative deterioration input: not enough recent payment history to assess deterioration",
+          "Customer-relative deterioration: 0.0/100 × 0.15 = 0.0",
+          "Payment recency input: last payment = no payment history",
+          "Payment recency: 100/100 × 0.10 = 10.0",
+          "Total: 16.7 + 9.6 + 0.0 + 10.0 = 36.2 (rounded to 1 dp: 36.2)",
+          "Override: Priority",
+          "Multiplier: x1.60",
+          "Base score: 36.2",
+          "Final score: 57.9"
+        ],
+        "first_value_reasons": [
+          {
+            "kind": "exposure",
+            "text": "£4,000 overdue — 17% of the eligible overdue balance."
+          },
+          {
+            "kind": "payment_recency",
+            "text": "No payment history is recorded for this customer."
+          },
+          {
+            "kind": "operator_adjustment",
+            "text": "Your Priority adjustment increases this customer’s accounting-data score."
+          }
+        ]
+      },
+      {
+        "customer_source_id": "cedar",
+        "total_outstanding_base_decimal": "3000",
+        "overdue_outstanding_base_decimal": "3000",
+        "total_outstanding_base": 3000,
+        "overdue_outstanding_base": 3000,
+        "total_outstanding": 3000,
+        "overdue_outstanding": 3000,
+        "open_invoices_count": 1,
+        "overdue_invoices_count": 1,
+        "weighted_avg_overdue_days": 20,
+        "relative_lateness_days": null,
+        "last_payment_days_ago": null,
+        "native_currency_breakdown": [
+          {
+            "currency_code": "GBP",
+            "total_outstanding_native": "3000",
+            "overdue_outstanding_native": "3000"
+          }
+        ],
+        "override_level": "safe",
+        "exposure_score": 25,
+        "exposure_share_percent": 12.5,
+        "exposure_relative_to_largest_percent": 25,
+        "urgency_score": 17.02127659574468,
+        "relative_lateness_score": 0,
+        "payment_recency_score": 100,
+        "override_multiplier": 0.4,
+        "base_score": 26.8,
+        "final_score": 10.7,
+        "priority_score": 10.7,
+        "recommended_action": "Monitor",
+        "reason": "Ranked for monitoring because this customer has £3,000 overdue, equal to 25.0% of the largest eligible overdue balance (12.5% of total overdue AR) and no payment history is available, so payment recency adds maximum priority. Your Safe adjustment then reduces the accounting score.",
+        "score_breakdown_lines": [
+          "Exposure inputs: customer overdue AR = 3000.00; total overdue AR = 24000.00; share of total = 12.5%; largest customer overdue AR = 12000.00",
+          "Exposure: (3000.00 / 12000.00 = 25.0%) -> 25.0/100 × 0.50 = 12.5",
+          "Urgency inputs: customer weighted avg overdue days = 20.0; portfolio weighted avg overdue days = 58.8; portfolio max weighted avg overdue days = 90.0",
+          "Urgency: (17 + invoice bonus 0 = 17)/100 × 0.25 = 4.3",
+          "Customer-relative deterioration input: not enough recent payment history to assess deterioration",
+          "Customer-relative deterioration: 0.0/100 × 0.15 = 0.0",
+          "Payment recency input: last payment = no payment history",
+          "Payment recency: 100/100 × 0.10 = 10.0",
+          "Total: 12.5 + 4.3 + 0.0 + 10.0 = 26.8 (rounded to 1 dp: 26.8)",
+          "Override: Safe",
+          "Multiplier: x0.40",
+          "Base score: 26.8",
+          "Final score: 10.7"
+        ],
+        "first_value_reasons": [
+          {
+            "kind": "exposure",
+            "text": "£3,000 overdue — 13% of the eligible overdue balance."
+          },
+          {
+            "kind": "payment_recency",
+            "text": "No payment history is recorded for this customer."
+          },
+          {
+            "kind": "operator_adjustment",
+            "text": "Your Safe adjustment reduces this customer’s accounting-data score."
+          }
+        ]
+      },
+      {
+        "customer_source_id": "delta",
+        "total_outstanding_base_decimal": "5000",
+        "overdue_outstanding_base_decimal": "5000",
+        "total_outstanding_base": 5000,
+        "overdue_outstanding_base": 5000,
+        "total_outstanding": 5000,
+        "overdue_outstanding": 5000,
+        "open_invoices_count": 1,
+        "overdue_invoices_count": 1,
+        "weighted_avg_overdue_days": 90,
+        "relative_lateness_days": null,
+        "last_payment_days_ago": null,
+        "native_currency_breakdown": [
+          {
+            "currency_code": "GBP",
+            "total_outstanding_native": "5000",
+            "overdue_outstanding_native": "5000"
+          }
+        ],
+        "override_level": "do_not_chase",
+        "exposure_score": 41.66666666666667,
+        "exposure_share_percent": 20.833333333333336,
+        "exposure_relative_to_largest_percent": 41.66666666666667,
+        "urgency_score": 100,
+        "relative_lateness_score": 0,
+        "payment_recency_score": 100,
+        "override_multiplier": 0,
+        "base_score": 55.8,
+        "final_score": 0,
+        "priority_score": 0,
+        "recommended_action": "No action",
+        "reason": "No chase is suggested because you set this customer to Do not chase. The accounting signals remain visible in the score breakdown, but the adjustment sets the final score to 0.",
+        "score_breakdown_lines": [
+          "Exposure inputs: customer overdue AR = 5000.00; total overdue AR = 24000.00; share of total = 20.8%; largest customer overdue AR = 12000.00",
+          "Exposure: (5000.00 / 12000.00 = 41.7%) -> 41.7/100 × 0.50 = 20.8",
+          "Urgency inputs: customer weighted avg overdue days = 90.0; portfolio weighted avg overdue days = 58.8; portfolio max weighted avg overdue days = 90.0",
+          "Urgency: (100 + invoice bonus 0 = 100)/100 × 0.25 = 25.0",
+          "Customer-relative deterioration input: not enough recent payment history to assess deterioration",
+          "Customer-relative deterioration: 0.0/100 × 0.15 = 0.0",
+          "Payment recency input: last payment = no payment history",
+          "Payment recency: 100/100 × 0.10 = 10.0",
+          "Total: 20.8 + 25.0 + 0.0 + 10.0 = 55.8 (rounded to 1 dp: 55.8)",
+          "Override: Do not chase",
+          "Multiplier: x0.00",
+          "Base score: 55.8",
+          "Final score: 0.0"
+        ],
+        "first_value_reasons": [
+          {
+            "kind": "urgency",
+            "text": "90 days overdue on average, allowing for the amount on each of 1 invoice."
+          },
+          {
+            "kind": "exposure",
+            "text": "£5,000 overdue — 21% of the eligible overdue balance."
+          }
+        ]
+      }
+    ],
+    "portfolio": {
+      "totalOverdueBase": 24000,
+      "totalOverdueBaseDecimal": "24000",
+      "analysedOverdueBase": 24000,
+      "analysedOverdueBaseDecimal": "24000",
+      "analysedOverdueCustomerCount": 4,
+      "largestCustomerOverdueBase": 12000,
+      "largestCustomerOverdueBaseDecimal": "12000",
+      "weightedAverageOverdueDays": 58.75,
+      "rankingStatus": "complete"
+    },
+    "currencyContext": {
+      "mode": "multi_currency",
+      "invoicedCurrencies": [
+        "GBP",
+        "USD"
+      ],
+      "relevantInvoiceCount": 5
+    },
+    "firstValueCustomerIds": [
+      "acme",
+      "baker",
+      "cedar"
+    ]
+  }
+}

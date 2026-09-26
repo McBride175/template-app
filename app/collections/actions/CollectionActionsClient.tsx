@@ -34,12 +34,17 @@ interface CollectionActionRow {
   customer_source_id: string
   customer_name: string
   customer_email: string | null
-  overdue_outstanding_base_decimal: string
-  total_outstanding_base_decimal: string
-  overdue_outstanding_base: number
-  total_outstanding_base: number
+  overdue_outstanding_base_decimal: string | null
+  total_outstanding_base_decimal: string | null
+  overdue_outstanding_base: number | null
+  total_outstanding_base: number | null
+  collectible_overdue_base: number
+  collectible_outstanding_base: number
+  effective_disputed_overdue_base_decimal: string | null
   overdue_invoices_count: number
   open_invoices_count: number
+  actionable_overdue_invoices_count: number
+  actionable_open_invoices_count: number
   weighted_avg_overdue_days: number
   relative_lateness_days: number | null
   relative_lateness_score: number
@@ -60,6 +65,11 @@ interface CollectionActionRow {
     currency_code: string
     total_outstanding_native: string
     overdue_outstanding_native: string
+  }>
+  collectible_native_currency_breakdown: Array<{
+    currency_code: string
+    collectible_outstanding_native: string
+    collectible_overdue_native: string
   }>
   last_action_type: 'called' | 'emailed' | 'postponed' | null
   last_action_outcome: 'no_response' | 'spoke_to_customer' | 'promised_to_pay' | 'disputed' | null
@@ -268,20 +278,22 @@ function formatInvoicedAmount(amount: string, currencyCode: string) {
   return `${formatMoney(numericAmount, currencyCode)} ${currencyCode}`
 }
 
-function formatInvoicedBreakdown(
-  breakdown: CollectionActionRow['native_currency_breakdown'],
-  amountField: 'total_outstanding_native' | 'overdue_outstanding_native'
+function formatInvoicedBreakdown<T extends { currency_code: string }>(
+  breakdown: T[],
+  amountField: keyof T
 ) {
   return breakdown
     .filter((entry) => Number(entry[amountField]) > 0)
-    .map((entry) => formatInvoicedAmount(entry[amountField], entry.currency_code))
+    .map((entry) => formatInvoicedAmount(String(entry[amountField]), entry.currency_code))
     .join(' · ')
 }
 
 function ReviewRequiredCustomers({
   customers,
+  customerHref,
 }: {
   customers: CurrencyReviewRequiredCustomer[]
+  customerHref: (customerSourceId: string) => string
 }) {
   if (customers.length === 0) return null
 
@@ -318,6 +330,10 @@ function ReviewRequiredCustomers({
                     .join(' · ')}
                 </p>
               )}
+              <Link href={customerHref(customer.customer_source_id)}
+                className="mt-2 inline-block text-xs font-medium text-gray-700 underline underline-offset-2">
+                Manage invoices
+              </Link>
               {Object.keys(customer.failure_reasons).length > 0 && (
                 <p className="mt-1 text-xs text-gray-500">
                   Reasons:{' '}
@@ -675,7 +691,7 @@ export default function CollectionActionsClient({
         const nextRows = payload.rows ?? []
         const visibleRows = effectiveOverdueOnly
           ? nextRows.filter(
-              (row) => row.overdue_invoices_count > 0 || row.overdue_outstanding_base > 0
+              (row) => row.actionable_overdue_invoices_count > 0 || row.collectible_overdue_base > 0
             )
           : nextRows
         const nextActionsTakenByCustomerId = payload.actionsTakenByCustomerId ?? {}
@@ -1309,6 +1325,8 @@ export default function CollectionActionsClient({
   const customersHref = tenantId
     ? `/customers?tenantId=${encodeURIComponent(tenantId)}`
     : '/customers'
+  const customerInvoicesHref = (customerSourceId: string) =>
+    `${customersHref}${tenantId ? '&' : '?'}customerSourceId=${encodeURIComponent(customerSourceId)}`
   const founderContextHref = `${customersHref}#customer-context`
   const accountHref = tenantId
     ? `/account?tenantId=${encodeURIComponent(tenantId)}`
@@ -1441,7 +1459,7 @@ export default function CollectionActionsClient({
       )}
 
       {!usageLimitReached && !multiCurrencyPlanRequired && !loading && (
-        <ReviewRequiredCustomers customers={reviewRequiredCustomers} />
+        <ReviewRequiredCustomers customers={reviewRequiredCustomers} customerHref={customerInvoicesHref} />
       )}
 
       {showQueueSection && !usageLimitReached && !multiCurrencyPlanRequired && (
@@ -1668,23 +1686,34 @@ export default function CollectionActionsClient({
                     <p>
                       <span className="font-medium text-gray-900">
                         {formatMoney(
-                          currentQueueRow.overdue_outstanding_base,
+                          currentQueueRow.collectible_overdue_base,
                           organisationBaseCurrency
                         )}
                       </span>{' '}
-                      {showMultiCurrencyAmounts ? 'equivalent overdue' : 'overdue'}
+                      {showMultiCurrencyAmounts ? 'equivalent to collect' : 'to collect'}
                     </p>
+                    {currentQueueRow.overdue_outstanding_base !== null &&
+                      currentQueueRow.effective_disputed_overdue_base_decimal !== null &&
+                      Number(currentQueueRow.effective_disputed_overdue_base_decimal) > 0 && (
+                        <p className="mt-0.5 text-xs text-gray-500">
+                          {formatMoney(currentQueueRow.overdue_outstanding_base, organisationBaseCurrency)} gross overdue
+                        </p>
+                      )}
+                    <Link href={customerInvoicesHref(currentQueueRow.customer_source_id)}
+                      className="mt-1 inline-block text-xs font-medium text-gray-700 underline underline-offset-2">
+                      Manage invoices and disputes
+                    </Link>
                     {showMultiCurrencyAmounts &&
                       formatInvoicedBreakdown(
-                        currentQueueRow.native_currency_breakdown,
-                        'overdue_outstanding_native'
+                        currentQueueRow.collectible_native_currency_breakdown,
+                        'collectible_overdue_native'
                       ) && (
                         <p className="mt-0.5 text-xs text-gray-500">
                           {formatInvoicedBreakdown(
-                            currentQueueRow.native_currency_breakdown,
-                            'overdue_outstanding_native'
+                            currentQueueRow.collectible_native_currency_breakdown,
+                            'collectible_overdue_native'
                           )}{' '}
-                          invoiced
+                          collectible in invoice currency
                         </p>
                       )}
                   </div>
@@ -1942,8 +1971,8 @@ export default function CollectionActionsClient({
             <thead className="bg-gray-50 text-left text-gray-700">
               <tr>
                 <th className="px-4 py-3 font-medium">Customer name</th>
-                <th className="px-4 py-3 font-medium">Overdue outstanding</th>
-                <th className="px-4 py-3 font-medium">Overdue invoices</th>
+                <th className="px-4 py-3 font-medium">Overdue to collect</th>
+                <th className="px-4 py-3 font-medium">Actionable overdue invoices</th>
                 <th className="px-4 py-3 font-medium">Weighted avg days late</th>
                 <th className="px-4 py-3 font-medium">Last payment date</th>
                 <th className="px-4 py-3 font-medium">Priority score</th>
@@ -1959,27 +1988,31 @@ export default function CollectionActionsClient({
                     <td className="px-4 py-3">
                       <p className="font-medium text-gray-900">{row.customer_name}</p>
                       <p className="text-xs text-gray-600">{row.customer_email || '—'}</p>
+                      <Link href={customerInvoicesHref(row.customer_source_id)}
+                        className="mt-1 inline-block text-xs font-medium text-gray-700 underline underline-offset-2">
+                        Manage invoices
+                      </Link>
                     </td>
                     <td className="px-4 py-3">
                       <p>
-                        {formatMoney(row.overdue_outstanding_base, organisationBaseCurrency)}
+                        {formatMoney(row.collectible_overdue_base, organisationBaseCurrency)}
                         {showMultiCurrencyAmounts ? ' equivalent' : ''}
                       </p>
                       {showMultiCurrencyAmounts &&
                         formatInvoicedBreakdown(
-                          row.native_currency_breakdown,
-                          'overdue_outstanding_native'
+                          row.collectible_native_currency_breakdown,
+                          'collectible_overdue_native'
                         ) && (
                           <p className="mt-0.5 text-xs text-gray-500">
                             {formatInvoicedBreakdown(
-                              row.native_currency_breakdown,
-                              'overdue_outstanding_native'
+                              row.collectible_native_currency_breakdown,
+                              'collectible_overdue_native'
                             )}{' '}
-                            invoiced
+                            collectible in invoice currency
                           </p>
                         )}
                     </td>
-                    <td className="px-4 py-3">{row.overdue_invoices_count}</td>
+                    <td className="px-4 py-3">{row.actionable_overdue_invoices_count}</td>
                     <td className="px-4 py-3">{formatWeightedDays(row.weighted_avg_overdue_days)}</td>
                     <td className="px-4 py-3">{formatDate(row.last_payment_date)}</td>
                     <td className="px-4 py-3">{row.priority_score.toFixed(1)}</td>

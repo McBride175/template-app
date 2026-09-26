@@ -82,7 +82,10 @@ function compareNullableString(a: string | null, b: string | null, sortDir: Sort
   return sortDir === 'asc' ? compared : -compared
 }
 
-function compareBaseDecimal(a: string, b: string, sortDir: SortDir) {
+function compareBaseDecimal(a: string | null, b: string | null, sortDir: SortDir) {
+  // An unavailable gross balance is never a zero balance or a known subtotal.
+  if (a === null) return b === null ? 0 : 1
+  if (b === null) return -1
   const compared = compareDecimalValues(a, b) ?? 0
   return sortDir === 'asc' ? compared : -compared
 }
@@ -132,6 +135,7 @@ export async function GET(request: NextRequest) {
     const sortBy = parseSortBy(searchParams.get('sortBy'))
     const sortDir = parseSortDir(searchParams.get('sortDir'))
     const requestedTenantId = parseTenantId(searchParams.get('tenantId'))
+    const requestedCustomerSourceId = parseTenantId(searchParams.get('customerSourceId'))
     const entitlement = await claimActionsEntitlementStatus({
       userId: user.id,
       preferredTenantId: requestedTenantId,
@@ -218,11 +222,22 @@ export async function GET(request: NextRequest) {
       ])
     )
 
+    // This customer accounting list retains its gross overdue filter. The
+    // actions queue separately filters for collectible overdue debt.
     const filteredRows = overdueOnly
       ? rows.filter((row) => row.overdue_invoices_count > 0)
       : rows
 
     sortRows(filteredRows, sortBy, sortDir)
+
+    // A recommendation can link to a customer beyond the first list page.
+    // Include that owned customer from the same authoritative summary.
+    const pageRows = filteredRows.slice(0, limit)
+    if (requestedCustomerSourceId &&
+      !pageRows.some((row) => row.customer_source_id === requestedCustomerSourceId)) {
+      const requestedRow = filteredRows.find((row) => row.customer_source_id === requestedCustomerSourceId)
+      if (requestedRow) pageRows.push(requestedRow)
+    }
 
     return NextResponse.json({
       ok: true,
@@ -233,7 +248,7 @@ export async function GET(request: NextRequest) {
       currencyHealth,
       reviewRequiredCustomers,
       snapshot,
-      rows: filteredRows.slice(0, limit).map((row) => ({
+      rows: pageRows.map((row) => ({
         ...row,
         override_level:
           overrideLevelByCustomerSourceId.get(row.customer_source_id) ??

@@ -14,6 +14,9 @@ const { loadCustomerCollectionsSummaryWithMetadata } = loadTypeScriptModule(
 const { logCollectionsCurrencyHealth } = loadTypeScriptModule(
   'lib/collections/currency-health.ts'
 )
+const { resolveCollectionsCurrencyAccess } = loadTypeScriptModule(
+  'lib/billing/collections-access.ts'
+)
 
 const USER_ID = 'currency-user'
 const TENANT_ID = 'currency-tenant'
@@ -57,10 +60,12 @@ function invoice({
   totalNative = amountDueNative,
   amountPaidNative = '0',
   amountCreditedNative = '0',
+  xeroCurrencyRate = null,
 }) {
   return {
     user_id: USER_ID,
     tenant_id: TENANT_ID,
+    source_system: 'xero',
     source_id: sourceId,
     customer_source_id: customerSourceId,
     type: 'ACCREC',
@@ -75,6 +80,7 @@ function invoice({
     amount_due_native: amountDueNative,
     amount_credited_native: amountCreditedNative,
     amount_due_base: amountDueBase,
+    xero_currency_rate: xeroCurrencyRate,
     currency_conversion_status: conversionStatus,
     currency_conversion_failure_reason: failureReason,
   }
@@ -117,7 +123,7 @@ function createQuery(rows) {
   return query
 }
 
-async function loadSummary({ baseCurrency = 'GBP', customers, invoices, payments = [] }) {
+async function loadSummary({ baseCurrency = 'GBP', customers, invoices, payments = [], disputes = [] }) {
   const tables = {
     xero_sync_tenant_state: [],
     xero_sync_runs: [],
@@ -127,6 +133,7 @@ async function loadSummary({ baseCurrency = 'GBP', customers, invoices, payments
     canonical_customers: customers,
     canonical_invoices: invoices,
     canonical_payments: payments,
+    invoice_disputes: disputes,
   }
 
   const supabase = {
@@ -139,7 +146,7 @@ async function loadSummary({ baseCurrency = 'GBP', customers, invoices, payments
   return loadCustomerCollectionsSummaryWithMetadata(supabase, USER_ID, TENANT_ID)
 }
 
-async function requestCustomerApi(summary, overrides = []) {
+async function requestCustomerApi(summary, overrides = [], query = '') {
   const { GET } = loadTypeScriptModule('app/api/collections/customers/route.ts', {
     mocks: {
       'next/server': {
@@ -199,10 +206,72 @@ async function requestCustomerApi(summary, overrides = []) {
 
   const response = await GET({
     nextUrl: new URL(
-      `http://localhost/api/collections/customers?tenantId=${TENANT_ID}&limit=200`
+      `http://localhost/api/collections/customers?tenantId=${TENANT_ID}&limit=200${query}`
     ),
   })
   return { response, payload: await response.json() }
+}
+
+function dispute(invoiceSourceId, mode, recordedAmount, overrides = {}) {
+  return {
+    id: `dispute-${invoiceSourceId}`,
+    user_id: USER_ID,
+    tenant_id: TENANT_ID,
+    source_system: 'xero',
+    invoice_source_id: invoiceSourceId,
+    dispute_mode: mode,
+    recorded_disputed_amount_native: recordedAmount,
+    amount_due_at_last_review_native: recordedAmount,
+    note: null,
+    is_active: true,
+    resolved_at: null,
+    created_at: '2026-09-24T00:00:00Z',
+    updated_at: '2026-09-24T00:00:00Z',
+    ...overrides,
+  }
+}
+
+async function requestActionsApi(summary, overrides = []) {
+  const tables = { customer_overrides: overrides, collection_actions: [] }
+  const { GET } = loadTypeScriptModule('app/api/collections/actions/route.ts', {
+    mocks: {
+      'next/server': {
+        NextResponse: {
+          json(body, init = {}) {
+            return new Response(JSON.stringify(body), {
+              status: init.status ?? 200,
+              headers: { 'content-type': 'application/json' },
+            })
+          },
+        },
+      },
+      '@/lib/supabase-server': {
+        async createServerSupabaseClient() {
+          return { auth: { getUser: async () => ({ data: { user: { id: USER_ID } }, error: null }) } }
+        },
+      },
+      '@/lib/supabase-admin': {
+        createSupabaseAdminClient() {
+          return { from(table) {
+            if (!Object.hasOwn(tables, table)) throw new Error(`Unexpected actions table: ${table}`)
+            return createQuery(tables[table])
+          } }
+        },
+      },
+      '@/lib/billing/entitlements': {
+        async claimActionsEntitlementStatus() {
+          return { tenantId: TENANT_ID, hasActionsAccess: true, isPaid: true,
+            paidPlan: 'pro', usageDate: new Date().toISOString().slice(0, 10) }
+        },
+      },
+      '@/lib/collections/customer-summary': {
+        async loadCustomerCollectionsSummaryWithMetadata() { return summary },
+      },
+      '@/lib/collections/currency-health': { logCollectionsCurrencyHealth() {} },
+    },
+  })
+  const response = await GET({ nextUrl: new URL(`http://localhost/api/collections/actions?tenantId=${TENANT_ID}&limit=200`) })
+  return { status: response.status, payload: await response.json() }
 }
 
 for (const baseCurrency of ['GBP', 'USD', 'AUD']) {
@@ -618,7 +687,323 @@ test('customer collections UI presents degraded warnings and review-required cus
   assert.match(source, /Invoiced outstanding/)
   assert.match(source, /reviewRequiredCustomers\.map/)
   assert.match(source, /MultiCurrencyPlanGate/)
-  assert.match(source, /Equivalent overdue total/)
+  assert.match(source, /Gross equivalent overdue total/)
   assert.match(source, /invoiced/)
   assert.doesNotMatch(source, /CurrencyRate/)
+})
+
+test('partial dispute changes customer and portfolio exposure from the same collectible universe', async () => {
+  const customers = ['a', 'b', 'c'].map(customer)
+  const invoices = [
+    invoice({ sourceId: 'a-1', customerSourceId: 'a', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '10000', amountDueBase: '10000' }),
+    invoice({ sourceId: 'b-1', customerSourceId: 'b', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '8000', amountDueBase: '8000' }),
+    invoice({ sourceId: 'c-1', customerSourceId: 'c', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '2000', amountDueBase: '2000' }),
+  ]
+  const baseline = await requestActionsApi(await loadSummary({ customers, invoices }))
+  assert.equal(baseline.status, 200)
+  assert.equal(baseline.payload.portfolio.totalOverdueBase, 20000)
+  assert.equal(baseline.payload.portfolio.largestCustomerOverdueBase, 10000)
+  assert.equal(baseline.payload.rows.find((row) => row.customer_source_id === 'b').exposure_relative_to_largest_percent, 80)
+
+  const summary = await loadSummary({ customers, invoices, disputes: [dispute('a-1', 'partial', '3000', { amount_due_at_last_review_native: '10000' })] })
+  const a = summary.rows.find((row) => row.customer_source_id === 'a')
+  assert.equal(a.gross_outstanding_base_decimal, '10000')
+  assert.equal(a.effective_disputed_outstanding_base_decimal, '3000')
+  assert.equal(a.collectible_outstanding_base_decimal, '7000')
+  assert.equal(a.collectible_overdue_base_decimal, '7000')
+  assert.equal(a.actionable_overdue_invoices_count, 1)
+  assert.equal(a.weighted_avg_overdue_days, 30)
+
+  const { status, payload } = await requestActionsApi(summary)
+  assert.equal(status, 200)
+  assert.equal(payload.portfolio.totalOverdueBase, 17000)
+  assert.equal(payload.portfolio.largestCustomerOverdueBase, 8000)
+  const rankedA = payload.rows.find((row) => row.customer_source_id === 'a')
+  const rankedB = payload.rows.find((row) => row.customer_source_id === 'b')
+  assert.equal(rankedA.overdue_outstanding_base, 10000) // gross compatibility field
+  assert.equal(rankedA.collectible_overdue_base, 7000)
+  assert.equal(rankedA.overdue_invoices_count, 1)
+  assert.equal(rankedA.actionable_overdue_invoices_count, 1)
+  assert.equal(rankedA.first_value_reasons[0].text.includes('£7,000'), true)
+  assert.equal(rankedA.exposure_relative_to_largest_percent, 87.5)
+  assert.equal(rankedB.exposure_relative_to_largest_percent, 100)
+  assert.match(JSON.stringify([rankedA.reason, rankedA.score_breakdown_lines]), /£7,000/)
+  assert.doesNotMatch(JSON.stringify([rankedA.reason, rankedA.score_breakdown_lines]), /£10,000/)
+})
+
+test('fully disputed debt leaves the queue while mixed and partially disputed invoices remain actionable', async () => {
+  const customers = ['full', 'mixed', 'one-pound'].map(customer)
+  const invoices = [
+    invoice({ sourceId: 'full-1', customerSourceId: 'full', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '10000', amountDueBase: '10000', overdueDays: 90 }),
+    invoice({ sourceId: 'mixed-1', customerSourceId: 'mixed', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '5000', amountDueBase: '5000', overdueDays: 80 }),
+    invoice({ sourceId: 'mixed-2', customerSourceId: 'mixed', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '8000', amountDueBase: '8000', overdueDays: 20 }),
+    invoice({ sourceId: 'one-pound-1', customerSourceId: 'one-pound', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '10000', amountDueBase: '10000', overdueDays: 40 }),
+  ]
+  const disputes = [
+    dispute('full-1', 'full', '10000'), dispute('mixed-1', 'full', '5000'),
+    dispute('one-pound-1', 'partial', '9999', { amount_due_at_last_review_native: '10000' }),
+  ]
+  const summary = await loadSummary({ customers, invoices, disputes })
+  const full = summary.rows.find((row) => row.customer_source_id === 'full')
+  const mixed = summary.rows.find((row) => row.customer_source_id === 'mixed')
+  const onePound = summary.rows.find((row) => row.customer_source_id === 'one-pound')
+  assert.equal(full.collectible_outstanding_base, 0)
+  assert.equal(full.actionable_overdue_invoices_count, 0)
+  assert.equal(full.weighted_avg_overdue_days, 0)
+  assert.equal(mixed.gross_outstanding_base_decimal, '13000')
+  assert.equal(mixed.effective_disputed_outstanding_base_decimal, '5000')
+  assert.equal(mixed.collectible_outstanding_base_decimal, '8000')
+  assert.equal(mixed.actionable_overdue_invoices_count, 1)
+  assert.equal(mixed.weighted_avg_overdue_days, 20)
+  assert.equal(onePound.collectible_outstanding_base_decimal, '1')
+  assert.equal(onePound.actionable_overdue_invoices_count, 1)
+
+  const { payload } = await requestActionsApi(summary, [
+    { user_id: USER_ID, tenant_id: TENANT_ID, customer_source_id: 'full', override_level: 'priority' },
+    { user_id: USER_ID, tenant_id: TENANT_ID, customer_source_id: 'mixed', override_level: 'priority' },
+  ])
+  assert.deepEqual(payload.rows.map((row) => row.customer_source_id).sort(), ['mixed', 'one-pound'])
+  const prioritizedMixed = payload.rows.find((row) => row.customer_source_id === 'mixed')
+  assert.equal(prioritizedMixed.override_level, 'priority')
+  assert.equal(prioritizedMixed.override_multiplier, 1.6)
+  assert.ok(prioritizedMixed.final_score > prioritizedMixed.base_score)
+  assert.equal(payload.portfolio.totalOverdueBase, 8001)
+  assert.equal(payload.portfolio.largestCustomerOverdueBase, 8000)
+  assert.equal(payload.portfolio.weightedAverageOverdueDays, (8000 * 20 + 40) / 8001)
+  assert.equal(prioritizedMixed.overdue_invoices_count, 2)
+  assert.equal(prioritizedMixed.actionable_overdue_invoices_count, 1)
+})
+
+test('collectible weighting changes current deterioration but leaves historical timing and recency intact', async () => {
+  const customers = [customer('timing')]
+  const invoices = [
+    invoice({ sourceId: 'old-open', customerSourceId: 'timing', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '10000', amountDueBase: '10000', overdueDays: 60 }),
+    invoice({ sourceId: 'new-open', customerSourceId: 'timing', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '10000', amountDueBase: '10000', overdueDays: 10 }),
+    ...[0, 1, 2].map((index) => invoice({ sourceId: `paid-history-${index}`, customerSourceId: 'timing', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '0', amountDueBase: '0', overdueDays: 40 + index, status: 'PAID', fullyPaidDate: daysAgoIso(30 + index), totalNative: '500', amountPaidNative: '500' })),
+  ]
+  const payments = [{ user_id: USER_ID, tenant_id: TENANT_ID, invoice_source_id: 'paid-history-0', customer_source_id: 'timing', payment_date: daysAgoIso(30) }]
+  const baseline = await loadSummary({ customers, invoices, payments })
+  const summary = await loadSummary({ customers, invoices, payments, disputes: [
+    dispute('old-open', 'full', '10000'),
+    dispute('new-open', 'partial', '5000', { amount_due_at_last_review_native: '10000' }),
+  ] })
+  assert.equal(baseline.rows[0].weighted_avg_overdue_days, 35)
+  assert.equal(summary.rows[0].weighted_avg_overdue_days, 10)
+  assert.equal(summary.rows[0].historical_normal_days_late, baseline.rows[0].historical_normal_days_late)
+  assert.equal(summary.rows[0].relative_lateness_days, 0)
+  assert.equal(summary.rows[0].last_payment_days_ago, baseline.rows[0].last_payment_days_ago)
+  const before = await requestActionsApi(baseline)
+  const after = await requestActionsApi(summary)
+  assert.equal(after.payload.rows[0].payment_recency_score, before.payload.rows[0].payment_recency_score)
+  assert.notEqual(after.payload.rows[0].relative_lateness_score, before.payload.rows[0].relative_lateness_score)
+})
+
+test('fully suppressed bad FX is outside scoring health while gross currency entitlement remains unchanged', async () => {
+  const customers = [customer('gbp'), customer('usd')]
+  const invoices = [
+    invoice({ sourceId: 'gbp-1', customerSourceId: 'gbp', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '1000', amountDueBase: '1000' }),
+    invoice({ sourceId: 'usd-1', customerSourceId: 'usd', transactionCurrency: 'USD', baseCurrency: 'GBP', amountDueNative: '1000', amountDueBase: null, conversionStatus: 'incomplete', failureReason: 'missing_rate' }),
+  ]
+  const full = await loadSummary({ customers, invoices, disputes: [dispute('usd-1', 'full', '1000')] })
+  assert.equal(full.currencyHealth.status, 'healthy')
+  assert.equal(full.currencyContext.mode, 'multi_currency')
+  assert.equal(resolveCollectionsCurrencyAccess({
+    entitlement: { hasActionsAccess: true, isPaid: true, paidPlan: 'basic' },
+    currencyContext: full.currencyContext,
+  }).allowed, false)
+  assert.equal(full.rows.find((row) => row.customer_source_id === 'usd').gross_outstanding_base_decimal, null)
+  assert.equal(full.rows.find((row) => row.customer_source_id === 'usd').total_outstanding_base, null)
+  assert.equal(full.rows.find((row) => row.customer_source_id === 'usd').overdue_outstanding_base_decimal, null)
+  assert.equal(full.rows.find((row) => row.customer_source_id === 'usd').native_currency_breakdown[0].total_outstanding_native, '1000')
+  assert.equal((await requestActionsApi(full)).payload.rows.length, 1)
+
+  const partial = await loadSummary({ customers, invoices, disputes: [dispute('usd-1', 'partial', '500', { amount_due_at_last_review_native: '1000' })] })
+  assert.equal(partial.currencyHealth.status, 'degraded')
+  assert.equal(partial.currencyHealth.affectedCustomerCount, 1)
+  assert.equal(partial.currencyContext.mode, 'multi_currency')
+})
+
+test('resolving and reactivating a dispute restores and removes debt at its original age', async () => {
+  const customers = [customer('again')]
+  const invoices = [invoice({ sourceId: 'again-1', customerSourceId: 'again', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '6000', amountDueBase: '6000', overdueDays: 45 })]
+  const resolved = await loadSummary({ customers, invoices, disputes: [dispute('again-1', 'full', '10000', { is_active: false, resolved_at: '2026-09-24T00:00:00Z' })] })
+  const active = await loadSummary({ customers, invoices, disputes: [dispute('again-1', 'full', '10000', { amount_due_at_last_review_native: '6000' })] })
+  assert.equal(resolved.rows[0].collectible_outstanding_base, 6000)
+  assert.equal(resolved.rows[0].weighted_avg_overdue_days, 45)
+  assert.equal(active.rows[0].collectible_outstanding_base, 0)
+  assert.equal(active.rows[0].weighted_avg_overdue_days, 0)
+  assert.equal((await requestActionsApi(active)).payload.rows.length, 0)
+})
+
+test('fully disputed old customer leaves urgency and relative-lateness portfolio benchmarks', async () => {
+  const ages = [60, 50, 40, 30, 20, 10]
+  const customers = ages.map((_, index) => customer(`benchmark-${index}`))
+  const invoices = ages.flatMap((age, index) => [
+    invoice({ sourceId: `benchmark-open-${index}`, customerSourceId: `benchmark-${index}`, transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '1000', amountDueBase: '1000', overdueDays: age }),
+    ...[0, 1, 2].map((historyIndex) => invoice({ sourceId: `benchmark-paid-${index}-${historyIndex}`, customerSourceId: `benchmark-${index}`, transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '0', amountDueBase: '0', overdueDays: 40 + historyIndex, status: 'PAID', fullyPaidDate: daysAgoIso(30 + historyIndex), totalNative: '100', amountPaidNative: '100' })),
+  ])
+  const before = (await requestActionsApi(await loadSummary({ customers, invoices }))).payload
+  assert.equal(before.portfolio.weightedAverageOverdueDays, 35)
+  assert.equal(before.portfolio.totalOverdueBase, 6000)
+  assert.equal(before.queue.relativeLateness.materialObservationCount, 5)
+  assert.equal(before.queue.relativeLateness.mode, 'portfolio-relative')
+
+  const after = (await requestActionsApi(await loadSummary({ customers, invoices, disputes: [
+    dispute('benchmark-open-0', 'full', '1000'),
+  ] }))).payload
+  assert.equal(after.portfolio.weightedAverageOverdueDays, 30)
+  assert.equal(after.portfolio.totalOverdueBase, 5000)
+  assert.equal(after.queue.relativeLateness.materialObservationCount, 4)
+  assert.equal(after.queue.relativeLateness.mode, 'absolute-fallback')
+  assert.equal(after.rows.some((row) => row.customer_source_id === 'benchmark-0'), false)
+})
+
+test('partial dispute reweights two surviving overdue invoices and preserves their original ages', async () => {
+  const summary = await loadSummary({
+    customers: [customer('weighted')],
+    invoices: [
+      invoice({ sourceId: 'older', customerSourceId: 'weighted', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '10000', amountDueBase: '10000', overdueDays: 60 }),
+      invoice({ sourceId: 'newer', customerSourceId: 'weighted', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '2000', amountDueBase: '2000', overdueDays: 10 }),
+    ],
+    disputes: [dispute('older', 'partial', '6000', { amount_due_at_last_review_native: '10000' })],
+  })
+  const row = summary.rows[0]
+  assert.equal(row.total_outstanding_base, 12000)
+  assert.equal(row.collectible_overdue_base, 6000)
+  assert.equal(row.actionable_overdue_invoices_count, 2)
+  assert.equal(row.oldest_overdue_days, 60)
+  assert.equal(row.weighted_avg_overdue_days, (4000 * 60 + 2000 * 10) / 6000)
+})
+
+test('fully disputed oldest customer leaves the maximum urgency benchmark', async () => {
+  const customers = [customer('old'), customer('mid'), customer('young')]
+  const invoices = [
+    invoice({ sourceId: 'old-1', customerSourceId: 'old', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '1000', amountDueBase: '1000', overdueDays: 90 }),
+    invoice({ sourceId: 'mid-1', customerSourceId: 'mid', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '1000', amountDueBase: '1000', overdueDays: 40 }),
+    invoice({ sourceId: 'young-1', customerSourceId: 'young', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '1000', amountDueBase: '1000', overdueDays: 20 }),
+  ]
+  const before = (await requestActionsApi(await loadSummary({ customers, invoices }))).payload
+  const after = (await requestActionsApi(await loadSummary({ customers, invoices, disputes: [dispute('old-1', 'full', '1000')] }))).payload
+  const midBefore = before.rows.find((row) => row.customer_source_id === 'mid')
+  const midAfter = after.rows.find((row) => row.customer_source_id === 'mid')
+  assert.match(midBefore.score_breakdown_lines.join('\n'), /portfolio max weighted avg overdue days = 90\.0/)
+  assert.match(midAfter.score_breakdown_lines.join('\n'), /portfolio max weighted avg overdue days = 40\.0/)
+  assert.equal(after.portfolio.weightedAverageOverdueDays, 30)
+  assert.equal(after.rows.some((row) => row.customer_source_id === 'old'), false)
+})
+
+test('fully disputing one of three overdue invoices crosses the existing urgency count bonus', async () => {
+  const customers = [customer('three'), customer('older')]
+  const invoices = [
+    ...[1, 2, 3].map((index) => invoice({ sourceId: `three-${index}`, customerSourceId: 'three', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '1000', amountDueBase: '1000', overdueDays: 30 })),
+    invoice({ sourceId: 'older-1', customerSourceId: 'older', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '1000', amountDueBase: '1000', overdueDays: 60 }),
+  ]
+  const before = (await requestActionsApi(await loadSummary({ customers, invoices }))).payload.rows.find((row) => row.customer_source_id === 'three')
+  const after = (await requestActionsApi(await loadSummary({ customers, invoices, disputes: [dispute('three-1', 'full', '1000')] }))).payload.rows.find((row) => row.customer_source_id === 'three')
+  assert.equal(before.overdue_invoices_count, 3)
+  assert.equal(after.overdue_invoices_count, 3) // accounting count stays gross
+  assert.equal(before.actionable_overdue_invoices_count, 3)
+  assert.equal(after.actionable_overdue_invoices_count, 2)
+  assert.match(before.score_breakdown_lines.join('\n'), /invoice bonus 10/)
+  assert.match(after.score_breakdown_lines.join('\n'), /invoice bonus 5/)
+})
+
+test('unknown gross FX never becomes zero or a complete known-invoice subtotal', async () => {
+  const summary = await loadSummary({
+    customers: [customer('mixed-fx')],
+    invoices: [
+      invoice({ sourceId: 'known', customerSourceId: 'mixed-fx', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '800', amountDueBase: '800' }),
+      invoice({ sourceId: 'unknown', customerSourceId: 'mixed-fx', transactionCurrency: 'USD', baseCurrency: 'GBP', amountDueNative: '1000', amountDueBase: null, conversionStatus: 'incomplete', failureReason: 'missing_rate' }),
+    ],
+    disputes: [dispute('unknown', 'full', '1000')],
+  })
+  assert.equal(summary.currencyHealth.status, 'healthy')
+  const row = summary.rows[0]
+  assert.equal(row.total_outstanding_base, null)
+  assert.equal(row.overdue_outstanding_base, null)
+  assert.equal(row.total_outstanding_base_decimal, null)
+  assert.equal(row.gross_outstanding_base_decimal, null)
+  assert.equal(row.effective_disputed_outstanding_base_decimal, null)
+  assert.equal(row.collectible_outstanding_base, 800)
+  assert.deepEqual(row.native_currency_breakdown.map((entry) => entry.total_outstanding_native), ['800', '1000'])
+  const { payload } = await requestCustomerApi(summary)
+  assert.equal(payload.rows[0].total_outstanding_base, null)
+  assert.equal(payload.rows[0].collectible_outstanding_base, 800)
+  const recommendation = (await requestActionsApi(summary)).payload.rows[0]
+  assert.equal(recommendation.total_outstanding_base, null)
+  assert.equal(recommendation.overdue_outstanding_base, null)
+  assert.equal(recommendation.collectible_overdue_base, 800)
+})
+
+test('gross valuation rejects mismatched invoice base currency without blocking fully suppressed scoring', async () => {
+  const summary = await loadSummary({
+    customers: [customer('mismatch'), customer('valid')],
+    invoices: [
+      invoice({ sourceId: 'wrong-base', customerSourceId: 'mismatch', transactionCurrency: 'USD', baseCurrency: 'EUR', amountDueNative: '1000', amountDueBase: '1000', xeroCurrencyRate: '1' }),
+      invoice({ sourceId: 'valid-base', customerSourceId: 'valid', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '500', amountDueBase: '500' }),
+    ],
+    disputes: [dispute('wrong-base', 'full', '1000')],
+  })
+  assert.equal(summary.currencyHealth.status, 'healthy')
+  const mismatch = summary.rows.find((row) => row.customer_source_id === 'mismatch')
+  assert.equal(mismatch.total_outstanding_base, null)
+  assert.equal(mismatch.gross_outstanding_base_decimal, null)
+  assert.equal(mismatch.collectible_outstanding_base, 0)
+  assert.equal(mismatch.native_currency_breakdown[0].total_outstanding_native, '1000')
+  const actions = (await requestActionsApi(summary)).payload
+  assert.deepEqual(actions.rows.map((row) => row.customer_source_id), ['valid'])
+})
+
+test('currency review keeps invoiced outstanding gross while classifying collectible FX failures', async () => {
+  const summary = await loadSummary({
+    customers: [customer('fx-review')],
+    invoices: [
+      invoice({ sourceId: 'partial-bad-fx', customerSourceId: 'fx-review', transactionCurrency: 'USD', baseCurrency: 'GBP', amountDueNative: '1000', amountDueBase: null, conversionStatus: 'incomplete', failureReason: 'missing_rate' }),
+      invoice({ sourceId: 'full-bad-fx', customerSourceId: 'fx-review', transactionCurrency: 'USD', baseCurrency: 'GBP', amountDueNative: '500', amountDueBase: null, conversionStatus: 'incomplete', failureReason: 'missing_rate' }),
+    ],
+    disputes: [
+      dispute('partial-bad-fx', 'partial', '400', { amount_due_at_last_review_native: '1000' }),
+      dispute('full-bad-fx', 'full', '500'),
+    ],
+  })
+  assert.equal(summary.currencyHealth.status, 'degraded')
+  assert.equal(summary.currencyHealth.affectedInvoiceCount, 1)
+  assert.equal(summary.reviewRequiredCustomers[0].affected_invoice_count, 1)
+  assert.equal(summary.reviewRequiredCustomers[0].native_currency_breakdown[0].total_outstanding_native, '1500')
+  assert.equal(summary.reviewRequiredCustomers[0].native_currency_breakdown[0].overdue_outstanding_native, '1500')
+})
+
+test('customer accounting sort and overdue filter keep their gross meanings', async () => {
+  const summary = await loadSummary({
+    customers: [customer('gross-high'), customer('gross-low')],
+    invoices: [
+      invoice({ sourceId: 'high-1', customerSourceId: 'gross-high', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '10000', amountDueBase: '10000' }),
+      invoice({ sourceId: 'low-1', customerSourceId: 'gross-low', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '8000', amountDueBase: '8000' }),
+    ],
+    disputes: [dispute('high-1', 'full', '10000')],
+  })
+  const { payload } = await requestCustomerApi(summary, [], '&sortBy=overdue_outstanding&sortDir=desc&overdueOnly=true')
+  assert.deepEqual(payload.rows.map((row) => row.customer_source_id), ['gross-high', 'gross-low'])
+  assert.equal(payload.rows[0].overdue_outstanding_base, 10000)
+  assert.equal(payload.rows[0].collectible_overdue_base, 0)
+  assert.equal(payload.rows[0].overdue_invoices_count, 1)
+  assert.equal(payload.rows[0].actionable_overdue_invoices_count, 0)
+})
+
+test('priority deep link retains an owned customer beyond the customer list page', async () => {
+  const summary = await loadSummary({
+    customers: [customer('c001')],
+    invoices: [invoice({ sourceId: 'i001', customerSourceId: 'c001', transactionCurrency: 'GBP', baseCurrency: 'GBP', amountDueNative: '100', amountDueBase: '100' })],
+  })
+  const template = summary.rows[0]
+  summary.rows = Array.from({ length: 201 }, (_, index) => ({
+    ...template,
+    customer_source_id: `c${String(index + 1).padStart(3, '0')}`,
+    customer_name: `Customer ${String(index + 1).padStart(3, '0')}`,
+  }))
+  const { payload } = await requestCustomerApi(summary, [], '&customerSourceId=c201')
+  assert.equal(payload.rows.length, 201)
+  assert.equal(payload.rows.at(-1).customer_source_id, 'c201')
+  const foreign = await requestCustomerApi(summary, [], '&customerSourceId=foreign-tenant-customer')
+  assert.equal(foreign.payload.rows.length, 200)
 })

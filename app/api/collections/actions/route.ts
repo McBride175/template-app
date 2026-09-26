@@ -353,17 +353,20 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    const collectibleQueueRows = summaryRows.filter((row) =>
+      !(row.has_active_dispute && row.collectible_outstanding_base <= 0)
+    )
     const scopeRows = overdueOnly
-      ? summaryRows.filter((row) => row.overdue_outstanding_base > 0)
-      : summaryRows
+      ? collectibleQueueRows.filter((row) => row.collectible_overdue_base > 0)
+      : collectibleQueueRows
 
-    const queueEligibleRows = summaryRows.filter((row) => {
+    const queueEligibleRows = collectibleQueueRows.filter((row) => {
       const latestAction = latestActionByCustomerSourceId.get(row.customer_source_id)
       return !shouldSuppressCustomerFromQueue(latestAction, todayDateIso)
     })
 
     const filteredRows = overdueOnly
-      ? queueEligibleRows.filter((row) => row.overdue_outstanding_base > 0)
+      ? queueEligibleRows.filter((row) => row.collectible_overdue_base > 0)
       : queueEligibleRows
     const suppressedCustomerCount = scopeRows.length - filteredRows.length
     let postponedCustomerCount = 0
@@ -404,23 +407,23 @@ export async function GET(request: NextRequest) {
       queueStatus = 'currency_data_degraded'
     }
 
-    const overdueRows = filteredRows.filter((row) => row.overdue_outstanding_base > 0)
-    const analysedOverdueRows = scopeRows.filter((row) => row.overdue_outstanding_base > 0)
+    const overdueRows = filteredRows.filter((row) => row.collectible_overdue_base > 0)
+    const analysedOverdueRows = scopeRows.filter((row) => row.collectible_overdue_base > 0)
     const relativeLatenessContext = buildRelativeLatenessContext(
       overdueRows.map((row) => ({
-        overdueOutstandingBase: row.overdue_outstanding_base,
+        overdueOutstandingBase: row.collectible_overdue_base,
         relativeLatenessDays: row.relative_lateness_days,
       }))
     )
     const totalOverdueOutstandingBaseDecimal = sumDecimalValues(
-      filteredRows.map((row) => row.overdue_outstanding_base_decimal)
+      filteredRows.map((row) => row.collectible_overdue_base_decimal)
     )
     const analysedOverdueBaseDecimal = sumDecimalValues(
-      analysedOverdueRows.map((row) => row.overdue_outstanding_base_decimal)
+      analysedOverdueRows.map((row) => row.collectible_overdue_base_decimal)
     )
     const maxOverdueOutstandingBaseDecimal = filteredRows.reduce((max, row) => {
-      return compareDecimalValues(row.overdue_outstanding_base_decimal, max) === 1
-        ? row.overdue_outstanding_base_decimal
+      return compareDecimalValues(row.collectible_overdue_base_decimal, max) === 1
+        ? row.collectible_overdue_base_decimal
         : max
     }, '0')
     const totalOverdueOutstandingBase = decimalValueToFiniteNumber(
@@ -443,7 +446,7 @@ export async function GET(request: NextRequest) {
             (sum, row) =>
               sum +
               Math.max(0, row.weighted_avg_overdue_days) *
-                Math.max(0, row.overdue_outstanding_base),
+                Math.max(0, row.collectible_overdue_base),
             0
           ) / totalOverdueOutstandingBase
         : 0
@@ -459,10 +462,10 @@ export async function GET(request: NextRequest) {
             customer_source_id: row.customer_source_id,
             customer_name: row.customer_name,
             customer_email: row.customer_email,
-            overdue_outstanding_base: row.overdue_outstanding_base,
-            total_outstanding_base: row.total_outstanding_base,
-            overdue_invoices_count: row.overdue_invoices_count,
-            open_invoices_count: row.open_invoices_count,
+            overdue_outstanding_base: row.collectible_overdue_base,
+            total_outstanding_base: row.collectible_outstanding_base,
+            overdue_invoices_count: row.actionable_overdue_invoices_count,
+            open_invoices_count: row.actionable_open_invoices_count,
             weighted_avg_overdue_days: row.weighted_avg_overdue_days,
             last_payment_date: row.last_payment_date,
             last_payment_days_ago: row.last_payment_days_ago,
@@ -479,9 +482,22 @@ export async function GET(request: NextRequest) {
           },
           overrideLevelByCustomerSourceId.get(row.customer_source_id) ?? DEFAULT_OVERRIDE_LEVEL
         ),
-        overdue_outstanding_base_decimal: row.overdue_outstanding_base_decimal,
-        total_outstanding_base_decimal: row.total_outstanding_base_decimal,
+        overdue_outstanding_base_decimal: row.collectible_overdue_base_decimal,
+        total_outstanding_base_decimal: row.collectible_outstanding_base_decimal,
+        gross_outstanding_base_decimal: row.gross_outstanding_base_decimal,
+        gross_overdue_base_decimal: row.gross_overdue_base_decimal,
+        effective_disputed_outstanding_base_decimal: row.effective_disputed_outstanding_base_decimal,
+        effective_disputed_overdue_base_decimal: row.effective_disputed_overdue_base_decimal,
+        gross_total_outstanding_base: row.total_outstanding_base,
+        gross_overdue_outstanding_base: row.overdue_outstanding_base,
+        legacy_gross_total_outstanding_base_decimal: row.total_outstanding_base_decimal,
+        legacy_gross_overdue_outstanding_base_decimal: row.overdue_outstanding_base_decimal,
+        gross_open_invoices_count: row.open_invoices_count,
+        gross_overdue_invoices_count: row.overdue_invoices_count,
+        actionable_open_invoices_count: row.actionable_open_invoices_count,
+        actionable_overdue_invoices_count: row.actionable_overdue_invoices_count,
         native_currency_breakdown: row.native_currency_breakdown,
+        collectible_native_currency_breakdown: row.collectible_native_currency_breakdown,
       }))
       .sort((a, b) => {
         const aDoNotChase = a.override_level === 'do_not_chase'
@@ -514,15 +530,30 @@ export async function GET(request: NextRequest) {
           customer_source_id: row.customer_source_id,
           customer_name: row.customer_name,
           customer_email: row.customer_email,
-          overdue_outstanding_base_decimal: row.overdue_outstanding_base_decimal,
-          total_outstanding_base_decimal: row.total_outstanding_base_decimal,
-          overdue_outstanding_base: row.overdue_outstanding_base,
-          total_outstanding_base: row.total_outstanding_base,
-          // Compatibility aliases are base-denominated during the API migration.
-          overdue_outstanding: row.overdue_outstanding_base,
-          total_outstanding: row.total_outstanding_base,
-          overdue_invoices_count: row.overdue_invoices_count,
-          open_invoices_count: row.open_invoices_count,
+          // Existing balance fields retain gross accounting meaning. The explicit
+          // nullable gross fields signal when an FX-invalid invoice makes a
+          // complete base-currency gross total unavailable.
+          overdue_outstanding_base_decimal: row.legacy_gross_overdue_outstanding_base_decimal,
+          total_outstanding_base_decimal: row.legacy_gross_total_outstanding_base_decimal,
+          overdue_outstanding_base: row.gross_overdue_outstanding_base,
+          total_outstanding_base: row.gross_total_outstanding_base,
+          overdue_outstanding: row.gross_overdue_outstanding_base,
+          total_outstanding: row.gross_total_outstanding_base,
+          gross_outstanding_base_decimal: row.gross_outstanding_base_decimal,
+          gross_overdue_base_decimal: row.gross_overdue_base_decimal,
+          effective_disputed_outstanding_base_decimal: row.effective_disputed_outstanding_base_decimal,
+          effective_disputed_overdue_base_decimal: row.effective_disputed_overdue_base_decimal,
+          collectible_outstanding_base_decimal: row.total_outstanding_base_decimal,
+          collectible_overdue_base_decimal: row.overdue_outstanding_base_decimal,
+          collectible_outstanding_base: row.total_outstanding_base,
+          collectible_overdue_base: row.overdue_outstanding_base,
+          gross_open_invoices_count: row.gross_open_invoices_count,
+          gross_overdue_invoices_count: row.gross_overdue_invoices_count,
+          // Existing invoice counts retain accounting meaning across APIs.
+          overdue_invoices_count: row.gross_overdue_invoices_count,
+          open_invoices_count: row.gross_open_invoices_count,
+          actionable_overdue_invoices_count: row.actionable_overdue_invoices_count,
+          actionable_open_invoices_count: row.actionable_open_invoices_count,
           weighted_avg_overdue_days: row.weighted_avg_overdue_days,
           relative_lateness_days: row.relative_lateness_days,
           relative_lateness_score: row.relative_lateness_score,
@@ -548,6 +579,7 @@ export async function GET(request: NextRequest) {
           organisation_base_currency_code: organisationBaseCurrency,
           currency_code: organisationBaseCurrency,
           native_currency_breakdown: row.native_currency_breakdown,
+          collectible_native_currency_breakdown: row.collectible_native_currency_breakdown,
           last_action_type: latestAction?.type ?? null,
           last_action_outcome: latestAction?.outcome ?? null,
           last_action_timestamp: latestAction?.takenAtIso ?? null,
@@ -590,8 +622,11 @@ export async function GET(request: NextRequest) {
         currencyHealth.status === 'degraded' && filteredRows.length === 0
           ? null
           : {
+              // Portfolio fields are scoring benchmarks, so all use collectible debt.
               totalOverdueBase: totalOverdueOutstandingBase,
               totalOverdueBaseDecimal: totalOverdueOutstandingBaseDecimal,
+              collectibleTotalOverdueBase: totalOverdueOutstandingBase,
+              collectibleTotalOverdueBaseDecimal: totalOverdueOutstandingBaseDecimal,
               analysedOverdueBase,
               analysedOverdueBaseDecimal,
               analysedOverdueCustomerCount: analysedOverdueRows.length,

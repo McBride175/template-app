@@ -28,6 +28,7 @@ export interface InvoiceDisputeRecord {
   resolved_at: string | null
   created_at: string
   updated_at: string
+  revision: number
 }
 
 export interface DisputeAccountingInvoice {
@@ -106,6 +107,15 @@ export function validateDisputableInvoice(invoice: DisputeAccountingInvoice) {
 function deriveBaseAmounts(invoice: DisputeAccountingInvoice, gross: string, collectible: string) {
   const canonicalGrossBase = normalizeDecimalValue(invoice.amount_due_base)
   if (!canonicalGrossBase || compareDecimalValues(canonicalGrossBase, '0') !== 1) return null
+
+  // Preserve canonical accounting values exactly when no debt is suppressed.
+  // Only a partial collectible balance needs a fresh split conversion.
+  if (collectible === gross) {
+    return { gross: canonicalGrossBase, effective: '0', collectible: canonicalGrossBase }
+  }
+  if (collectible === '0') {
+    return { gross: canonicalGrossBase, effective: canonicalGrossBase, collectible: '0' }
+  }
 
   const conversion = convertCurrencyAmounts({
     transactionCurrency: invoice.transaction_currency_code,

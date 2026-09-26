@@ -26,5 +26,6 @@ export default async function CustomerCollectionsPage({
 
   const resolvedSearchParams = (await searchParams) ?? {}
   const tenantId = parseTenantId(resolvedSearchParams.tenantId)
-  return <CustomerCollectionsClient tenantId={tenantId} />
+  const customerSourceId = parseTenantId(resolvedSearchParams.customerSourceId)
+  return <CustomerCollectionsClient tenantId={tenantId} initialCustomerSourceId={customerSourceId} />
 }

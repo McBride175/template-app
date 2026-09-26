@@ -70,7 +70,7 @@ test('multi-currency product copy is minimal and does not expose exchange-rate i
   assert.match(gateSource, /more than one invoiced currency/)
   assert.match(gateSource, /Upgrade to Pro/)
   assert.match(gateSource, /\/pricing\?reason=multi-currency/)
-  assert.match(actionsSource, /equivalent overdue/)
+  assert.match(actionsSource, /equivalent to collect/)
   assert.match(actionsSource, /invoiced/)
   assert.match(invoicesSource, /invoiced/)
   assert.match(invoicesSource, /equivalent/)

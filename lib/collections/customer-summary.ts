@@ -19,6 +19,13 @@ import {
   type CollectionsCurrencyContext,
 } from '@/lib/collections/currency-context'
 import {
+  deriveInvoiceDispute,
+  type DerivedInvoiceDispute,
+  type DisputeAccountingInvoice,
+  type InvoiceDisputeRecord,
+} from '@/lib/collections/invoice-disputes'
+import { loadInvoiceDisputesForSnapshot } from '@/lib/collections/invoice-disputes-server'
+import {
   compareDecimalValues,
   decimalValueToFiniteNumber,
   multiplyDecimalByInteger,
@@ -51,14 +58,27 @@ export interface CustomerCollectionsSummaryRow {
   total_invoices_count: number
   open_invoices_count: number
   overdue_invoices_count: number
-  total_outstanding_base_decimal: string
-  overdue_outstanding_base_decimal: string
-  total_outstanding_base: number
-  overdue_outstanding_base: number
+  /** Gross accounting totals; null when any contributing base valuation is invalid. */
+  total_outstanding_base_decimal: string | null
+  overdue_outstanding_base_decimal: string | null
+  total_outstanding_base: number | null
+  overdue_outstanding_base: number | null
+  /** Exact gross base is null if any open invoice lacks canonical FX. */
+  gross_outstanding_base_decimal: string | null
+  gross_overdue_base_decimal: string | null
+  effective_disputed_outstanding_base_decimal: string | null
+  effective_disputed_overdue_base_decimal: string | null
+  collectible_outstanding_base_decimal: string
+  collectible_overdue_base_decimal: string
+  collectible_outstanding_base: number
+  collectible_overdue_base: number
+  actionable_open_invoices_count: number
+  actionable_overdue_invoices_count: number
+  has_active_dispute: boolean
   /** @deprecated Base-currency compatibility alias. */
-  total_outstanding: number
+  total_outstanding: number | null
   /** @deprecated Base-currency compatibility alias. */
-  overdue_outstanding: number
+  overdue_outstanding: number | null
   oldest_overdue_invoice_date: string | null
   oldest_overdue_days: number | null
   weighted_avg_overdue_days: number
@@ -75,12 +95,21 @@ export interface CustomerCollectionsSummaryRow {
   /** @deprecated Organisation-base-currency compatibility alias. */
   currency_code: string
   native_currency_breakdown: NativeCurrencyBreakdown[]
+  collectible_native_currency_breakdown: CollectibleNativeCurrencyBreakdown[]
 }
 
 export interface NativeCurrencyBreakdown {
   currency_code: string
   total_outstanding_native: string
   overdue_outstanding_native: string
+}
+
+export interface CollectibleNativeCurrencyBreakdown {
+  currency_code: string
+  effective_disputed_outstanding_native: string
+  effective_disputed_overdue_native: string
+  collectible_outstanding_native: string
+  collectible_overdue_native: string
 }
 
 export interface CurrencyReviewRequiredCustomer {
@@ -123,7 +152,11 @@ interface CanonicalCustomerRow {
   status: string | null
 }
 
-interface CanonicalInvoiceRow extends CollectionsInvoiceCurrencyRow {
+interface CanonicalInvoiceRow extends CollectionsInvoiceCurrencyRow, DisputeAccountingInvoice {
+  user_id: string
+  tenant_id: string
+  source_system: string
+  xero_currency_rate: string | number | null
   source_id: string
   customer_source_id: string | null
   type: string | null
@@ -134,6 +167,11 @@ interface CanonicalInvoiceRow extends CollectionsInvoiceCurrencyRow {
   total_native: string | number | null
   amount_paid_native: string | number | null
   amount_credited_native: string | number | null
+}
+
+interface CurrentCollectionInvoice {
+  accounting: CanonicalInvoiceRow
+  debt: DerivedInvoiceDispute
 }
 
 interface CanonicalPaymentRow {
@@ -147,9 +185,17 @@ interface MutableCustomerSummaryRow extends CustomerCollectionsSummaryRow {
   open_receivable_invoice_source_ids: Set<string>
   total_outstanding_base_amounts: string[]
   overdue_outstanding_base_amounts: string[]
+  collectible_outstanding_base_amounts: string[]
+  collectible_overdue_base_amounts: string[]
+  gross_base_complete: boolean
+  gross_overdue_base_complete: boolean
   overdue_weighted_days_numerator_amounts: string[]
   native_total_amounts_by_currency: Map<string, string[]>
   native_overdue_amounts_by_currency: Map<string, string[]>
+  native_collectible_total_by_currency: Map<string, string[]>
+  native_collectible_overdue_by_currency: Map<string, string[]>
+  native_disputed_total_by_currency: Map<string, string[]>
+  native_disputed_overdue_by_currency: Map<string, string[]>
 }
 
 interface MutableCurrencyReviewRequiredCustomer extends CurrencyReviewRequiredCustomer {
@@ -395,6 +441,17 @@ function createMutableSummary(
     overdue_outstanding_base_decimal: '0',
     total_outstanding_base: 0,
     overdue_outstanding_base: 0,
+    gross_outstanding_base_decimal: '0',
+    gross_overdue_base_decimal: '0',
+    effective_disputed_outstanding_base_decimal: '0',
+    effective_disputed_overdue_base_decimal: '0',
+    collectible_outstanding_base_decimal: '0',
+    collectible_overdue_base_decimal: '0',
+    collectible_outstanding_base: 0,
+    collectible_overdue_base: 0,
+    actionable_open_invoices_count: 0,
+    actionable_overdue_invoices_count: 0,
+    has_active_dispute: false,
     total_outstanding: 0,
     overdue_outstanding: 0,
     oldest_overdue_invoice_date: null,
@@ -412,13 +469,22 @@ function createMutableSummary(
     organisation_base_currency_code: organisationBaseCurrency,
     currency_code: organisationBaseCurrency,
     native_currency_breakdown: [],
+    collectible_native_currency_breakdown: [],
     has_receivable_invoice_activity: false,
     open_receivable_invoice_source_ids: new Set<string>(),
     total_outstanding_base_amounts: [],
     overdue_outstanding_base_amounts: [],
+    collectible_outstanding_base_amounts: [],
+    collectible_overdue_base_amounts: [],
+    gross_base_complete: true,
+    gross_overdue_base_complete: true,
     overdue_weighted_days_numerator_amounts: [],
     native_total_amounts_by_currency: new Map<string, string[]>(),
     native_overdue_amounts_by_currency: new Map<string, string[]>(),
+    native_collectible_total_by_currency: new Map<string, string[]>(),
+    native_collectible_overdue_by_currency: new Map<string, string[]>(),
+    native_disputed_total_by_currency: new Map<string, string[]>(),
+    native_disputed_overdue_by_currency: new Map<string, string[]>(),
   }
 }
 
@@ -479,7 +545,7 @@ async function fetchCanonicalInvoices(
     const query = supabase
       .from('canonical_invoices')
       .select(
-        'source_id, customer_source_id, type, status, issue_date, due_date, fully_paid_date, transaction_currency_code, organisation_base_currency_code, total_native, amount_paid_native, amount_due_native, amount_credited_native, amount_due_base, currency_conversion_status, currency_conversion_failure_reason'
+        'user_id, tenant_id, source_system, source_id, customer_source_id, type, status, issue_date, due_date, fully_paid_date, transaction_currency_code, organisation_base_currency_code, xero_currency_rate, total_native, amount_paid_native, amount_due_native, amount_credited_native, amount_due_base, currency_conversion_status, currency_conversion_failure_reason'
       )
       .eq('user_id', snapshot.userId)
       .eq('tenant_id', snapshot.tenantId)
@@ -541,14 +607,49 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
     tenantId,
   })
 
-  const [organisations, customers, invoices, payments] = await Promise.all([
+  const [organisations, customers, invoices, payments, disputes] = await Promise.all([
     fetchCanonicalOrganisations(supabase, snapshot),
     fetchCanonicalCustomers(supabase, snapshot),
     fetchCanonicalInvoices(supabase, snapshot),
     fetchCanonicalPayments(supabase, snapshot),
+    loadInvoiceDisputesForSnapshot({ admin: supabase, userId, tenantId, snapshot }),
   ])
 
-  const currencyEvaluation = evaluateCollectionsCurrencyHealth({ organisations, invoices })
+  const disputeByProviderInvoiceId = new Map<string, InvoiceDisputeRecord>()
+  for (const dispute of disputes) {
+    if (dispute.source_system === 'xero') {
+      disputeByProviderInvoiceId.set(dispute.invoice_source_id, dispute)
+    }
+  }
+  const currentInvoices: CurrentCollectionInvoice[] = invoices.map((accounting) => ({
+    accounting,
+    debt: deriveInvoiceDispute(
+      accounting,
+      accounting.source_system === 'xero'
+        ? disputeByProviderInvoiceId.get(accounting.source_id) ?? null
+        : null
+    ),
+  }))
+  // Scoring health sees only collectible debt. Subscription currency access
+  // deliberately continues to receive the unmodified gross Xero invoices.
+  const scoringCurrencyInvoices = currentInvoices.map(({ accounting, debt }) => ({
+    ...accounting,
+    amount_due_native: debt.collectibleAmountNative ?? accounting.amount_due_native,
+    amount_due_base: debt.collectibleAmountBase,
+  }))
+  const currencyEvaluation = evaluateCollectionsCurrencyHealth({
+    organisations,
+    invoices: scoringCurrencyInvoices,
+  })
+  // Gross reporting needs its own FX validity check. A fully disputed invoice
+  // can be safe for scoring while its accounting base value remains unknown.
+  const grossCurrencyEvaluation = evaluateCollectionsCurrencyHealth({
+    organisations,
+    invoices,
+  })
+  const invalidGrossInvoiceSourceIds = new Set(
+    grossCurrencyEvaluation.currencyIssues.map((issue) => issue.invoiceSourceId)
+  )
   const currencyContext = deriveCollectionsCurrencyContext(invoices)
   const {
     organisationBaseCurrency,
@@ -611,7 +712,7 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
   const affectedCustomerSourceIdSet = new Set(affectedCustomerSourceIds)
 
   const rowsByCustomerSourceId = new Map<string, MutableCustomerSummaryRow>()
-  const customerSourceIdByCollectibleInvoiceSourceId = new Map<string, string>()
+  const customerSourceIdByReceivableInvoiceSourceId = new Map<string, string>()
   const historicalInvoicesByCustomerSourceId = new Map<string, HistoricalPaymentInvoice[]>()
 
   const ensureSummary = (sourceId: string) => {
@@ -623,7 +724,7 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
     return created
   }
 
-  for (const invoice of invoices) {
+  for (const { accounting: invoice, debt } of currentInvoices) {
     if (normalizeInvoiceType(invoice.type) !== COLLECTIBLE_INVOICE_TYPE) {
       continue
     }
@@ -647,7 +748,7 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
     }
 
     if (invoiceSourceId && customerSourceId) {
-      customerSourceIdByCollectibleInvoiceSourceId.set(invoiceSourceId, customerSourceId)
+      customerSourceIdByReceivableInvoiceSourceId.set(invoiceSourceId, customerSourceId)
     }
 
     if (normalizeInvoiceStatus(invoice.status) !== COLLECTIBLE_INVOICE_STATUS) {
@@ -674,36 +775,56 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
       continue
     }
 
-    if (!amountDueBase || !transactionCurrencyCode || !isPositiveDecimal(amountDueBase)) {
-      throw new Error(
-        `Currency health invariant failed for collectible invoice ${invoice.source_id}`
-      )
-    }
-
     summary.open_invoices_count += 1
-    summary.total_outstanding_base_amounts.push(amountDueBase)
-    appendDecimalAmount(
-      summary.native_total_amounts_by_currency,
-      transactionCurrencyCode,
-      amountDueNative
-    )
+    // Payment recency remains based on gross open accounting invoices.
+    if (invoiceSourceId) summary.open_receivable_invoice_source_ids.add(invoiceSourceId)
+    const isOverdue = Boolean(dueDate && dueDate < todayIso)
+    if (isOverdue) summary.overdue_invoices_count += 1
 
-    if (invoiceSourceId) {
-      summary.open_receivable_invoice_source_ids.add(invoiceSourceId)
+    // Keep the Xero accounting balance separate from the collectible scoring
+    // population. Fully disputed FX-invalid invoices retain native gross debt.
+    if (amountDueBase && isPositiveDecimal(amountDueBase) &&
+        !invalidGrossInvoiceSourceIds.has(invoice.source_id)) {
+      summary.total_outstanding_base_amounts.push(amountDueBase)
+      if (isOverdue) summary.overdue_outstanding_base_amounts.push(amountDueBase)
+    } else {
+      summary.gross_base_complete = false
+      if (isOverdue) summary.gross_overdue_base_complete = false
+    }
+    if (transactionCurrencyCode) {
+      appendDecimalAmount(summary.native_total_amounts_by_currency, transactionCurrencyCode, amountDueNative)
+      if (isOverdue) {
+        appendDecimalAmount(summary.native_overdue_amounts_by_currency, transactionCurrencyCode, amountDueNative)
+      }
     }
 
-    if (dueDate && dueDate < todayIso) {
+    const collectibleNative = debt.collectibleAmountNative
+    const collectibleBase = debt.collectibleAmountBase
+    const disputedNative = debt.effectiveDisputedAmountNative
+    if (debt.isActive && disputedNative && isPositiveDecimal(disputedNative)) {
+      summary.has_active_dispute = true
+    }
+    if (transactionCurrencyCode && disputedNative && isPositiveDecimal(disputedNative)) {
+      appendDecimalAmount(summary.native_disputed_total_by_currency, transactionCurrencyCode, disputedNative)
+      if (isOverdue) appendDecimalAmount(summary.native_disputed_overdue_by_currency, transactionCurrencyCode, disputedNative)
+    }
+    if (!collectibleNative || !isPositiveDecimal(collectibleNative)) continue
+    if (!collectibleBase || !transactionCurrencyCode || !isPositiveDecimal(collectibleBase)) {
+      throw new Error(`Currency health invariant failed for collectible invoice ${invoice.source_id}`)
+    }
+
+    summary.actionable_open_invoices_count += 1
+    summary.collectible_outstanding_base_amounts.push(collectibleBase)
+    appendDecimalAmount(summary.native_collectible_total_by_currency, transactionCurrencyCode, collectibleNative)
+
+    if (dueDate && isOverdue) {
       const overdueDays = calculateOverdueDays(todayUtcMs, dueDate)
 
-      summary.overdue_invoices_count += 1
-      summary.overdue_outstanding_base_amounts.push(amountDueBase)
-      appendDecimalAmount(
-        summary.native_overdue_amounts_by_currency,
-        transactionCurrencyCode,
-        amountDueNative
-      )
+      summary.actionable_overdue_invoices_count += 1
+      summary.collectible_overdue_base_amounts.push(collectibleBase)
+      appendDecimalAmount(summary.native_collectible_overdue_by_currency, transactionCurrencyCode, collectibleNative)
       summary.oldest_overdue_invoice_date = minIsoDate(summary.oldest_overdue_invoice_date, dueDate)
-      const weightedAmount = multiplyDecimalByInteger(amountDueBase, overdueDays)
+      const weightedAmount = multiplyDecimalByInteger(collectibleBase, overdueDays)
       if (weightedAmount === null) {
         throw new Error(
           `Failed to weight base amount for collectible invoice ${invoice.source_id}`
@@ -746,7 +867,7 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
     const customerSourceId =
       normalizeSourceId(payment.customer_source_id) ??
       (invoiceSourceId
-        ? customerSourceIdByCollectibleInvoiceSourceId.get(invoiceSourceId) ?? null
+        ? customerSourceIdByReceivableInvoiceSourceId.get(invoiceSourceId) ?? null
         : null)
     if (!customerSourceId) continue
 
@@ -782,31 +903,56 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
       sumDecimalValues(row.total_outstanding_base_amounts) ?? '0'
     const overdueOutstandingBaseDecimal =
       sumDecimalValues(row.overdue_outstanding_base_amounts) ?? '0'
+    const collectibleOutstandingBaseDecimal =
+      sumDecimalValues(row.collectible_outstanding_base_amounts) ?? '0'
+    const collectibleOverdueBaseDecimal =
+      sumDecimalValues(row.collectible_overdue_base_amounts) ?? '0'
     const weightedDaysNumeratorDecimal =
       sumDecimalValues(row.overdue_weighted_days_numerator_amounts) ?? '0'
     const totalOutstandingBase = decimalValueToFiniteNumber(totalOutstandingBaseDecimal)
     const overdueOutstandingBase = decimalValueToFiniteNumber(overdueOutstandingBaseDecimal)
+    const collectibleOutstandingBase = decimalValueToFiniteNumber(collectibleOutstandingBaseDecimal)
+    const collectibleOverdueBase = decimalValueToFiniteNumber(collectibleOverdueBaseDecimal)
     const weightedDaysNumerator = decimalValueToFiniteNumber(weightedDaysNumeratorDecimal)
 
     if (
       totalOutstandingBase === null ||
       overdueOutstandingBase === null ||
+      collectibleOutstandingBase === null ||
+      collectibleOverdueBase === null ||
       weightedDaysNumerator === null
     ) {
       throw new Error(`Base-currency aggregation exceeded the supported calculation range`)
     }
 
-    row.total_outstanding_base = totalOutstandingBase
-    row.overdue_outstanding_base = overdueOutstandingBase
-    row.total_outstanding_base_decimal = totalOutstandingBaseDecimal
-    row.overdue_outstanding_base_decimal = overdueOutstandingBaseDecimal
-    row.total_outstanding = totalOutstandingBase
-    row.overdue_outstanding = overdueOutstandingBase
+    row.total_outstanding_base = row.gross_base_complete ? totalOutstandingBase : null
+    row.overdue_outstanding_base = row.gross_overdue_base_complete
+      ? overdueOutstandingBase : null
+    row.total_outstanding_base_decimal = row.gross_base_complete
+      ? totalOutstandingBaseDecimal : null
+    row.overdue_outstanding_base_decimal = row.gross_overdue_base_complete
+      ? overdueOutstandingBaseDecimal : null
+    row.total_outstanding = row.total_outstanding_base
+    row.overdue_outstanding = row.overdue_outstanding_base
+    row.gross_outstanding_base_decimal = row.gross_base_complete
+      ? totalOutstandingBaseDecimal : null
+    row.gross_overdue_base_decimal = row.gross_overdue_base_complete
+      ? overdueOutstandingBaseDecimal : null
+    row.collectible_outstanding_base_decimal = collectibleOutstandingBaseDecimal
+    row.collectible_overdue_base_decimal = collectibleOverdueBaseDecimal
+    row.collectible_outstanding_base = collectibleOutstandingBase
+    row.collectible_overdue_base = collectibleOverdueBase
+    row.effective_disputed_outstanding_base_decimal = row.gross_base_complete
+      ? sumDecimalValues([totalOutstandingBaseDecimal, `-${collectibleOutstandingBaseDecimal}`])
+      : null
+    row.effective_disputed_overdue_base_decimal = row.gross_overdue_base_complete
+      ? sumDecimalValues([overdueOutstandingBaseDecimal, `-${collectibleOverdueBaseDecimal}`])
+      : null
 
-    if (overdueOutstandingBase <= 0) {
+    if (collectibleOverdueBase <= 0) {
       row.weighted_avg_overdue_days = 0
     } else {
-      row.weighted_avg_overdue_days = weightedDaysNumerator / overdueOutstandingBase
+      row.weighted_avg_overdue_days = weightedDaysNumerator / collectibleOverdueBase
     }
 
     const nativeCurrencyCodes = new Set([
@@ -821,6 +967,19 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
           sumDecimalValues(row.native_total_amounts_by_currency.get(currencyCode) ?? []) ?? '0',
         overdue_outstanding_native:
           sumDecimalValues(row.native_overdue_amounts_by_currency.get(currencyCode) ?? []) ?? '0',
+      }))
+    row.collectible_native_currency_breakdown = Array.from(nativeCurrencyCodes)
+      .sort()
+      .map((currencyCode) => ({
+        currency_code: currencyCode,
+        effective_disputed_outstanding_native:
+          sumDecimalValues(row.native_disputed_total_by_currency.get(currencyCode) ?? []) ?? '0',
+        effective_disputed_overdue_native:
+          sumDecimalValues(row.native_disputed_overdue_by_currency.get(currencyCode) ?? []) ?? '0',
+        collectible_outstanding_native:
+          sumDecimalValues(row.native_collectible_total_by_currency.get(currencyCode) ?? []) ?? '0',
+        collectible_overdue_native:
+          sumDecimalValues(row.native_collectible_overdue_by_currency.get(currencyCode) ?? []) ?? '0',
       }))
 
     const historicalBaseline = calculateHistoricalPaymentBaseline(
@@ -849,6 +1008,17 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
       overdue_outstanding_base_decimal: row.overdue_outstanding_base_decimal,
       total_outstanding_base: row.total_outstanding_base,
       overdue_outstanding_base: row.overdue_outstanding_base,
+      gross_outstanding_base_decimal: row.gross_outstanding_base_decimal,
+      gross_overdue_base_decimal: row.gross_overdue_base_decimal,
+      effective_disputed_outstanding_base_decimal: row.effective_disputed_outstanding_base_decimal,
+      effective_disputed_overdue_base_decimal: row.effective_disputed_overdue_base_decimal,
+      collectible_outstanding_base_decimal: row.collectible_outstanding_base_decimal,
+      collectible_overdue_base_decimal: row.collectible_overdue_base_decimal,
+      collectible_outstanding_base: row.collectible_outstanding_base,
+      collectible_overdue_base: row.collectible_overdue_base,
+      actionable_open_invoices_count: row.actionable_open_invoices_count,
+      actionable_overdue_invoices_count: row.actionable_overdue_invoices_count,
+      has_active_dispute: row.has_active_dispute,
       total_outstanding: row.total_outstanding,
       overdue_outstanding: row.overdue_outstanding,
       oldest_overdue_invoice_date: row.oldest_overdue_invoice_date,
@@ -866,6 +1036,7 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
       organisation_base_currency_code: row.organisation_base_currency_code,
       currency_code: row.currency_code,
       native_currency_breakdown: row.native_currency_breakdown,
+      collectible_native_currency_breakdown: row.collectible_native_currency_breakdown,
     })
   }
 

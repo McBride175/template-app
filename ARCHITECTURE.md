@@ -87,8 +87,38 @@ An invoice dispute is not attached to a generation-specific `canonical_invoices.
 recorded native amount and last-reviewed native balance persist independently;
 effective disputed and collectible amounts are derived from the current
 authoritative invoice snapshot. A zero or absent current invoice does not
-automatically resolve the user-authored dispute. Scoring integration is a
-separate implementation phase.
+automatically resolve the user-authored dispute. Customer summary loads tenant-owned
+disputes once, joins them by durable provider invoice ID, and uses the dispute
+domain derivation before current-debt scoring. Gross accounting balances remain
+separate from collectible balances. Customer exposure, actionable invoice counts,
+weighted overdue age, and portfolio benchmarks use the same collectible population;
+historical paid-invoice timing and payment recency remain unchanged.
+Collections recommendation amounts and actionable invoice counts are explicit
+collectible fields; existing outstanding balances and invoice counts in the
+customer and actions APIs retain gross accounting meaning. The customer list's
+balance sorts and overdue filter also use gross accounting data, while the
+recommendation queue uses collectible debt. Gross base totals are nullable
+when any contributing open invoice lacks a trustworthy valuation; a known
+subtotal is never presented as a complete total. Gross FX validity is checked
+independently from collectible scoring health, and currency-review native
+"invoiced outstanding" remains gross.
+
+The customer collections page provides invoice-level dispute entry and an
+explicit bulk full-dispute action for selected or all currently open invoices.
+`/api/collections/invoice-disputes` reads the held authoritative customer
+snapshot and delegates every mutation to the authenticated dispute domain.
+The server validates provider invoice IDs, ownership, open receivable state,
+and the current native AmountDue before writing. Existing-row mutations require
+the dispute's monotonic revision and use conditional writes; only explicit
+Reactivate changes a resolved row back to active. Bulk full disputes validate
+every selected invoice for the same customer, then use one service-role-only
+transactional database function to check all revisions, preserve existing notes,
+and write the complete set or none. The invoice-management API returns an
+explicit native-currency DTO without unvalidated base amounts. Customer and actions
+data is reloaded after mutation; a saved-but-unrefreshed state is retained above
+the customer list and hides stale mutation controls. No score is calculated in the browser. The
+priority queue links to customer invoice context. No customer-wide dispute
+record or dedicated dispute worklist is created by this flow.
 
 Canonical application reads resolve one authoritative snapshot per user and tenant. A non-null
 `xero_sync_tenant_state.active_sync_run_id` is authoritative only when it references that exact
@@ -121,11 +151,11 @@ Canonical conversion preserves native decimal precision and rounds foreign-deriv
 
 Base-currency conversion is an accounting/scoring correctness layer: it is always performed and never disabled by subscription tier. Product access is a separate entitlement. For that entitlement, the collections portfolio is `multi_currency` only when its current positive, open `ACCREC` population contains more than one valid invoiced currency; Xero `UseMulticurrency`, settled or historical invoices, country, and base currency do not determine the mode. The existing five distinct UTC usage days evaluate both modes. After that allowance, Basic permits single-currency collections and Pro permits single- or multi-currency collections. Because mode is derived from current receivables, Basic access is restored automatically when foreign exposure settles and the open population returns to one currency.
 
-All cross-invoice and cross-customer monetary collections prioritisation operates in the authoritative Xero organisation base currency. Native invoice currency remains source/accounting context and must never be directly aggregated with another currency. Customer outstanding and overdue totals sum canonical base amounts, and balance-weighted overdue age uses `amount_due_base` as its weight. Exact PostgreSQL numeric strings are summed before one controlled conversion to JavaScript numbers at the dimensionless scoring boundary.
+All cross-invoice and cross-customer monetary collections prioritisation operates in the authoritative Xero organisation base currency. Native invoice currency remains source/accounting context and must never be directly aggregated with another currency. Gross customer balances retain canonical `amount_due_base`; collectible balances subtract the effective dispute through the canonical dispute domain. Balance-weighted overdue age uses collectible base amounts in both its numerator and denominator. Exact PostgreSQL numeric strings are summed before one controlled conversion to JavaScript numbers at the dimensionless scoring boundary.
 
-The collections currency-health gate evaluates open, positive `ACCREC` obligations before aggregation. Healthy data produces the complete ranking. An isolated incomplete or inconsistent invoice conversion degrades the result: every customer affected by such an invoice is excluded in full from scoring and exposed separately for review, while safely valued customers are ranked using provisional portfolio metrics calculated only from that safe population. Missing or conflicting authoritative organisation base currency makes the ranking unavailable because no reliable common monetary unit exists. In every state, an unconvertible invoice is never treated as zero, interpreted in native units, or assigned a guessed rate. Paid historical invoices do not degrade the queue when only their dates are used for historical lateness.
+The collections currency-health gate evaluates open, positive collectible `ACCREC` obligations before aggregation. Healthy data produces the complete ranking. An isolated incomplete or inconsistent conversion on collectible debt degrades the result: every customer affected by such an invoice is excluded in full from scoring and exposed separately for review, while safely valued customers are ranked using provisional portfolio metrics calculated only from that safe population. A fully disputed FX-invalid invoice contributes no collectible debt and does not degrade scoring, but its gross base balance remains explicitly unavailable. Missing or conflicting authoritative organisation base currency makes the ranking unavailable because no reliable common monetary unit exists. Collectible unconvertible debt is never treated as zero, interpreted in native units, or assigned a guessed rate. Paid historical invoices do not degrade the queue when only their dates are used for historical lateness.
 
-Currency access and currency health are independent contracts. A paid Basic user with a current multi-currency population is denied the normal collections read and mutation APIs with a structured Pro-required response, without filtering foreign invoices or changing canonical data. Free-allowance and Pro users continue into the existing healthy, degraded, or unavailable currency-health flow. Single-currency presentation stays unchanged; allowed multi-currency presentation leads with organisation-currency equivalents and shows compact invoiced-currency amounts as secondary context without exposing exchange rates.
+Currency access and currency health are independent contracts. Currency access continues to use gross positive open Xero receivables, including disputed invoices. A paid Basic user with a current multi-currency population is denied the normal collections read and mutation APIs with a structured Pro-required response, without filtering foreign invoices or changing canonical data. Free-allowance and Pro users continue into the existing healthy, degraded, or unavailable currency-health flow. Single-currency presentation stays unchanged; allowed multi-currency presentation leads with organisation-currency equivalents and shows compact invoiced-currency amounts as secondary context without exposing exchange rates.
 
 ## Database access model
 
@@ -135,7 +165,7 @@ RLS is enabled on every application table. Grants are explicit rather than relyi
 |---|---|
 | Authenticated user SELECT | `subscriptions`, `xero_connections_public` |
 | Authenticated user CRUD | `notes` |
-| Service role only | `stripe_customers`, `support_tickets`, all privacy tables, `xero_oauth_grants`, `xero_scheduled_sync_runs`, `xero_sync_tenant_state`, `xero_sync_runs`, `xero_sync_run_steps`, `xero_sync_run_validations`, `billing_usage_days`, `xero_raw`, canonical Xero tables, `customer_overrides`, `collection_actions` |
+| Service role only | `stripe_customers`, `support_tickets`, all privacy tables, `xero_oauth_grants`, `xero_scheduled_sync_runs`, `xero_sync_tenant_state`, `xero_sync_runs`, `xero_sync_run_steps`, `xero_sync_run_validations`, `billing_usage_days`, `xero_raw`, canonical Xero tables, `customer_overrides`, `collection_actions`, `invoice_disputes` |
 | Anonymous browser | No direct application-table access |
 
 User-accessible tables have `auth.uid() = user_id` policies. Server-only tables have RLS enabled, no browser policies, and explicit revocation from `anon` and `authenticated`. Service-role credentials are server-only and bypass RLS. Billable server routes authenticate the user, atomically claim/check the current UTC usage date, and only then query service-role-only product data with explicit `user_id` and `tenant_id` filters.

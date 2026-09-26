@@ -1,9 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Card from '@/app/components/Card'
 import Button from '@/app/components/Button'
+import CustomerInvoiceDisputes from '@/app/collections/customers/CustomerInvoiceDisputes'
 import MultiCurrencyPlanGate from '@/app/collections/MultiCurrencyPlanGate'
 import {
   formatCurrentOverdueAge,
@@ -34,10 +35,15 @@ interface CustomerCollectionsSummaryRow {
   total_invoices_count: number
   open_invoices_count: number
   overdue_invoices_count: number
-  total_outstanding_base_decimal: string
-  overdue_outstanding_base_decimal: string
-  total_outstanding_base: number
-  overdue_outstanding_base: number
+  total_outstanding_base_decimal: string | null
+  overdue_outstanding_base_decimal: string | null
+  total_outstanding_base: number | null
+  overdue_outstanding_base: number | null
+  collectible_outstanding_base: number
+  collectible_overdue_base: number
+  effective_disputed_outstanding_base_decimal: string | null
+  effective_disputed_overdue_base_decimal: string | null
+  has_active_dispute: boolean
   oldest_overdue_invoice_date: string | null
   oldest_overdue_days: number | null
   weighted_avg_overdue_days: number
@@ -53,6 +59,13 @@ interface CustomerCollectionsSummaryRow {
     currency_code: string
     total_outstanding_native: string
     overdue_outstanding_native: string
+  }>
+  collectible_native_currency_breakdown: Array<{
+    currency_code: string
+    effective_disputed_outstanding_native: string
+    effective_disputed_overdue_native: string
+    collectible_outstanding_native: string
+    collectible_overdue_native: string
   }>
   override_level: FounderContextLevel
 }
@@ -114,16 +127,17 @@ interface CollectionOverrideApiResponse {
 
 interface CustomerCollectionsClientProps {
   tenantId?: string | null
+  initialCustomerSourceId?: string | null
 }
 
 const SORT_OPTIONS: Array<{
   value: `${SortBy}:${SortDir}`
   label: string
 }> = [
-  { value: 'overdue_outstanding:desc', label: 'Overdue outstanding (high to low)' },
-  { value: 'overdue_outstanding:asc', label: 'Overdue outstanding (low to high)' },
-  { value: 'total_outstanding:desc', label: 'Total outstanding (high to low)' },
-  { value: 'total_outstanding:asc', label: 'Total outstanding (low to high)' },
+  { value: 'overdue_outstanding:desc', label: 'Gross overdue (high to low)' },
+  { value: 'overdue_outstanding:asc', label: 'Gross overdue (low to high)' },
+  { value: 'total_outstanding:desc', label: 'Gross outstanding (high to low)' },
+  { value: 'total_outstanding:asc', label: 'Gross outstanding (low to high)' },
   { value: 'oldest_overdue_days:desc', label: 'Oldest overdue (oldest first)' },
   { value: 'oldest_overdue_days:asc', label: 'Oldest overdue (newest first)' },
   { value: 'customer_name:asc', label: 'Customer name (A to Z)' },
@@ -137,7 +151,8 @@ function formatDate(value: string | null) {
   return date.toLocaleDateString()
 }
 
-function formatMoney(amount: number, currencyCode: string | null) {
+function formatMoney(amount: number | null, currencyCode: string | null) {
+  if (amount === null) return 'Base amount unavailable'
   const normalizedCurrencyCode = currencyCode?.trim() || null
 
   if (normalizedCurrencyCode) {
@@ -187,18 +202,22 @@ function getStatusLabel(row: CustomerCollectionsSummaryRow) {
 }
 
 function getStatusBadgeClasses(row: CustomerCollectionsSummaryRow) {
-  if (row.overdue_outstanding_base > 0) {
+  if (row.overdue_invoices_count > 0) {
     return 'bg-amber-100 text-amber-800'
   }
   return 'bg-gray-100 text-gray-700'
 }
 
-export default function CustomerCollectionsClient({ tenantId = null }: CustomerCollectionsClientProps) {
+export default function CustomerCollectionsClient({ tenantId = null, initialCustomerSourceId = null }: CustomerCollectionsClientProps) {
   const router = useRouter()
   const loginNextPath = tenantId
     ? `/customers?tenantId=${encodeURIComponent(tenantId)}`
     : '/customers'
   const [rows, setRows] = useState<CustomerCollectionsSummaryRow[]>([])
+  const [resolvedTenantId, setResolvedTenantId] = useState<string | null>(tenantId)
+  const [expandedCustomerSourceId, setExpandedCustomerSourceId] = useState<string | null>(initialCustomerSourceId)
+  const invoiceSectionRef = useRef<HTMLElement | null>(null)
+  const initialInvoiceScrollDone = useRef(false)
   const [overdueOnly, setOverdueOnly] = useState(false)
   const [sortOption, setSortOption] =
     useState<`${SortBy}:${SortDir}`>('overdue_outstanding:desc')
@@ -206,6 +225,10 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [disputeRefreshState, setDisputeRefreshState] = useState<{
+    stale: boolean
+    message: string
+  } | null>(null)
   const [contextError, setContextError] = useState<string | null>(null)
   const [contextFeedback, setContextFeedback] = useState<string | null>(null)
   const [updatingContextByCustomerId, setUpdatingContextByCustomerId] = useState<
@@ -240,6 +263,7 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
         if (tenantId) {
           params.set('tenantId', tenantId)
         }
+        if (initialCustomerSourceId) params.set('customerSourceId', initialCustomerSourceId)
 
         const response = await fetch(`/api/collections/customers?${params.toString()}`, {
           cache: 'no-store',
@@ -273,6 +297,7 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
         }
 
         setRows(payload.rows ?? [])
+        setResolvedTenantId(payload.tenantId ?? null)
         setOrganisationBaseCurrency(payload.organisationBaseCurrency ?? null)
         setCurrencyContext(payload.currencyContext ?? null)
         setCurrencyAccess(payload.currencyAccess ?? null)
@@ -291,12 +316,19 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
         setRefreshing(false)
       }
     },
-    [loginNextPath, overdueOnly, router, sortOption, tenantId]
+    [initialCustomerSourceId, loginNextPath, overdueOnly, router, sortOption, tenantId]
   )
 
   useEffect(() => {
     void loadRows(false)
   }, [loadRows])
+
+  useEffect(() => {
+    if (!initialCustomerSourceId || initialInvoiceScrollDone.current || loading ||
+      expandedCustomerSourceId !== initialCustomerSourceId || !invoiceSectionRef.current) return
+    initialInvoiceScrollDone.current = true
+    invoiceSectionRef.current.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  }, [expandedCustomerSourceId, initialCustomerSourceId, loading, rows, reviewRequiredCustomers])
 
   const handleFounderContextChange = useCallback(
     async (
@@ -421,14 +453,16 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
   }, [currencyHealth?.status, loading, reviewRequiredCustomers.length, rows.length, visibleRows.length])
 
   const totals = useMemo(() => {
-    let outstandingBase = 0
-    let overdueOutstandingBase = 0
+    let outstandingBase: number | null = 0
+    let overdueOutstandingBase: number | null = 0
     let overdueInvoicesCount = 0
     let oldestOverdueDaysSum = 0
 
     for (const row of visibleRows) {
-      outstandingBase += row.total_outstanding_base
-      overdueOutstandingBase += row.overdue_outstanding_base
+      if (row.total_outstanding_base === null) outstandingBase = null
+      else if (outstandingBase !== null) outstandingBase += row.total_outstanding_base
+      if (row.overdue_outstanding_base === null) overdueOutstandingBase = null
+      else if (overdueOutstandingBase !== null) overdueOutstandingBase += row.overdue_outstanding_base
       overdueInvoicesCount += row.overdue_invoices_count
       oldestOverdueDaysSum += row.oldest_overdue_days ?? 0
     }
@@ -507,13 +541,25 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
             </select>
           </label>
 
-          <Button onClick={() => void loadRows(true)} variant="secondary" size="md" disabled={refreshing}>
+          <Button onClick={() => disputeRefreshState?.stale
+            ? window.location.reload() : void loadRows(true)} variant="secondary" size="md" disabled={refreshing}>
             {refreshing ? 'Refreshing…' : 'Refresh'}
           </Button>
         </div>
       </Card>}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {disputeRefreshState && (
+        <p role={disputeRefreshState.stale ? 'alert' : 'status'}
+          className={disputeRefreshState.stale ? 'text-sm text-amber-900' : 'text-sm text-green-700'}>
+          {disputeRefreshState.message}
+          {disputeRefreshState.stale && (
+            <button type="button" className="ml-2 underline" onClick={() => window.location.reload()}>
+              Refresh page
+            </button>
+          )}
+        </p>
+      )}
       {contextError && (
         <p className="text-sm text-red-600" role="alert">
           {contextError}
@@ -576,7 +622,7 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
         </Card>
       )}
 
-      {!error &&
+      {!error && !disputeRefreshState?.stale &&
         !multiCurrencyPlanRequired &&
         !loading &&
         reviewRequiredCustomers.length > 0 && (
@@ -628,6 +674,25 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
                   <p className="mt-1 text-xs text-gray-500">
                     Refresh Xero data or contact support before deciding priority.
                   </p>
+                  {resolvedTenantId && (
+                    <div className="mt-2">
+                      <button type="button" className="min-h-11 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900"
+                        aria-expanded={expandedCustomerSourceId === customer.customer_source_id}
+                        onClick={() => setExpandedCustomerSourceId((current) => current === customer.customer_source_id ? null : customer.customer_source_id)}>
+                        {expandedCustomerSourceId === customer.customer_source_id ? 'Hide invoices' : 'Manage invoices'}
+                      </button>
+                      {expandedCustomerSourceId === customer.customer_source_id && (
+                        <div className="mt-2" ref={(element) => { invoiceSectionRef.current = element }}>
+                          <CustomerInvoiceDisputes tenantId={resolvedTenantId}
+                            customerSourceId={customer.customer_source_id} customerName={customer.customer_name}
+                            onChanged={() => loadRows(true)}
+                            onMutationStarted={() => setDisputeRefreshState(null)}
+                            onMutationPending={(message) => setDisputeRefreshState({ stale: true, message })}
+                            onMutationResult={(refreshed, message) => setDisputeRefreshState({ stale: !refreshed, message })} />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -635,7 +700,7 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
         </Card>
       )}
 
-      {!error &&
+      {!error && !disputeRefreshState?.stale &&
         !multiCurrencyPlanRequired &&
         !loading &&
         currencyHealth?.status !== 'unavailable' &&
@@ -644,7 +709,7 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
           <div className="grid gap-3 rounded-md border border-gray-200 bg-gray-50 p-3 text-sm text-gray-800 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <p className="text-xs uppercase tracking-wide text-gray-600">
-                {showMultiCurrencyAmounts ? 'Equivalent outstanding total' : 'Outstanding total'}
+                {showMultiCurrencyAmounts ? 'Gross equivalent outstanding total' : 'Gross outstanding total'}
               </p>
               <p className="mt-1 font-semibold text-gray-900">
                 {formatMoney(totals.outstandingBase, organisationBaseCurrency)}
@@ -653,8 +718,8 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
             <div>
               <p className="text-xs uppercase tracking-wide text-gray-600">
                 {showMultiCurrencyAmounts
-                  ? 'Equivalent overdue total'
-                  : 'Overdue outstanding total'}
+                  ? 'Gross equivalent overdue total'
+                  : 'Gross overdue total'}
               </p>
               <p className="mt-1 font-semibold text-gray-900">
                 {formatMoney(totals.overdueOutstandingBase, organisationBaseCurrency)}
@@ -675,19 +740,21 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
             <thead className="bg-gray-50 text-left text-gray-700">
               <tr>
                 <th className="px-4 py-3 font-medium">Customer name</th>
-                <th className="px-4 py-3 font-medium">Outstanding</th>
-                <th className="px-4 py-3 font-medium">Overdue outstanding</th>
+                <th className="px-4 py-3 font-medium">Gross outstanding</th>
+                <th className="px-4 py-3 font-medium">Gross overdue</th>
                 <th className="px-4 py-3 font-medium">Overdue invoices</th>
-                <th className="px-4 py-3 font-medium">Oldest overdue (days)</th>
+                <th className="px-4 py-3 font-medium">Oldest collectible overdue (days)</th>
                 <th className="px-4 py-3 font-medium">Last payment date</th>
                 <th className="px-4 py-3 font-medium">Payment behaviour</th>
                 <th className="px-4 py-3 font-medium">Customer context</th>
                 <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 font-medium">Invoices</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 text-gray-800">
               {visibleRows.map((row) => (
-                <tr key={row.customer_source_id}>
+                <Fragment key={row.customer_source_id}>
+                <tr>
                   <td className="px-4 py-3">
                     <p className="font-medium text-gray-900">{row.customer_name}</p>
                     <p className="text-xs text-gray-600">{row.customer_email || '—'}</p>
@@ -695,9 +762,9 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
                   <td className="px-4 py-3">
                     <p>
                       {formatMoney(row.total_outstanding_base, organisationBaseCurrency)}
-                      {showMultiCurrencyAmounts ? ' equivalent' : ''}
+                      {showMultiCurrencyAmounts && row.total_outstanding_base !== null ? ' equivalent' : ''}
                     </p>
-                    {showMultiCurrencyAmounts &&
+                    {(showMultiCurrencyAmounts || row.total_outstanding_base === null) &&
                       formatInvoicedBreakdown(
                         row.native_currency_breakdown,
                         'total_outstanding_native'
@@ -710,13 +777,21 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
                           invoiced
                         </p>
                       )}
+                    {row.has_active_dispute && (
+                      <p className="mt-0.5 text-xs text-gray-600">
+                        Disputed: {row.effective_disputed_outstanding_base_decimal === null
+                          ? 'Base amount unavailable'
+                          : formatMoney(Number(row.effective_disputed_outstanding_base_decimal), organisationBaseCurrency)}
+                        {' · '}{formatMoney(row.collectible_outstanding_base, organisationBaseCurrency)} to collect
+                      </p>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <p>
                       {formatMoney(row.overdue_outstanding_base, organisationBaseCurrency)}
-                      {showMultiCurrencyAmounts ? ' equivalent overdue' : ''}
+                      {showMultiCurrencyAmounts && row.overdue_outstanding_base !== null ? ' equivalent overdue' : ''}
                     </p>
-                    {showMultiCurrencyAmounts &&
+                    {(showMultiCurrencyAmounts || row.overdue_outstanding_base === null) &&
                       formatInvoicedBreakdown(
                         row.native_currency_breakdown,
                         'overdue_outstanding_native'
@@ -729,6 +804,20 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
                           invoiced
                         </p>
                       )}
+                    {row.collectible_overdue_base > 0 &&
+                      (row.overdue_outstanding_base === null ||
+                        row.collectible_overdue_base !== row.overdue_outstanding_base) && (
+                        <p className="mt-0.5 text-xs text-gray-600">
+                          {formatMoney(row.collectible_overdue_base, organisationBaseCurrency)} to collect
+                        </p>
+                      )}
+                    {row.has_active_dispute && (
+                      <p className="mt-0.5 text-xs text-gray-600">
+                        Disputed: {row.effective_disputed_overdue_base_decimal === null
+                          ? 'Base amount unavailable'
+                          : formatMoney(Number(row.effective_disputed_overdue_base_decimal), organisationBaseCurrency)}
+                      </p>
+                    )}
                   </td>
                   <td className="px-4 py-3">{row.overdue_invoices_count}</td>
                   <td className="px-4 py-3">{row.oldest_overdue_days ?? '—'}</td>
@@ -792,7 +881,26 @@ export default function CustomerCollectionsClient({ tenantId = null }: CustomerC
                       {getStatusLabel(row)}
                     </span>
                   </td>
+                  <td className="px-4 py-3">
+                    <button type="button" className="min-h-11 whitespace-nowrap rounded-md border border-gray-300 px-3 py-2 text-sm font-medium hover:bg-gray-50"
+                      aria-expanded={expandedCustomerSourceId === row.customer_source_id}
+                      onClick={() => setExpandedCustomerSourceId((current) => current === row.customer_source_id ? null : row.customer_source_id)}>
+                      {expandedCustomerSourceId === row.customer_source_id ? 'Hide invoices' : 'Manage invoices'}
+                    </button>
+                    {row.has_active_dispute && <p className="mt-1 text-xs text-amber-800">Disputed debt</p>}
+                  </td>
                 </tr>
+                {expandedCustomerSourceId === row.customer_source_id && resolvedTenantId && (
+                  <tr ref={(element) => { invoiceSectionRef.current = element }}><td colSpan={10} className="p-0">
+                    <CustomerInvoiceDisputes tenantId={resolvedTenantId}
+                      customerSourceId={row.customer_source_id} customerName={row.customer_name}
+                      onChanged={() => loadRows(true)}
+                      onMutationStarted={() => setDisputeRefreshState(null)}
+                      onMutationPending={(message) => setDisputeRefreshState({ stale: true, message })}
+                      onMutationResult={(refreshed, message) => setDisputeRefreshState({ stale: !refreshed, message })} />
+                  </td></tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
             </table>

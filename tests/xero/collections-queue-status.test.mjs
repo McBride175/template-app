@@ -59,6 +59,21 @@ function buildSummaryRow(overrides = {}) {
   if (!Object.hasOwn(overrides, 'overdue_outstanding_base_decimal')) {
     row.overdue_outstanding_base_decimal = String(row.overdue_outstanding_base)
   }
+  Object.assign(row, {
+    gross_outstanding_base_decimal: row.total_outstanding_base_decimal,
+    gross_overdue_base_decimal: row.overdue_outstanding_base_decimal,
+    effective_disputed_outstanding_base_decimal: '0',
+    effective_disputed_overdue_base_decimal: '0',
+    collectible_outstanding_base_decimal: row.total_outstanding_base_decimal,
+    collectible_overdue_base_decimal: row.overdue_outstanding_base_decimal,
+    collectible_outstanding_base: row.total_outstanding_base,
+    collectible_overdue_base: row.overdue_outstanding_base,
+    actionable_open_invoices_count: row.open_invoices_count,
+    actionable_overdue_invoices_count: row.overdue_invoices_count,
+    has_active_dispute: false,
+    collectible_native_currency_breakdown: [],
+    ...overrides,
+  })
 
   return row
 }
@@ -788,7 +803,7 @@ test('queue UI renders degraded review and unavailable states without hiding saf
   assert.match(source, /Needs review/)
   assert.match(source, /ReviewRequiredCustomers/)
   assert.match(source, /MultiCurrencyPlanGate/)
-  assert.match(source, /equivalent overdue/)
+  assert.match(source, /equivalent to collect/)
   assert.match(source, /invoiced/)
   assert.doesNotMatch(source, /CurrencyRate/)
   assert.match(source, /queueInfo\?\.status === 'no_overdue_customers'/)

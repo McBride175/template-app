@@ -133,7 +133,7 @@ test('privacy controller identity requires complete production configuration', (
   )
 })
 
-test('unfinished disputes UI and unsafe public identity fallbacks are not customer-renderable', async () => {
+test('authenticated disputes navigation and safe public identity remain distinct', async () => {
   const [nav, disputes, privacy, pricing, pricingMetadata, layout] = await Promise.all(
     [
       'app/components/Nav.tsx',
@@ -145,8 +145,10 @@ test('unfinished disputes UI and unsafe public identity fallbacks are not custom
     ].map((path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8'))
   )
 
-  assert.doesNotMatch(nav, /href=["']\/disputes["']/)
-  assert.match(disputes, /notFound\(\)/)
+  assert.match(nav, /href=["']\/disputes["']/)
+  assert.match(disputes, /auth\.getUser\(\)/)
+  assert.match(disputes, /index: false/)
+  assert.match(disputes, /DisputesClient/)
   assert.doesNotMatch(disputes, /Placeholder page/i)
   assert.doesNotMatch(privacy, /Yuohme Operator|privacy@yourdomain\.com/i)
   assert.doesNotMatch(`${pricing}\n${pricingMetadata}`, /Suggested pricing|Suggested:/i)

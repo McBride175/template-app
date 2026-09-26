@@ -2,26 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
-interface InvoiceRow {
-  invoiceSourceId: string
-  invoiceNumber: string | null
-  reference: string | null
-  issueDate: string | null
-  dueDate: string | null
-  currencyCode: string | null
-  disputeId: string | null
-  revision: string | null
-  note: string | null
-  invoiceState: 'open' | 'settled' | 'unavailable' | 'invalid'
-  disputeMode: 'full' | 'partial' | null
-  isActive: boolean
-  isResolved: boolean
-  needsReview: boolean
-  currentAmountDueNative: string | null
-  recordedDisputedAmountNative: string | null
-  effectiveDisputedAmountNative: string | null
-  collectibleAmountNative: string | null
-}
+import type { InvoiceDisputeView as InvoiceRow } from '@/lib/collections/invoice-dispute-view'
 
 interface ApiResponse {
   ok?: boolean
@@ -65,10 +46,7 @@ function status(invoice: InvoiceRow) {
 const inputClass = 'min-h-11 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900'
 const actionClass = 'min-h-11 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50'
 
-export default function CustomerInvoiceDisputes({
-  tenantId, customerSourceId, customerName, onChanged, onMutationStarted,
-  onMutationPending, onMutationResult,
-}: {
+interface InvoiceDisputeListProps {
   tenantId: string
   customerSourceId: string
   customerName: string
@@ -76,19 +54,14 @@ export default function CustomerInvoiceDisputes({
   onMutationStarted: () => void
   onMutationPending: (message: string) => void
   onMutationResult: (refreshed: boolean, message: string) => void
-}) {
+  onMutationError?: (message: string) => void
+}
+
+export default function CustomerInvoiceDisputes(props: InvoiceDisputeListProps) {
+  const { tenantId, customerSourceId } = props
   const [invoices, setInvoices] = useState<InvoiceRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [noteEditingId, setNoteEditingId] = useState<string | null>(null)
-  const [mode, setMode] = useState<'full' | 'partial'>('full')
-  const [partialAmount, setPartialAmount] = useState('')
-  const [note, setNote] = useState('')
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [editingRevision, setEditingRevision] = useState<string | null>(null)
-
   const reload = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -100,7 +73,6 @@ export default function CustomerInvoiceDisputes({
       const body = await response.json().catch(() => null) as ApiResponse | null
       if (!response.ok || !body?.ok) throw new Error(body?.error || 'Could not load invoices.')
       setInvoices(body.invoices ?? [])
-      setSelectedIds([])
       return true
     } catch (cause) {
       setInvoices([])
@@ -112,9 +84,42 @@ export default function CustomerInvoiceDisputes({
   }, [tenantId, customerSourceId])
 
   useEffect(() => { void reload() }, [reload])
+  useEffect(() => {
+    if (loading || typeof window === 'undefined' || !window.location.hash.startsWith('#invoice-')) return
+    try {
+      document.getElementById(decodeURIComponent(window.location.hash.slice(1)))?.scrollIntoView({ block: 'start' })
+    } catch { /* Ignore malformed external fragments. */ }
+  }, [invoices, loading])
+  return <InvoiceDisputeList {...props} invoices={invoices} loading={loading}
+    loadError={error} reload={reload} />
+}
+
+/** Shared native editor and revision-safe mutation flow; data loading belongs to its surface. */
+export function InvoiceDisputeList({
+  tenantId, customerSourceId, customerName, onChanged, onMutationStarted,
+  onMutationPending, onMutationResult, invoices, loading = false, loadError = null,
+  reload, showBulkActions = true, disabled = false, onMutationError,
+}: InvoiceDisputeListProps & {
+  invoices: InvoiceRow[]
+  loading?: boolean
+  loadError?: string | null
+  reload: () => Promise<boolean>
+  showBulkActions?: boolean
+  disabled?: boolean
+}) {
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [noteEditingId, setNoteEditingId] = useState<string | null>(null)
+  const [mode, setMode] = useState<'full' | 'partial'>('full')
+  const [partialAmount, setPartialAmount] = useState('')
+  const [note, setNote] = useState('')
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [editingRevision, setEditingRevision] = useState<string | null>(null)
+  useEffect(() => { setSelectedIds([]) }, [invoices])
 
   async function mutate(operation: string, fields: Record<string, unknown>, success: string) {
-    if (saving) return
+    if (saving || disabled) return
     onMutationStarted()
     setSaving(true)
     setError(null)
@@ -145,7 +150,9 @@ export default function CustomerInvoiceDisputes({
         invoicesRefreshed && summaryRefreshed ? success :
           'Dispute saved, but current balances could not be refreshed. Refresh the page before making further changes.')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not save the dispute.')
+      const message = cause instanceof Error ? cause.message : 'Could not save the dispute.'
+      setError(message)
+      onMutationError?.(message)
     } finally {
       setSaving(false)
     }
@@ -199,21 +206,21 @@ export default function CustomerInvoiceDisputes({
           <h3 className="font-semibold text-gray-900">Invoices for {customerName}</h3>
           <p className="text-xs text-gray-600">Disputes apply only to these invoice identities. Amounts below use invoice currency.</p>
         </div>
-        <button type="button" className={actionClass} onClick={() => void reload()} disabled={loading || saving}>Refresh invoices</button>
+        <button type="button" className={actionClass} onClick={() => void reload()} disabled={loading || saving || disabled}>Refresh invoices</button>
       </div>
-      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+      {(error || loadError) && <p role="alert" className="text-sm text-red-700">{error || loadError}</p>}
       {loading ? <p className="text-sm text-gray-600">Loading invoices…</p> : invoices.length === 0 ? (
         <p className="text-sm text-gray-600">No current or previously disputed invoices are available for this customer.</p>
       ) : (
         <>
-          {openInvoices.length > 0 && (
+          {showBulkActions && openInvoices.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" className={actionClass} disabled={saving || selectedIds.length === 0}
+              <button type="button" className={actionClass} disabled={saving || disabled || selectedIds.length === 0}
                 onClick={() => void mutate('bulk_full', { customerSourceId, invoiceSourceIds: selectedIds,
                   expectedRevisions: revisionEntries(selectedIds) }, `${selectedIds.length} invoice disputes saved.`)}>
                 Dispute selected in full ({selectedIds.length})
               </button>
-              <button type="button" className={actionClass} disabled={saving}
+              <button type="button" className={actionClass} disabled={saving || disabled}
                 onClick={() => void mutate('bulk_full', { customerSourceId,
                   expectedRevisions: revisionEntries(openInvoices.map((invoice) => invoice.invoiceSourceId)) },
                   'All currently open invoices disputed in full.')}>
@@ -223,13 +230,13 @@ export default function CustomerInvoiceDisputes({
           )}
           <div className="space-y-3">
             {invoices.map((invoice) => (
-              <div key={invoice.invoiceSourceId} className="rounded-md border border-gray-200 bg-white p-4 text-sm">
+              <div key={invoice.invoiceSourceId} id={`invoice-${invoice.invoiceSourceId}`} className="rounded-md border border-gray-200 bg-white p-4 text-sm">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      {invoice.invoiceState === 'open' && (
+                      {showBulkActions && invoice.invoiceState === 'open' && (
                         <input type="checkbox" aria-label={`Select invoice ${invoice.invoiceNumber || invoice.invoiceSourceId} for full dispute`}
-                          checked={selectedIds.includes(invoice.invoiceSourceId)} disabled={saving}
+                          checked={selectedIds.includes(invoice.invoiceSourceId)} disabled={saving || disabled}
                           onChange={(event) => setSelectedIds((current) => event.target.checked
                             ? [...current, invoice.invoiceSourceId]
                             : current.filter((id) => id !== invoice.invoiceSourceId))} />
@@ -255,55 +262,55 @@ export default function CustomerInvoiceDisputes({
                 {noteEditingId === invoice.invoiceSourceId ? (
                   <div className="mt-3 space-y-2 border-t border-gray-200 pt-3">
                     <label className="flex max-w-xl flex-col gap-1">Dispute note
-                      <textarea className={inputClass} maxLength={2000} rows={2} value={note} onChange={(event) => setNote(event.target.value)} />
+                      <textarea className={inputClass} disabled={saving || disabled} maxLength={2000} rows={2} value={note} onChange={(event) => setNote(event.target.value)} />
                     </label>
                     <div className="flex flex-wrap gap-2">
-                      <button type="button" className={actionClass} disabled={saving} onClick={() => void mutate('note', {
+                      <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => void mutate('note', {
                         disputeId: invoice.disputeId, expected_revision: editingRevision, note,
                       }, 'Note saved.')}>Save note</button>
-                      <button type="button" className={actionClass} disabled={saving} onClick={() => setNoteEditingId(null)}>Cancel</button>
+                      <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => setNoteEditingId(null)}>Cancel</button>
                     </div>
                   </div>
                 ) : editingId === invoice.invoiceSourceId && invoice.invoiceState === 'open' ? (
                   <div className="mt-3 space-y-3 border-t border-gray-200 pt-3">
-                    <fieldset className="flex flex-wrap gap-4">
+                    <fieldset disabled={saving || disabled} className="flex flex-wrap gap-4">
                       <legend className="mb-1 font-medium">Disputed amount</legend>
                       <label className="flex items-center gap-2"><input type="radio" name={`mode-${invoice.invoiceSourceId}`} checked={mode === 'full'} onChange={() => setMode('full')} />Dispute full outstanding amount ({amount(invoice.currentAmountDueNative, invoice.currencyCode)})</label>
                       <label className="flex items-center gap-2"><input type="radio" name={`mode-${invoice.invoiceSourceId}`} checked={mode === 'partial'} onChange={() => setMode('partial')} />Dispute part</label>
                     </fieldset>
                     {mode === 'partial' && <label className="flex max-w-xs flex-col gap-1">Partial disputed amount ({invoice.currencyCode})
-                      <input className={inputClass} type="text" inputMode="decimal" required value={partialAmount} onChange={(event) => setPartialAmount(event.target.value)} placeholder="0.00" />
+                      <input className={inputClass} disabled={saving || disabled} type="text" inputMode="decimal" required value={partialAmount} onChange={(event) => setPartialAmount(event.target.value)} placeholder="0.00" />
                     </label>}
                     <label className="flex max-w-xl flex-col gap-1">Optional note
-                      <textarea className={inputClass} maxLength={2000} rows={2} value={note} onChange={(event) => setNote(event.target.value)} />
+                      <textarea className={inputClass} disabled={saving || disabled} maxLength={2000} rows={2} value={note} onChange={(event) => setNote(event.target.value)} />
                     </label>
                     <div className="flex flex-wrap gap-2">
-                      <button type="button" className={actionClass} disabled={saving} onClick={() => save(invoice)}>{saving ? 'Saving…' : 'Save dispute'}</button>
-                      <button type="button" className={actionClass} disabled={saving} onClick={() => setEditingId(null)}>Cancel</button>
+                      <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => save(invoice)}>{saving ? 'Saving…' : 'Save dispute'}</button>
+                      <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => setEditingId(null)}>Cancel</button>
                     </div>
                   </div>
                 ) : (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {invoice.invoiceState === 'open' && !invoice.isResolved && (
-                      <button type="button" className={actionClass} disabled={saving} onClick={() => startEdit(invoice)}>{invoice.isActive ? 'Edit dispute' : 'Mark disputed'}</button>
+                      <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => startEdit(invoice)}>{invoice.isActive ? 'Edit dispute' : 'Mark disputed'}</button>
                     )}
                     {invoice.isActive && invoice.disputeId && (
-                      <button type="button" className={actionClass} disabled={saving} onClick={() => void mutate('resolve', {
+                      <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => void mutate('resolve', {
                         disputeId: invoice.disputeId, expected_revision: invoice.revision,
                       }, 'Dispute resolved. Remaining debt is collectible again.')}>Resolve dispute</button>
                     )}
                     {invoice.needsReview && invoice.disputeId && (
-                      <button type="button" className={actionClass} disabled={saving} onClick={() => void mutate('confirm', {
+                      <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => void mutate('confirm', {
                         disputeId: invoice.disputeId, expected_revision: invoice.revision,
                       }, 'Dispute confirmed against the current balance.')}>Keep as is</button>
                     )}
                     {invoice.isResolved && invoice.invoiceState === 'open' && invoice.disputeId && (
-                      <button type="button" className={actionClass} disabled={saving} onClick={() => void mutate('reactivate', {
+                      <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => void mutate('reactivate', {
                         disputeId: invoice.disputeId, expected_revision: invoice.revision,
                       }, 'Dispute reactivated.')}>Reactivate dispute</button>
                     )}
                     {invoice.disputeId && (
-                      <button type="button" className={actionClass} disabled={saving} onClick={() => startNoteEdit(invoice)}>Edit note</button>
+                      <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => startNoteEdit(invoice)}>Edit note</button>
                     )}
                   </div>
                 )}

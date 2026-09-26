@@ -96,21 +96,25 @@ function isProviderIdentityConflict(error: { code?: string } | null) {
   return error?.code === '23505'
 }
 
-async function authenticateDisputeTenant(tenantIdInput: string) {
-  const tenantId = requiredIdentity(tenantIdInput)
+export async function authenticateDisputeTenant(tenantIdInput: string | null) {
+  const requestedTenantId = tenantIdInput === null ? null : requiredIdentity(tenantIdInput)
   const supabase = await createServerSupabaseClient()
   const { data: { user }, error } = await supabase.auth.getUser()
   if (error || !user) throw new InvoiceDisputeOperationError('unauthorized')
 
   const entitlement = await claimActionsEntitlementStatus({
     userId: user.id,
-    preferredTenantId: tenantId,
+    preferredTenantId: requestedTenantId,
     supabase,
   })
   // The existing tenant resolver may fall back to a different connected tenant.
   // Dispute operations must never accept such a fallback for a requested tenant.
-  if (entitlement.tenantId !== tenantId) throw new InvoiceDisputeOperationError('forbidden')
+  if (requestedTenantId !== null && entitlement.tenantId !== requestedTenantId) {
+    throw new InvoiceDisputeOperationError('forbidden')
+  }
   if (!entitlement.hasActionsAccess) throw new InvoiceDisputeOperationError('forbidden')
+  const tenantId = entitlement.tenantId
+  if (!tenantId) throw new InvoiceDisputeOperationError('forbidden')
 
   const admin = createSupabaseAdminClient()
   const snapshot = await resolveXeroAuthoritativeSnapshot({

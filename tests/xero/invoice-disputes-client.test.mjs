@@ -5,6 +5,8 @@ import { loadTypeScriptModule } from './test-helpers/ts-module-loader.mjs'
 function harness() {
   const states = []
   let cursor = 0
+  let refCursor = 0
+  const refs = []
   const effects = []
   const react = {
     Fragment: Symbol('Fragment'),
@@ -15,7 +17,11 @@ function harness() {
         states[slot] = typeof next === 'function' ? next(states[slot]) : next
       }]
     },
-    useRef(initial) { return { current: initial } },
+    useRef(initial) {
+      const slot = refCursor++
+      if (!(slot in refs)) refs[slot] = { current: initial }
+      return refs[slot]
+    },
     useCallback(callback) { return callback },
     useMemo(factory) { return factory() },
     useEffect(effect) { effects.push(effect) },
@@ -24,7 +30,7 @@ function harness() {
   return {
     states, effects, react,
     jsxRuntime: { jsx, jsxs: jsx, Fragment: react.Fragment },
-    render(Component, props) { cursor = 0; effects.length = 0; return Component(props) },
+    render(Component, props) { cursor = 0; refCursor = 0; effects.length = 0; return Component(props) },
   }
 }
 
@@ -62,11 +68,12 @@ test('invoice control reports saved mutation even when the canonical parent refr
     ? { ok: true, status: 200, json: async () => ({ ok: true }) }
     : { ok: true, status: 200, json: async () => ({ ok: true, invoices: [invoice] }) }
   try {
-    const { default: Component } = loadTypeScriptModule('app/collections/customers/CustomerInvoiceDisputes.tsx', {
+    const { InvoiceDisputeList: Component } = loadTypeScriptModule('app/collections/customers/CustomerInvoiceDisputes.tsx', {
       mocks: { react: h.react, 'react/jsx-runtime': h.jsxRuntime },
     })
     const props = {
       tenantId: 'tenant-a', customerSourceId: 'customer-a', customerName: 'Customer A',
+      invoices: [invoice], reload: async () => true,
       onChanged: async () => false,
       onMutationStarted: () => calls.push(['started']),
       onMutationPending: (message) => calls.push(['pending', message]),
@@ -106,12 +113,13 @@ test('a revision conflict reloads current state without replaying the stale edit
     }] }) }
   }
   try {
-    const { default: Component } = loadTypeScriptModule('app/collections/customers/CustomerInvoiceDisputes.tsx', {
+    const { InvoiceDisputeList: Component } = loadTypeScriptModule('app/collections/customers/CustomerInvoiceDisputes.tsx', {
       mocks: { react: h.react, 'react/jsx-runtime': h.jsxRuntime },
     })
     const props = {
       tenantId: 'tenant-a', customerSourceId: 'customer-a', customerName: 'Customer A',
-      onChanged: async () => true,
+      invoices: [{ ...invoice, disputeId: 'dispute-a', revision: '2', disputeMode: 'full', isActive: true }],
+      reload: async () => true, onChanged: async () => true,
       onMutationStarted: () => calls.push(['started']),
       onMutationPending: (message) => calls.push(['pending', message]),
       onMutationResult: (refreshed, message) => calls.push(['result', refreshed, message]),
@@ -128,7 +136,7 @@ test('a revision conflict reloads current state without replaying the stale edit
     assert.deepEqual(calls.map((call) => call[0]), ['started', 'pending', 'result'])
     assert.deepEqual(calls[2].slice(0, 2), ['result', true])
     assert.match(calls[2][2], /review the latest version/i)
-    assert.equal(h.states[4], null) // edit form was closed for review
+    assert.equal(h.states[2], null) // edit form was closed for review
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -177,4 +185,128 @@ test('customer parent keeps save outcome visible while stale balances and action
   control.props.onMutationResult(true, 'Dispute saved. Collection amounts have been refreshed.')
   const recovered = h.render(Parent, { tenantId: 'tenant-a', initialCustomerSourceId: 'customer-a' })
   assert.equal(nodes(recovered, (node) => node.type === InvoiceControl).length, 1)
+})
+
+test('worklist preserves successful-save state when refresh fails and restores controls after retry', async () => {
+  const h = harness()
+  const InvoiceControl = () => null
+  const { default: Worklist } = loadTypeScriptModule('app/disputes/DisputesClient.tsx', {
+    mocks: { react: h.react, 'react/jsx-runtime': h.jsxRuntime, 'next/link': 'a',
+      '@/app/collections/customers/CustomerInvoiceDisputes': { InvoiceDisputeList: InvoiceControl } },
+  })
+  const query = { status: 'active', customer: '', q: '', sort: 'amount_desc', page: 1, pageSize: 25 }
+  const row = { ...invoice, disputeId: 'dispute-a', revision: '4', isActive: true, disputeMode: 'full',
+    sourceSystem: 'xero', customerSourceId: 'customer-a', customerName: 'Customer A',
+    currentAmountDueNative: '10000', effectiveDisputedAmountNative: '10000', collectibleAmountNative: '0',
+    effectiveDisputedBase: null, overdueDays: 20, contextFromPreviousSnapshot: false, resolvedAt: null,
+    customerHref: '/customers?tenantId=tenant-a&customerSourceId=customer-a' }
+  let failRefresh = false
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => failRefresh
+    ? { ok: false, json: async () => ({ error: 'Temporary read failure' }) }
+    : { ok: true, json: async () => ({ ok: true, tenantId: 'tenant-a', organisationBaseCurrency: 'GBP',
+      rows: [row], customers: [{ sourceId: 'customer-a', name: 'Customer A' }], query, total: 1, pageCount: 1 }) }
+  try {
+    const props = { tenantId: 'tenant-a', query }
+    h.render(Worklist, props)
+    h.effects.forEach((effect) => effect())
+    await new Promise(setImmediate)
+    const loaded = h.render(Worklist, props)
+    assert.match(JSON.stringify(loaded), /Base valuation unavailable/)
+    const link = nodes(loaded, (node) => node.type === 'a' && node.props.href?.includes('customerSourceId'))[0]
+    assert.equal(link.props.href, '/customers?tenantId=tenant-a&customerSourceId=customer-a#invoice-invoice-a')
+    const control = nodes(loaded, (node) => node.type === InvoiceControl)[0]
+    assert.equal(control.props.showBulkActions, false)
+    control.props.onMutationStarted()
+    const pending = h.render(Worklist, props)
+    assert.equal(nodes(pending, (node) => node.type === InvoiceControl)[0].props.disabled, true)
+    control.props.onMutationPending('Dispute saved. Refreshing current balances…')
+    failRefresh = true
+    assert.equal(await control.props.reload(), false)
+    control.props.onMutationResult(false, 'Dispute saved, but current balances could not be refreshed. Refresh before making further changes.')
+    const failed = h.render(Worklist, props)
+    assert.equal(nodes(failed, (node) => node.type === InvoiceControl).length, 0)
+    assert.match(JSON.stringify(nodes(failed, (node) => node.props.role === 'alert')), /Dispute saved/)
+    assert.equal(nodes(failed, (node) => node.type === 'fieldset')[0].props.disabled, true)
+    failRefresh = false
+    await button(failed, 'Reload current disputes').props.onClick()
+    await new Promise(setImmediate)
+    const refreshed = h.render(Worklist, props)
+    assert.equal(nodes(refreshed, (node) => node.type === InvoiceControl).length, 1)
+    assert.equal(nodes(refreshed, (node) => node.type === 'fieldset')[0].props.disabled, false)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('shared worklist actions submit the displayed revision and withhold invalid state operations', async () => {
+  const originalFetch = globalThis.fetch
+  const calls = []
+  globalThis.fetch = async (_url, options) => {
+    calls.push(JSON.parse(options.body))
+    return { ok: true, json: async () => ({ ok: true }) }
+  }
+  try {
+    for (const [state, label, operation] of [
+      [{ isActive: true, isResolved: false }, 'Resolve dispute', 'resolve'],
+      [{ isActive: false, isResolved: true }, 'Reactivate dispute', 'reactivate'],
+      [{ isActive: true, isResolved: false, needsReview: true }, 'Keep as is', 'confirm'],
+    ]) {
+      const h = harness()
+      const { InvoiceDisputeList } = loadTypeScriptModule('app/collections/customers/CustomerInvoiceDisputes.tsx', {
+        mocks: { react: h.react, 'react/jsx-runtime': h.jsxRuntime },
+      })
+      const props = { tenantId: 'tenant-a', customerSourceId: 'customer-a', customerName: 'Customer A',
+        invoices: [{ ...invoice, disputeId: 'dispute-a', revision: '7', disputeMode: 'partial', ...state }],
+        showBulkActions: false, reload: async () => true, onChanged: async () => true,
+        onMutationStarted() {}, onMutationPending() {}, onMutationResult() {} }
+      button(h.render(InvoiceDisputeList, props), label).props.onClick()
+      await new Promise(setImmediate)
+      assert.equal(calls.at(-1).operation, operation)
+      assert.equal(calls.at(-1).expected_revision, '7')
+      assert.equal(calls.at(-1).tenantId, 'tenant-a')
+      for (const invoiceState of ['settled', 'unavailable']) {
+        const tree = h.render(InvoiceDisputeList, { ...props,
+          invoices: [{ ...props.invoices[0], invoiceState, needsReview: false }] })
+        const labels = nodes(tree, (node) => node.type === 'button').map((node) => JSON.stringify(node.props.children)).join(' ')
+        assert.doesNotMatch(labels, /Reactivate dispute|Edit dispute|Keep as is|Mark disputed/)
+        assert.match(labels, /Edit note/)
+      }
+    }
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('a late mutation reload cannot replace a newly selected worklist URL with an old page', async () => {
+  const h = harness()
+  const InvoiceControl = () => null
+  const { default: Worklist } = loadTypeScriptModule('app/disputes/DisputesClient.tsx', {
+    mocks: { react: h.react, 'react/jsx-runtime': h.jsxRuntime, 'next/link': 'a',
+      '@/app/collections/customers/CustomerInvoiceDisputes': { InvoiceDisputeList: InvoiceControl } },
+  })
+  const query = { status: 'active', customer: '', q: '', sort: 'amount_desc', page: 1, pageSize: 25 }
+  const requests = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (url) => {
+    requests.push(url)
+    const filtered = url.includes('customer=baker')
+    return { ok: true, json: async () => ({ ok: true, tenantId: 'tenant-a', organisationBaseCurrency: 'GBP',
+      rows: [{ ...invoice, disputeId: 'dispute-a', revision: '1', customerSourceId: filtered ? 'baker' : 'acme',
+        customerName: filtered ? 'Baker' : 'Acme', effectiveDisputedBase: '1000' }],
+      customers: [], query: { ...query, customer: filtered ? 'baker' : '' }, total: 1, pageCount: 1 }) }
+  }
+  try {
+    const props = { tenantId: 'tenant-a', query }
+    h.render(Worklist, props)
+    h.effects.forEach((effect) => effect())
+    await new Promise(setImmediate)
+    const original = h.render(Worklist, props)
+    const staleReload = nodes(original, (node) => node.type === InvoiceControl)[0].props.reload
+    const updatedProps = { ...props, query: { ...query, customer: 'baker' } }
+    h.render(Worklist, updatedProps)
+    h.effects.forEach((effect) => effect())
+    await new Promise(setImmediate)
+    const count = requests.length
+    assert.equal(await staleReload(), false)
+    assert.equal(requests.length, count)
+    const latest = h.render(Worklist, updatedProps)
+    assert.equal(nodes(latest, (node) => node.type === InvoiceControl)[0].props.customerName, 'Baker')
+  } finally { globalThis.fetch = originalFetch }
 })

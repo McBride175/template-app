@@ -118,7 +118,21 @@ explicit native-currency DTO without unvalidated base amounts. Customer and acti
 data is reloaded after mutation; a saved-but-unrefreshed state is retained above
 the customer list and hides stale mutation controls. No score is calculated in the browser. The
 priority queue links to customer invoice context. No customer-wide dispute
-record or dedicated dispute worklist is created by this flow.
+record is created by this flow.
+
+`/disputes` is an authenticated, non-indexable invoice dispute worklist. Its
+dedicated read endpoint holds one authoritative snapshot, loads tenant-owned
+disputes once, and joins invoices/customers in bounded identity batches. It does
+not run the scorer. Missing invoices remain visible; retained generations may
+provide explicitly labelled last-known names/references/currency only, never
+current balance or settlement evidence. The DTO keeps native recorded/effective/
+collectible amounts separate and validates comparable base values through the
+existing gross currency-health classifier. Active is the default; needs-review,
+resolved, accounting-settled, unavailable and all views are derived filters.
+Search, customer, amount/overdue-age sorting and bounded pagination use URL state
+and stable dispute-ID tie breaks. The worklist shares the customer invoice
+editor and existing revision-safe mutation API. Save/conflict outcomes survive
+failed reloads, and stale controls are withheld until fresh worklist data loads.
 
 Canonical application reads resolve one authoritative snapshot per user and tenant. A non-null
 `xero_sync_tenant_state.active_sync_run_id` is authoritative only when it references that exact

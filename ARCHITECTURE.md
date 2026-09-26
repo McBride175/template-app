@@ -104,7 +104,9 @@ independently from collectible scoring health, and currency-review native
 "invoiced outstanding" remains gross.
 
 The customer collections page provides invoice-level dispute entry and an
-explicit bulk full-dispute action for selected or all currently open invoices.
+explicit bulk full-dispute action for selected or all eligible current invoices.
+Ordinary bulk controls exclude explicitly resolved disputes; those require
+Reactivate before they can be included again.
 `/api/collections/invoice-disputes` reads the held authoritative customer
 snapshot and delegates every mutation to the authenticated dispute domain.
 The server validates provider invoice IDs, ownership, open receivable state,

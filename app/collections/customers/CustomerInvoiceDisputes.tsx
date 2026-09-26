@@ -43,6 +43,10 @@ function status(invoice: InvoiceRow) {
   return 'No dispute'
 }
 
+function isBulkEligible(invoice: InvoiceRow) {
+  return invoice.invoiceState === 'open' && !invoice.isResolved
+}
+
 const inputClass = 'min-h-11 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900'
 const actionClass = 'min-h-11 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50'
 
@@ -197,8 +201,10 @@ export function InvoiceDisputeList({
     }, 'Dispute saved. Collection amounts have been refreshed.')
   }
 
-  const openInvoices = invoices.filter((invoice) => invoice.invoiceState === 'open')
-  const revisionEntries = (ids: string[]) => invoices
+  const bulkEligibleInvoices = invoices.filter(isBulkEligible)
+  const bulkEligibleIds = bulkEligibleInvoices.map((invoice) => invoice.invoiceSourceId)
+  const eligibleSelectedIds = bulkEligibleIds.filter((id) => selectedIds.includes(id))
+  const revisionEntries = (ids: string[]) => bulkEligibleInvoices
     .filter((invoice) => ids.includes(invoice.invoiceSourceId) && invoice.revision)
     .map((invoice) => ({ invoiceSourceId: invoice.invoiceSourceId, revision: invoice.revision }))
 
@@ -216,18 +222,18 @@ export function InvoiceDisputeList({
         <p className="text-sm text-gray-600">No current or previously disputed invoices are available for this customer.</p>
       ) : (
         <>
-          {showBulkActions && openInvoices.length > 0 && (
+          {showBulkActions && bulkEligibleInvoices.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" className={actionClass} disabled={saving || disabled || selectedIds.length === 0}
-                onClick={() => void mutate('bulk_full', { customerSourceId, invoiceSourceIds: selectedIds,
-                  expectedRevisions: revisionEntries(selectedIds) }, `${selectedIds.length} invoice disputes saved.`)}>
-                Dispute selected in full ({selectedIds.length})
+              <button type="button" className={actionClass} disabled={saving || disabled || eligibleSelectedIds.length === 0}
+                onClick={() => void mutate('bulk_full', { customerSourceId, invoiceSourceIds: eligibleSelectedIds,
+                  expectedRevisions: revisionEntries(eligibleSelectedIds) }, `${eligibleSelectedIds.length} invoice disputes saved.`)}>
+                Dispute selected in full ({eligibleSelectedIds.length})
               </button>
               <button type="button" className={actionClass} disabled={saving || disabled}
-                onClick={() => void mutate('bulk_full', { customerSourceId,
-                  expectedRevisions: revisionEntries(openInvoices.map((invoice) => invoice.invoiceSourceId)) },
-                  'All currently open invoices disputed in full.')}>
-                Dispute all current invoices in full
+                onClick={() => void mutate('bulk_full', { customerSourceId, invoiceSourceIds: bulkEligibleIds,
+                  expectedRevisions: revisionEntries(bulkEligibleIds) },
+                  `${bulkEligibleIds.length} invoice disputes saved.`)}>
+                Dispute all eligible current invoices in full ({bulkEligibleIds.length})
               </button>
             </div>
           )}
@@ -237,7 +243,7 @@ export function InvoiceDisputeList({
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      {showBulkActions && invoice.invoiceState === 'open' && (
+                      {showBulkActions && isBulkEligible(invoice) && (
                         <input type="checkbox" aria-label={`Select invoice ${invoice.invoiceNumber || invoice.invoiceSourceId} for full dispute`}
                           checked={selectedIds.includes(invoice.invoiceSourceId)} disabled={saving || disabled}
                           onChange={(event) => setSelectedIds((current) => event.target.checked
@@ -250,6 +256,9 @@ export function InvoiceDisputeList({
                   </div>
                   <p className="font-medium text-gray-700">{status(invoice)}</p>
                 </div>
+                {showBulkActions && invoice.invoiceState === 'open' && invoice.isResolved && (
+                  <p className="mt-2 text-xs text-gray-600">Resolved — reactivate before disputing again.</p>
+                )}
                 <div className="mt-3 grid gap-2 text-gray-700 sm:grid-cols-3">
                   <p>Accounting outstanding: <strong>{amount(invoice.currentAmountDueNative, invoice.currencyCode)}</strong></p>
                   <p>Effectively disputed: <strong>{amount(invoice.effectiveDisputedAmountNative, invoice.currencyCode)}</strong></p>

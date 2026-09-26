@@ -60,6 +60,94 @@ const invoice = {
   effectiveDisputedAmountNative: '0', collectibleAmountNative: '10000',
 }
 
+test('ordinary bulk controls select only open invoices without a resolved dispute', async () => {
+  const h = harness()
+  const posts = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (_url, options) => {
+    posts.push(JSON.parse(options.body))
+    return { ok: true, status: 200, json: async () => ({ ok: true }) }
+  }
+  try {
+    const { InvoiceDisputeList: Component } = loadTypeScriptModule('app/collections/customers/CustomerInvoiceDisputes.tsx', {
+      mocks: { react: h.react, 'react/jsx-runtime': h.jsxRuntime },
+    })
+    const rows = [invoice, {
+      ...invoice, invoiceSourceId: 'invoice-b', invoiceNumber: 'INV-B',
+      disputeId: 'dispute-b', revision: '5', disputeMode: 'partial', isActive: true,
+      recordedDisputedAmountNative: '3000', effectiveDisputedAmountNative: '3000',
+      collectibleAmountNative: '7000',
+    }, {
+      ...invoice, invoiceSourceId: 'invoice-c', invoiceNumber: 'INV-C',
+      disputeId: 'dispute-c', revision: '6', disputeMode: 'partial', isResolved: true,
+    }, {
+      ...invoice, invoiceSourceId: 'invoice-d', invoiceNumber: 'INV-D',
+      invoiceState: 'settled', currentAmountDueNative: '0', collectibleAmountNative: '0',
+    }, {
+      ...invoice, invoiceSourceId: 'invoice-e', invoiceNumber: 'INV-E',
+      invoiceState: 'unavailable', currentAmountDueNative: null, collectibleAmountNative: null,
+    }]
+    const props = {
+      tenantId: 'tenant-a', customerSourceId: 'customer-a', customerName: 'Customer A',
+      invoices: rows, reload: async () => true, onChanged: async () => true,
+      onMutationStarted() {}, onMutationPending() {}, onMutationResult() {},
+    }
+    let tree = h.render(Component, props)
+    const checkboxes = nodes(tree, (node) => node.type === 'input' && node.props.type === 'checkbox')
+    assert.deepEqual(checkboxes.map((node) => node.props['aria-label']), [
+      'Select invoice INV-A for full dispute', 'Select invoice INV-B for full dispute',
+    ])
+    checkboxes.forEach((node) => node.props.onChange({ target: { checked: true } }))
+    tree = h.render(Component, props)
+    assert.match(JSON.stringify(button(tree, 'Dispute selected').props.children), /2/)
+    button(tree, 'Dispute selected').props.onClick()
+    for (let attempt = 0; attempt < 10 && h.states[0]; attempt++) await new Promise(setImmediate)
+    tree = h.render(Component, props)
+    button(tree, 'Dispute all').props.onClick()
+    for (let attempt = 0; attempt < 10 && h.states[0]; attempt++) await new Promise(setImmediate)
+    assert.equal(posts.length, 2)
+    for (const request of posts) {
+      assert.equal(request.operation, 'bulk_full')
+      assert.deepEqual(request.invoiceSourceIds, ['invoice-a', 'invoice-b'])
+      assert.deepEqual(request.expectedRevisions, [{ invoiceSourceId: 'invoice-b', revision: '5' }])
+    }
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('a resolved-only customer has no ordinary bulk action and reactivation restores eligibility', async () => {
+  const h = harness()
+  const posts = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (_url, options) => {
+    posts.push(JSON.parse(options.body))
+    return { ok: true, status: 200, json: async () => ({ ok: true }) }
+  }
+  try {
+    const { InvoiceDisputeList: Component } = loadTypeScriptModule('app/collections/customers/CustomerInvoiceDisputes.tsx', {
+      mocks: { react: h.react, 'react/jsx-runtime': h.jsxRuntime },
+    })
+    const props = {
+      tenantId: 'tenant-a', customerSourceId: 'customer-a', customerName: 'Customer A',
+      invoices: [{ ...invoice, disputeId: 'dispute-a', revision: '6', isResolved: true, disputeMode: 'partial' }],
+      reload: async () => true, onChanged: async () => true,
+      onMutationStarted() {}, onMutationPending() {}, onMutationResult() {},
+    }
+    const tree = h.render(Component, props)
+    assert.equal(nodes(tree, (node) => node.type === 'input' && node.props.type === 'checkbox').length, 0)
+    assert.equal(nodes(tree, (node) => node.type === 'button' &&
+      JSON.stringify(node.props.children).includes('Dispute all')).length, 0)
+    assert.match(JSON.stringify(tree), /reactivate before disputing again/i)
+    button(tree, 'Reactivate dispute').props.onClick()
+    for (let attempt = 0; attempt < 10 && h.states[0]; attempt++) await new Promise(setImmediate)
+    assert.deepEqual(posts, [{ operation: 'reactivate', tenantId: 'tenant-a',
+      disputeId: 'dispute-a', expected_revision: '6' }])
+    const refreshed = h.render(Component, { ...props, invoices: [{ ...props.invoices[0],
+      revision: '7', isResolved: false, isActive: true }] })
+    assert.equal(nodes(refreshed, (node) => node.type === 'input' && node.props.type === 'checkbox').length, 1)
+    assert.equal(button(refreshed, 'Dispute all').props.disabled, false)
+  } finally { globalThis.fetch = originalFetch }
+})
+
 test('invoice control reports saved mutation even when the canonical parent refresh fails', async () => {
   const h = harness()
   const calls = []

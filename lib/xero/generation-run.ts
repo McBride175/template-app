@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
+import { promoteXeroGenerationWithPromises } from '@/lib/xero/promise-reconciliation'
 
 type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>
 
@@ -233,33 +234,13 @@ export async function promoteXeroGenerationRun(params: {
   supabaseAdmin?: SupabaseAdminClient
 }) {
   const supabaseAdmin = params.supabaseAdmin ?? createSupabaseAdminClient()
-  const row = await rpcRow({
+  return promoteXeroGenerationWithPromises({
+    syncRunId: requireNonEmpty(params.syncRunId, 'syncRunId'),
+    leaseOwner: requireNonEmpty(params.leaseOwner, 'leaseOwner'),
+    fencingToken: requirePositiveInteger(params.fencingToken, 'fencingToken'),
+    snapshotAsOf: params.snapshotAsOf?.trim() || null,
     supabaseAdmin,
-    functionName: 'promote_xero_sync_run',
-    operation: 'promote',
-    args: {
-      p_sync_run_id: requireNonEmpty(params.syncRunId, 'syncRunId'),
-      p_lease_owner: requireNonEmpty(params.leaseOwner, 'leaseOwner'),
-      p_fencing_token: requirePositiveInteger(params.fencingToken, 'fencingToken'),
-      p_snapshot_as_of: params.snapshotAsOf?.trim() || null,
-    },
   })
-  const promoted = readRequiredBoolean(row, 'promoted', 'promote')
-  const resultCode = readOptionalString(row.result_code)
-  if (!resultCode) {
-    throw new XeroSyncRunContractError({
-      operation: 'promote',
-      detail: 'response was missing result_code',
-    })
-  }
-  const promotedAt = readOptionalString(row.promoted_at)
-  if (promoted && !promotedAt) {
-    throw new XeroSyncRunContractError({
-      operation: 'promote',
-      detail: 'promoted response omitted promoted_at',
-    })
-  }
-  return { promoted, resultCode, promotedAt }
 }
 
 export interface XeroSyncRunManifestStep {

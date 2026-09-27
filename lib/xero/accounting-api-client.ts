@@ -1,5 +1,6 @@
 import 'server-only'
 import { isDeepStrictEqual } from 'node:util'
+import { parse as parseLossless, isLosslessNumber } from 'lossless-json'
 
 const XERO_ACCOUNTING_API_BASE_URL = 'https://api.xero.com/api.xro/2.0'
 
@@ -15,6 +16,8 @@ export type XeroAccountingCollectionName =
   | 'contacts'
   | 'invoices'
   | 'payments'
+  | 'overpayments'
+  | 'prepayments'
 export type XeroGranularCapability =
   | 'accounting.settings'
   | 'accounting.contacts'
@@ -737,7 +740,11 @@ export async function requestXeroAccountingCollectionPage<
     try {
       let payload: unknown
       try {
-        payload = await response.json()
+        payload = ['payments', 'overpayments', 'prepayments'].includes(options.resource)
+          ? parseLossless(await response.text(), (key, value) => isLosslessNumber(value)
+              ? ['Amount', 'RemainingCredit', 'CurrencyRate'].includes(key) ? value.toString() : Number(value.toString())
+              : value)
+          : await response.json()
       } catch {
         const externallyStopped = stoppedRequestError({
           options,
@@ -935,6 +942,13 @@ export function createXeroPaymentsCollectionConfig(
     granularCapability: 'accounting.payments',
     getSourceId: (record) => sourceIdFromKey('PaymentID', record),
   }
+}
+
+export function createXeroCashCollectionConfig(resource: 'overpayments' | 'prepayments'): XeroPaginatedCollectionConfig<Record<string, unknown>> {
+  const name = resource === 'overpayments' ? 'Overpayments' : 'Prepayments'
+  const sourceIdKey = resource === 'overpayments' ? 'OverpaymentID' : 'PrepaymentID'
+  return { resource, path: `/${name}`, responseKey: name, sourceIdKey, order: sourceIdKey,
+    query: {}, granularCapability: 'accounting.payments', getSourceId: record => sourceIdFromKey(sourceIdKey, record) }
 }
 
 export function createXeroAuthorisedAccrecPaymentsConfig(

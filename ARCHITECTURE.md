@@ -76,8 +76,11 @@ The final Xero design contains only:
 - `xero_raw`: immutable user/tenant/run-scoped provider snapshots, plus transitional legacy rows
 - `canonical_organisations`: explicit Xero organisation identity, base currency, country, timezone, and source retrieval metadata
 - `canonical_customers`, `canonical_invoices`, and `canonical_payments`: normalized accounting data
+- `canonical_payment_evidence`, `canonical_unapplied_cash_evidence`: exact generation-scoped payment/remaining-cash evidence, independent of collections amounts
+- `xero_accounting_evidence_observations`: resource completeness and fetch-start provenance for later Promise use
 - `customer_overrides`: user-controlled collection priority overrides
 - `invoice_disputes`: user-authored invoice dispute state keyed by user, tenant, provider, and provider invoice ID independently of Xero sync generations
+- `invoice_promises`, `invoice_promise_events`: dormant invoice-level commitment storage and immutable lifecycle history; service-only atomic commands, with atomic accounting-promotion reconciliation but no collections reads, UI or queue monetary effect yet
 - `xero_scheduled_sync_runs`: internal scheduler lock and cadence state
 - `collection_actions`: user-owned action history
 
@@ -176,7 +179,51 @@ The collections currency-health gate evaluates open, positive collectible `ACCRE
 
 Currency access and currency health are independent contracts. Currency access continues to use gross positive open Xero receivables, including disputed invoices. A paid Basic user with a current multi-currency population is denied the normal collections read and mutation APIs with a structured Pro-required response, without filtering foreign invoices or changing canonical data. Free-allowance and Pro users continue into the existing healthy, degraded, or unavailable currency-health flow. Single-currency presentation stays unchanged; allowed multi-currency presentation leads with organisation-currency equivalents and shows compact invoiced-currency amounts as secondary context without exposing exchange rates.
 
+### Pure invoice actionability (Phase 4)
+
+`lib/collections/invoice-actionability.ts` provides a dormant pure calculation:
+current invoice → existing dispute derivation → fixed Promise derivation → To chase.
+`deriveInvoicePromise` consumes only operational status, fixed commitment and an
+already-certified paid total. Active coverage is capped by post-dispute native debt;
+terminal commitments supply zero coverage. No date/clock check expires a Promise.
+The canonical `activePromisedCoverageAmountNative` and `toChaseAmountNative` are exact
+decimal strings. Base coverage is the existing post-dispute base remainder minus
+the final To-chase valuation, preserving reconciliation without independently
+rounding each component. Missing/invalid current accounting data leaves To chase
+unavailable. See `docs/invoice-actionability.md` for the input/output contract.
+This domain is not connected to application reads, Promise persistence, queue or
+scoring. Outcome reconciliation runs at certified generation promotion; queue actionability is not integrated. Unapplied cash has no actionability
+effect, and legacy collection-action promise suppression remains unchanged.
+
+### Pure Promise evidence resolution (Phase 5A)
+
+`promise-payment-qualification.ts` consumes complete canonical exact payment evidence
+and the immutable creation baseline. It recomputes an uncapped paid total using
+durable non-baseline invoice payments within the organisation-local creation/deadline
+calendar window. `promise-outcome-resolution.ts` returns a versioned pure decision:
+retain Active, Kept, Missed, Unclear or technical defer. Terminal commitments never
+transition again. Cash only vetoes a negative outcome; no allocation or actionability
+effect exists. Negative resolution needs complete ready evidence with all resource
+starts on/after the next-local-day boundary; early Kept needs complete payment proof.
+The functions themselves do not call database writers or sync. Phase 5B now
+consumes them at atomic accounting promotion; queue effects and UI remain absent. See `docs/promise-outcome-resolution.md` for the exact
+contracts and Phase 5B persistence handoff, including nonterminal evaluation support.
+
 ## Database access model
+
+Promise persistence is intentionally stricter than direct service-role CRUD.
+`invoice_promises` and `invoice_promise_events` permit service-role SELECT only;
+`apply_invoice_promise_command` writes commitment/lifecycle changes; the bounded
+`record_invoice_promise_evaluation` writes only certified nonterminal evaluation fields. It atomically
+checks expected revisions, updates operational state and appends immutable events.
+A partial unique index permits one active commitment per durable invoice identity.
+Terminal commitments cannot be edited or reactivated. Deferred integrity checks
+require the last event's terms/status to agree with the operational record; event sequence is
+independent of operational revision. Auth-user erasure cascades both tables.
+Sync-run provenance is retained as UUID values rather than retention-coupled FKs,
+with owner/tenant checks when the command first uses it. Accounting promotion now reconciles this storage from certified evidence.
+Application actionability, queue scoring and legacy promise suppression remain
+unconnected to structured Promises. See `docs/invoice-promises-persistence.md` for the command contract.
 
 RLS is enabled on every application table. Grants are explicit rather than relying on Supabase's broad default privileges.
 
@@ -239,6 +286,45 @@ snapshots or generation history. The route explicitly rejects `purgeData: true`;
 would require a separate atomic contract covering generation state, validation evidence,
 collection metadata, and both generation and legacy snapshots.
 
+### Atomic Promise reconciliation (Phase 5B)
+
+Certified candidate evidence is prepared in one held owner/tenant/generation
+snapshot. Internal `lib/xero/promise-reconciliation.ts` delegates all qualification
+and lifecycle decisions to Phase 5A, then commits those proposals through
+`promote_xero_sync_run_with_promises`. Existing fenced promotion, Promise
+paid/evaluation updates and terminal events succeed in the same transaction.
+The complete Active ID/revision set and evidence digest are revalidated under
+shared tenant/generation locks; stale proposals recompute against the same
+canonical generation at most three times, without extra Xero requests.
+Nonterminal evaluations append no lifecycle event. With any Active Promise in
+the locked tenant set, unready Promise evidence rejects publication and retains
+the previous accounting/Promise state. With zero Active Promises, ordinary
+accounting promotion rules remain unchanged. Repeated/uncertain committed
+promotion is a read-only no-op. Empty Active sets skip evidence loading.
+
+Promise CRUD/UI, customer-summary/queue integration and legacy suppression
+cutover are not implemented. Unapplied cash remains outcome-only and is never
+allocated. See [the reconciliation contract](docs/promise-reconciliation.md).
+
+### Canonical accounting evidence (Phase 3A)
+
+Generation sync independently observes full Payments, Overpayments and Prepayments,
+including paginated catch-up. Exact monetary tokens use lossless JSON parsing and
+PostgreSQL numeric storage; service-only exact read views return decimal text.
+The existing authorised payment-recency projection and `collections_readiness_v2`
+promotion contract remain unchanged. Evidence resource failures record unavailable
+streams rather than zero cash, without adding a Promise-readiness dependency to
+collections promotion. Fenced evidence persistence failures still fail the candidate.
+`promise_accounting_evidence_v1` readiness requires three complete resource observations,
+matching mapped/source counts, an authoritative succeeded generation, and normalized
+organisation timezone. Each resource records collection start and successful completion;
+promotion time is not evidence of a post-deadline fetch. Xero timezone enums use pinned
+Unicode CLDR Windows/territory data to produce validated IANA zones, with no fallback
+for unknown context. Missing foreign cash FX remains explicit unavailable valuation.
+No allocations, Promise baselines, lifecycle decisions, monetary coverage or UI use
+this evidence yet. See `docs/canonical-accounting-evidence.md` for the contract and
+local disposable database tests. Phase 3B hosted Test certification remains outstanding.
+
 ## Resend
 
 The contact route always attempts to persist a support ticket first, then sends a notification through Resend when the inbox and API key are configured. Email failure does not discard the ticket.
@@ -275,3 +361,19 @@ Google OAuth has no direct Google secret in application code; provider credentia
 - Xero refresh and sync operations are concurrent; grant, tenant, and scheduler locks must remain service-only.
 - Dynamic Preview URLs require explicit OAuth/dashboard planning.
 - `supabase/.temp/` is local generated metadata and must never be committed because it can silently restore a hosted project link.
+
+### Authenticated Promise server operations (Phase 6)
+
+`/api/collections/invoice-promises` provides scoped create/edit/cancel and bounded
+invoice/history reads without UI or collections integration. Creation validates
+one held evidence-ready authoritative generation and snapshots only the invoice's
+known payment IDs; fixed amount and organisation-local date are server validated.
+Financial edits use the existing pure qualifier/resolver; an immediately Kept edit
+commits its terms and ordered lifecycle events together. Note-only/cancellation
+avoid evidence-array reloads. A new forward migration adds service-only snapshot
+preparation and atomic multi-event request commands, using the existing promotion
+state-row/Promise-tenant locking and event-backed idempotency. No browser grants,
+API status setter, Reactivate, scoring or legacy cutover are added. Automatic
+promotion reconciliation remains operational; structured Promises still have no
+queue or UI effect. See `docs/invoice-promises-server.md` for the API and retry
+contract. Privacy export remains a later pre-rollout requirement.

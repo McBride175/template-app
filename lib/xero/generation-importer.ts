@@ -11,6 +11,7 @@ import {
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import {
   createXeroAuthorisedAccrecInvoicesConfig,
+  createXeroCashCollectionConfig,
   createXeroAuthorisedAccrecPaymentsConfig,
   createXeroContactsCollectionConfig,
   createXeroInvoicesCollectionConfig,
@@ -52,6 +53,7 @@ import {
   type XeroGenerationRawResourceType,
   type XeroPersistenceCounts,
 } from '@/lib/xero/persistence'
+import { mapXeroPaymentEvidence, mapXeroUnappliedCashEvidence, persistXeroAccountingEvidence, type EvidenceObservation, type EvidenceResource } from '@/lib/xero/accounting-evidence'
 import { assessXeroGenerationImportCapabilities } from '@/lib/xero/scopes'
 import {
   getValidXeroAccessTokenForTenant,
@@ -147,6 +149,7 @@ interface XeroGenerationImportDependencies {
   persistRaw: typeof persistXeroGenerationRawBatch
   mapCanonical: typeof mapXeroGenerationToCanonical
   recordReadiness: typeof recordXeroGenerationReadiness
+  persistEvidence: typeof persistXeroAccountingEvidence
   now: () => number
   monotonicNow: () => number
   recordLatency: (event: FirstValueLatencyEvent) => void
@@ -234,6 +237,7 @@ const DEFAULT_DEPENDENCIES: XeroGenerationImportDependencies = {
   persistRaw: persistXeroGenerationRawBatch,
   mapCanonical: mapXeroGenerationToCanonical,
   recordReadiness: recordXeroGenerationReadiness,
+  persistEvidence: persistXeroAccountingEvidence,
   now: Date.now,
   monotonicNow,
   recordLatency: recordFirstValueLatency,
@@ -267,8 +271,8 @@ function parseUpdatedAt(record: ProviderRecord) {
 }
 
 function mergeProviderRecords(params: {
-  resource: 'contacts' | 'invoices' | 'payments'
-  sourceIdKey: 'ContactID' | 'InvoiceID' | 'PaymentID'
+  resource: 'contacts' | 'invoices' | 'payments' | 'overpayments' | 'prepayments'
+  sourceIdKey: 'ContactID' | 'InvoiceID' | 'PaymentID' | 'OverpaymentID' | 'PrepaymentID'
   collections: readonly (readonly ProviderRecord[])[]
 }) {
   const merged = new Map<string, ProviderRecord>()
@@ -829,9 +833,7 @@ export async function importXeroGeneration(params: {
       () => timeProviderCall('catchUpInvoices', () => fetchCollection(createXeroInvoicesCollectionConfig({
         where: 'Type=="ACCREC"',
       }), catchUpSince)),
-      () => timeProviderCall('catchUpPayments', () => fetchCollection(createXeroPaymentsCollectionConfig({
-        where: 'PaymentType=="ACCRECPAYMENT"',
-      }), catchUpSince)),
+      () => timeProviderCall('catchUpPayments', () => fetchCollection(createXeroPaymentsCollectionConfig({ where: 'PaymentType=="ACCRECPAYMENT"' }), catchUpSince)),
     ], XERO_GENERATION_IMPORT_MAX_PROVIDER_CONCURRENCY)
     const providerWallMs = elapsedMilliseconds(providerStartedAt, dependencies.monotonicNow())
     dependencies.recordLatency({
@@ -857,11 +859,33 @@ export async function importXeroGeneration(params: {
       sourceIdKey: 'InvoiceID',
       collections: [authorisedPrimary.records, paidPrimary.records, invoicesCatchUp.records],
     }).filter(isRequiredInvoice)
-    const payments = mergeProviderRecords({
+    const paymentVersions = mergeProviderRecords({
       resource: 'payments',
       sourceIdKey: 'PaymentID',
       collections: [paymentsPrimary.records, paymentsCatchUp.records],
-    }).filter(isRequiredPayment)
+    })
+    const payments = paymentVersions.filter(isRequiredPayment)
+    const evidenceCollections = await runWithConcurrency(['payments', 'overpayments', 'prepayments'].map(resource => async () => {
+      const kind = resource as EvidenceResource
+      const startedAt = new Date(dependencies.now()).toISOString()
+      try {
+        const config = kind === 'payments' ? createXeroPaymentsCollectionConfig() : createXeroCashCollectionConfig(kind)
+        const primary = await fetchCollection(config)
+        const catchUp = await fetchCollection(config, catchUpSince)
+        assertCanContinue()
+        const records = mergeProviderRecords({ resource: kind,
+          sourceIdKey: kind === 'payments' ? 'PaymentID' : kind === 'overpayments' ? 'OverpaymentID' : 'PrepaymentID',
+          collections: [primary.records, catchUp.records] })
+        return { resource: kind, records, observation: { resource: kind, started_at: startedAt,
+          completed_at: new Date(dependencies.now()).toISOString(), complete: true, source_count: 0,
+          page_requests: primary.pageRequestCount + catchUp.pageRequestCount,
+          populated_pages: primary.populatedPageCount + catchUp.populatedPageCount } satisfies EvidenceObservation }
+      } catch {
+        assertCanContinue() // Lease/deadline/cancellation failures still stop the generation.
+        return { resource: kind, records: [], observation: { resource: kind, started_at: startedAt,
+          completed_at: null, complete: false, source_count: 0, page_requests: 0, populated_pages: 0 } satisfies EvidenceObservation }
+      }
+    }), 3)
     const authorisedInvoiceCount = invoices.filter(isAuthorisedInvoice).length
     const paidInvoiceCount = invoices.filter(isPaidInvoice).length
     const resourcesFetchedAt = new Date(dependencies.now()).toISOString()
@@ -922,6 +946,23 @@ export async function importXeroGeneration(params: {
         resource: 'canonical_mapping',
         runId: authority.syncRunId,
       })
+    }
+    for (const collection of evidenceCollections) {
+      assertCanContinue()
+      let rows: ProviderRecord[] = []
+      let observation: EvidenceObservation = collection.observation
+      if (observation.complete) {
+        try {
+          rows = collection.resource === 'payments'
+            ? mapXeroPaymentEvidence(collection.records, invoices)
+            : mapXeroUnappliedCashEvidence(collection.resource, collection.records, contacts, organisationResult.records[0])
+          observation = { ...observation, source_count: rows.length }
+        } catch {
+          observation = { ...observation, complete: false }
+        }
+      }
+      await dependencies.persistEvidence({ ...authority, supabaseAdmin, organisation: organisationResult.records[0], rows, observation })
+      assertCanContinue()
     }
     const canonicalCount = Object.values(mapping.counts).reduce((sum, count) => sum + count, 0)
     await completeStep('canonical_mapping', canonicalCount)

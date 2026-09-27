@@ -333,6 +333,12 @@ for (const scenario of [
     expectedCode: 'XERO_GENERATION_VALIDATION_FAILED',
   },
   {
+    name: 'Active Promise evidence-readiness rejection',
+    dependencies: { promoteRun: async () => ({ promoted: false, resultCode: 'promise_evidence_not_ready', promotedAt: null }) },
+    expectedStatus: 409,
+    expectedCode: 'XERO_GENERATION_PROMOTION_REJECTED',
+  },
+  {
     name: 'promotion race rejection',
     dependencies: { promoteRun: async () => ({ promoted: false, resultCode: 'active_generation_changed', promotedAt: null }) },
     expectedStatus: 409,
@@ -343,11 +349,13 @@ for (const scenario of [
     const sync = loadSyncModule()
     const state = { activeRunId: 'generation-a' }
     let importCalls = 0
+    const failures = []
     const response = await sync.syncXeroAuthoritatively({
       userId,
       tenantId,
       dependencies: dependencies({
         importGeneration: async () => { importCalls += 1; return readyResult() },
+        failRun: async (params) => { failures.push(params); return { failed: true, resultCode: 'failed' } },
         ...scenario.dependencies,
       }),
     })
@@ -357,6 +365,12 @@ for (const scenario of [
     assert.equal(payload.code, scenario.expectedCode)
     assert.equal(importCalls, 1)
     assert.equal(state.activeRunId, 'generation-a')
+    if (scenario.name === 'Active Promise evidence-readiness rejection') {
+      assert.equal(failures.length, 1)
+      assert.equal(failures[0].errorCode, 'promotion_failed')
+      assert.equal(failures[0].errorResource, 'promise_evidence_not_ready')
+      assert.equal(failures[0].syncRunId, runId)
+    }
   })
 }
 

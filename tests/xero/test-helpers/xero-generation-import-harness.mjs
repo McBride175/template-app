@@ -246,6 +246,9 @@ export function createGenerationImportHarness(options = {}) {
           name = 'invoices:paid'
           records = primary.paidInvoices
         }
+      } else if (['overpayments', 'prepayments'].includes(request.config.resource)) {
+        name = `${isCatchUp ? 'catchup:' : ''}${request.config.resource}`
+        records = options[request.config.resource] ?? []
       } else {
         name = isCatchUp ? 'catchup:payments' : 'payments'
         records = isCatchUp ? catchUp.payments : primary.payments
@@ -255,6 +258,10 @@ export function createGenerationImportHarness(options = {}) {
         return options.fetchCollection({ request, name, records, pageResult })
       }
       return pageResult(records)
+    },
+    async persistEvidence(params) {
+      events.push(`evidence:${params.observation.resource}:${params.observation.complete}`)
+      if (options.persistEvidence) return options.persistEvidence(params)
     },
     async persistRaw({ resourceType, records }) {
       events.push(`persist:${resourceType}`)

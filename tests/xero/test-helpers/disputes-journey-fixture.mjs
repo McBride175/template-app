@@ -41,7 +41,7 @@ export function createDisputesJourney({ invoices = [
       ...owner, id: `customer-1-${id}`, sync_run_id: 'generation-1', source_id: id,
       name: `${id} Ltd`, email: null, is_customer: true, is_supplier: false, status: 'ACTIVE',
     })),
-    canonical_invoices: structuredClone(invoices), canonical_payments: [], invoice_disputes: [],
+    canonical_invoices: structuredClone(invoices), canonical_payments: [], invoice_disputes: [], invoice_promises: [],
     customer_overrides: [], collection_actions: [],
   }
   const calls = []

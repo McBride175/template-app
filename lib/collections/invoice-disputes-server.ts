@@ -14,7 +14,6 @@ import {
   type XeroAuthoritativeSnapshot,
 } from '@/lib/xero/authoritative-snapshot'
 import {
-  deriveInvoiceDispute,
   InvoiceDisputeDomainError,
   validateDisputableInvoice,
   validateNewPartialDisputedAmount,
@@ -23,8 +22,12 @@ import {
   type InvoiceDisputeMode,
 } from '@/lib/collections/invoice-disputes'
 
+import { deriveInvoiceActionability } from '@/lib/collections/invoice-actionability'
+import { loadLatestInvoicePromisePresentation, assertInvoicePromiseSnapshotCurrent } from '@/lib/collections/invoice-promises-loading'
+
 const SOURCE_SYSTEM = 'xero'
 const PAGE_SIZE = 1000
+const IDENTITY_BATCH_SIZE = 100 // Keep PostgREST identity filters below practical URL limits.
 const DISPUTE_COLUMNS = 'id, user_id, tenant_id, source_system, invoice_source_id, dispute_mode, recorded_disputed_amount_native, amount_due_at_last_review_native, note, is_active, resolved_at, created_at, updated_at, revision'
 const INVOICE_COLUMNS = 'user_id, tenant_id, source_id, source_system, customer_source_id, type, status, amount_due_native, amount_due_base, transaction_currency_code, organisation_base_currency_code, xero_currency_rate'
 const CUSTOMER_INVOICE_COLUMNS = `${INVOICE_COLUMNS}, invoice_number, reference, issue_date, due_date`
@@ -164,40 +167,49 @@ export async function loadInvoiceDisputesForSnapshot(params: {
   userId: string
   tenantId: string
   snapshot: XeroAuthoritativeSnapshot
+  invoiceSourceIds?: string[]
 }): Promise<InvoiceDisputeRecord[]> {
   assertXeroSnapshotIdentity(params.snapshot, {
     userId: params.userId,
     tenantId: params.tenantId,
   })
   const disputes: InvoiceDisputeRecord[] = []
-  for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await params.admin.from('invoice_disputes')
-      .select(DISPUTE_COLUMNS)
-      .eq('user_id', params.userId)
-      .eq('tenant_id', params.tenantId)
-      .order('id', { ascending: true })
-      .range(from, from + PAGE_SIZE - 1)
-    if (error) throw error
-    const batch = (data ?? []) as InvoiceDisputeRecord[]
-    disputes.push(...batch)
-    if (batch.length < PAGE_SIZE) break
+  if (params.invoiceSourceIds?.length === 0) return disputes
+  const groups = params.invoiceSourceIds ? Array.from({ length: Math.ceil(params.invoiceSourceIds.length / IDENTITY_BATCH_SIZE) }, (_, index) => params.invoiceSourceIds!.slice(index * IDENTITY_BATCH_SIZE, (index + 1) * IDENTITY_BATCH_SIZE)) : [null]
+  for (const ids of groups) {
+    for (let from = 0; ; from += PAGE_SIZE) {
+      let query = params.admin.from('invoice_disputes')
+        .select(DISPUTE_COLUMNS)
+        .eq('user_id', params.userId)
+        .eq('tenant_id', params.tenantId)
+      if (ids) query = query.in('invoice_source_id', ids)
+      const { data, error } = await query
+        .order('id', { ascending: true })
+        .range(from, from + PAGE_SIZE - 1)
+      if (error) throw error
+      const batch = (data ?? []) as InvoiceDisputeRecord[]
+      disputes.push(...batch)
+      if (batch.length < PAGE_SIZE) break
+    }
   }
   return disputes
 }
 
 async function loadCurrentCustomerInvoices(
   context: Awaited<ReturnType<typeof authenticateDisputeTenant>>,
-  customerSourceId: string
+  customerSourceId: string,
+  invoiceSourceId?: string
 ) {
   const invoices: CustomerDisputeInvoice[] = []
   for (let from = 0; ; from += PAGE_SIZE) {
-    const query = context.admin.from('canonical_invoices')
+    let query = context.admin.from('canonical_invoices')
       .select(CUSTOMER_INVOICE_COLUMNS)
       .eq('user_id', context.userId)
       .eq('tenant_id', context.tenantId)
       .eq('source_system', SOURCE_SYSTEM)
       .eq('customer_source_id', customerSourceId)
       .eq('type', 'ACCREC')
+    if (invoiceSourceId) query = query.eq('source_id', invoiceSourceId)
     const { data, error } = await applyXeroAuthoritativeSnapshot(query, context.snapshot)
       .order('source_id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
@@ -213,20 +225,32 @@ async function loadCurrentCustomerInvoices(
 export async function loadCustomerInvoiceDisputes(params: {
   tenantId: string
   customerSourceId: string
+  invoiceSourceId?: string
 }) {
   const context = await authenticateDisputeTenant(params.tenantId)
   const customerSourceId = requiredIdentity(params.customerSourceId)
-  const [invoices, disputes] = await Promise.all([
-    loadCurrentCustomerInvoices(context, customerSourceId),
-    loadInvoiceDisputesForSnapshot(context),
+  const invoiceSourceId = params.invoiceSourceId ? requiredIdentity(params.invoiceSourceId) : undefined
+  const invoices = await loadCurrentCustomerInvoices(context, customerSourceId, invoiceSourceId)
+  const [disputes, promises] = await Promise.all([
+    loadInvoiceDisputesForSnapshot({ ...context, invoiceSourceIds: invoices.map(invoice => invoice.source_id) }),
+    loadLatestInvoicePromisePresentation({ ...context, customerSourceId, invoiceSourceId }),
   ])
+  await assertInvoicePromiseSnapshotCurrent(context)
   const disputeByInvoiceId = new Map(
     disputes.filter((dispute) => dispute.source_system === SOURCE_SYSTEM)
       .map((dispute) => [dispute.invoice_source_id, dispute])
   )
-  return invoices.map((invoice) => {
+  const views = invoices.map((invoice) => {
     const dispute = disputeByInvoiceId.get(invoice.source_id) ?? null
-    const derived = deriveInvoiceDispute(invoice, dispute)
+    const latestPromise = promises.get(invoice.source_id) ?? null
+    const promise = latestPromise?.status === 'active' ? {
+      id: latestPromise.id, user_id: context.userId, tenant_id: context.tenantId, source_system: SOURCE_SYSTEM,
+      invoice_source_id: invoice.source_id, customer_source_id: customerSourceId,
+      currency_code: latestPromise.currencyCode!, status: latestPromise.status,
+      promised_amount_native: latestPromise.promisedAmountNative!, qualifying_paid_amount_native: latestPromise.qualifyingPaidAmountNative!,
+    } : null
+    const actionability = deriveInvoiceActionability(invoice, dispute, promise)
+    const derived = actionability.dispute
     return {
       invoiceSourceId: invoice.source_id,
       invoiceNumber: invoice.invoice_number,
@@ -245,9 +269,55 @@ export async function loadCustomerInvoiceDisputes(params: {
       currentAmountDueNative: derived.currentAmountDueNative,
       recordedDisputedAmountNative: derived.recordedDisputedAmountNative,
       effectiveDisputedAmountNative: derived.effectiveDisputedAmountNative,
-      collectibleAmountNative: derived.collectibleAmountNative,
+      collectibleAmountNative: actionability.toChaseAmountNative,
+      activePromisedCoverageAmountNative: actionability.activePromisedCoverageAmountNative,
+      toChaseAmountNative: actionability.toChaseAmountNative,
+      grossOpenAmountBase: actionability.grossOpenAmountBase,
+      effectiveDisputedAmountBase: actionability.effectiveDisputedAmountBase,
+      activePromisedCoverageAmountBase: actionability.activePromisedCoverageAmountBase,
+      toChaseAmountBase: actionability.toChaseAmountBase,
+      latestPromise,
+      activePromise: promise ? {
+        id: promise.id, status: promise.status, revision: latestPromise!.revision, note: latestPromise!.note ?? null,
+        promisedAmountNative: actionability.recordedPromisedAmountNative,
+        promisedDate: latestPromise!.promisedDate,
+        qualifyingPaidAmountNative: actionability.qualifyingPaidAmountNative,
+        activeCoverageAmountNative: actionability.activePromisedCoverageAmountNative,
+      } : null,
     }
-  }).filter((invoice) => invoice.invoiceState === 'open' || invoice.disputeId !== null)
+  }).filter((invoice) => invoice.invoiceState === 'open' || invoice.disputeId !== null || invoice.latestPromise !== null || invoiceSourceId !== undefined)
+  // Retained commitments remain reachable even if their provider invoice disappears.
+  // This is an unavailable accounting context, never a fabricated zero balance.
+  const currentIds = new Set(invoices.map(invoice => invoice.source_id))
+  for (const [missingId, latestPromise] of promises) {
+    if (currentIds.has(missingId)) continue
+    const dispute = disputeByInvoiceId.get(missingId) ?? null
+    const active = latestPromise.status === 'active'
+    const debt = deriveInvoiceActionability(null, dispute, active ? {
+      id: latestPromise.id, user_id: context.userId, tenant_id: context.tenantId, source_system: SOURCE_SYSTEM,
+      invoice_source_id: missingId, customer_source_id: customerSourceId, currency_code: latestPromise.currencyCode!,
+      status: 'active', promised_amount_native: latestPromise.promisedAmountNative!, qualifying_paid_amount_native: latestPromise.qualifyingPaidAmountNative!,
+    } : null)
+    views.push({
+      invoiceSourceId: missingId, invoiceNumber: null, reference: null, issueDate: null, dueDate: null,
+      currencyCode: latestPromise.currencyCode ?? null, disputeId: dispute?.id ?? null,
+      revision: dispute ? String(dispute.revision) : null, note: dispute?.note ?? null,
+      invoiceState: debt.invoiceState, disputeMode: debt.dispute.disputeMode, isActive: debt.dispute.isActive,
+      isResolved: debt.dispute.isResolved, needsReview: debt.dispute.needsReview,
+      currentAmountDueNative: debt.currentAmountDueNative, recordedDisputedAmountNative: debt.dispute.recordedDisputedAmountNative,
+      effectiveDisputedAmountNative: debt.effectiveDisputedAmountNative, collectibleAmountNative: debt.toChaseAmountNative,
+      activePromisedCoverageAmountNative: debt.activePromisedCoverageAmountNative, toChaseAmountNative: debt.toChaseAmountNative,
+      grossOpenAmountBase: debt.grossOpenAmountBase, effectiveDisputedAmountBase: debt.effectiveDisputedAmountBase,
+      activePromisedCoverageAmountBase: debt.activePromisedCoverageAmountBase, toChaseAmountBase: debt.toChaseAmountBase,
+      latestPromise, activePromise: active ? {
+        id: latestPromise.id, status: 'active', revision: latestPromise.revision, note: latestPromise.note ?? null,
+        promisedAmountNative: latestPromise.promisedAmountNative, promisedDate: latestPromise.promisedDate,
+        qualifyingPaidAmountNative: latestPromise.qualifyingPaidAmountNative, activeCoverageAmountNative: debt.activePromisedCoverageAmountNative,
+      } : null,
+    })
+  }
+  return views
+
 }
 
 /** Validate the full customer selection before one transactional database call. */

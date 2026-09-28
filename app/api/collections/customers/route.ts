@@ -12,6 +12,8 @@ import {
 } from '@/lib/billing/collections-access'
 import { logCollectionsCurrencyHealth } from '@/lib/collections/currency-health'
 import { compareDecimalValues } from '@/lib/money/currency'
+import { loadCollectionsCurrencyContext } from '@/lib/collections/currency-context-server'
+import { resolveXeroAuthoritativeSnapshot } from '@/lib/xero/authoritative-snapshot'
 import { isMissingRelationError } from '@/lib/collections/tenant-context'
 import {
   DEFAULT_FOUNDER_CONTEXT_LEVEL,
@@ -136,6 +138,8 @@ export async function GET(request: NextRequest) {
     const sortDir = parseSortDir(searchParams.get('sortDir'))
     const requestedTenantId = parseTenantId(searchParams.get('tenantId'))
     const requestedCustomerSourceId = parseTenantId(searchParams.get('customerSourceId'))
+    const scopedCustomerSourceId = parseTenantId(searchParams.get('scopeCustomerSourceId'))
+    if (scopedCustomerSourceId && !requestedTenantId) return NextResponse.json({ error: 'Tenant is required.' }, { status: 400 })
     const entitlement = await claimActionsEntitlementStatus({
       userId: user.id,
       preferredTenantId: requestedTenantId,
@@ -143,6 +147,7 @@ export async function GET(request: NextRequest) {
     })
     const tenantId = entitlement.tenantId
 
+    if (scopedCustomerSourceId && entitlement.tenantId !== requestedTenantId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     if (!tenantId) {
       return NextResponse.json({ error: 'No tenant context found' }, { status: 400 })
     }
@@ -154,15 +159,19 @@ export async function GET(request: NextRequest) {
     }
 
     const supabaseAdmin = createSupabaseAdminClient()
+    const heldSnapshot = scopedCustomerSourceId ? await resolveXeroAuthoritativeSnapshot({ supabaseAdmin, userId: user.id, tenantId }) : undefined
+    // A scoped refresh must not weaken the tenant-wide gross currency entitlement boundary.
+    const grossCurrencyContext = heldSnapshot ? await loadCollectionsCurrencyContext({ supabaseAdmin, userId: user.id, tenantId, snapshot: heldSnapshot }) : null
     const {
       rows,
       organisationBaseCurrency,
       currencyHealth,
       currencyEvaluation,
-      currencyContext,
+      currencyContext: summaryCurrencyContext,
       reviewRequiredCustomers,
       snapshot,
-    } = await loadCustomerCollectionsSummaryWithMetadata(supabaseAdmin, user.id, tenantId)
+    } = await loadCustomerCollectionsSummaryWithMetadata(supabaseAdmin, user.id, tenantId, scopedCustomerSourceId && heldSnapshot ? { customerSourceId: scopedCustomerSourceId, snapshot: heldSnapshot } : undefined)
+    const currencyContext = grossCurrencyContext ?? summaryCurrencyContext
     const currencyAccess = resolveCollectionsCurrencyAccess({ entitlement, currencyContext })
 
     if (!currencyAccess.allowed) {
@@ -199,11 +208,13 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const { data: overrideRows, error: overrideError } = await supabaseAdmin
+    let overrideQuery = supabaseAdmin
       .from('customer_overrides')
       .select('customer_source_id, override_level')
       .eq('user_id', user.id)
       .eq('tenant_id', tenantId)
+    if (scopedCustomerSourceId) overrideQuery = overrideQuery.eq('customer_source_id', scopedCustomerSourceId)
+    const { data: overrideRows, error: overrideError } = await overrideQuery
 
     if (overrideError) {
       if (isMissingRelationError(overrideError, 'customer_overrides')) {

@@ -2,10 +2,13 @@ import 'server-only'
 
 import { authenticateDisputeTenant, loadInvoiceDisputesForSnapshot } from '@/lib/collections/invoice-disputes-server'
 import { applyXeroAuthoritativeSnapshot } from '@/lib/xero/authoritative-snapshot'
-import { deriveInvoiceDispute, type DisputeAccountingInvoice } from '@/lib/collections/invoice-disputes'
+import type { DisputeAccountingInvoice } from '@/lib/collections/invoice-disputes'
 import { evaluateCollectionsCurrencyHealth, type CollectionsInvoiceCurrencyRow } from '@/lib/collections/currency-health'
 import { disputeInvoiceOverdueDays, selectDisputeWorklistRows,
   type DisputeWorklistQuery, type DisputeWorklistResponse, type DisputeWorklistRow } from '@/lib/collections/dispute-worklist'
+
+import { deriveInvoiceActionability } from '@/lib/collections/invoice-actionability'
+import { loadActiveInvoicePromises, assertInvoicePromiseSnapshotCurrent } from '@/lib/collections/invoice-promises-loading'
 
 interface Invoice extends DisputeAccountingInvoice, CollectionsInvoiceCurrencyRow {
   invoice_number: string | null
@@ -53,11 +56,12 @@ export async function loadDisputeWorklist(params: {
   const disputes = (await loadInvoiceDisputesForSnapshot(context))
     .filter((row) => row.source_system === 'xero')
   const ids = disputes.map((row) => row.invoice_source_id)
-  const [invoices, organisationResult] = await Promise.all([
+  const [invoices, organisationResult, promises] = await Promise.all([
     loadIdentityRows<Invoice>(context, 'canonical_invoices', ids, INVOICE_COLUMNS, true),
     applyXeroAuthoritativeSnapshot(context.admin.from('canonical_organisations')
       .select('base_currency_code').eq('user_id', context.userId)
       .eq('tenant_id', context.tenantId), context.snapshot),
+    loadActiveInvoicePromises(context),
   ])
   if (organisationResult.error) throw organisationResult.error
   const currentById = firstByIdentity(invoices)
@@ -71,6 +75,7 @@ export async function loadDisputeWorklist(params: {
   const absentCustomerIds = customerIds.filter((id) => !customerById.has(id))
   const previousCustomers = firstByIdentity(await loadIdentityRows<Customer>(context,
     'canonical_customers', absentCustomerIds, 'source_id, name', false))
+  await assertInvoicePromiseSnapshotCurrent(context)
   const valuation = evaluateCollectionsCurrencyHealth({
     organisations: organisationResult.data ?? [], invoices,
   })
@@ -79,7 +84,8 @@ export async function loadDisputeWorklist(params: {
   const rows: DisputeWorklistRow[] = disputes.map((dispute) => {
     const invoice = currentById.get(dispute.invoice_source_id) ?? null
     const lastKnown = invoice ?? previousById.get(dispute.invoice_source_id) ?? null
-    const debt = deriveInvoiceDispute(invoice, dispute)
+    const actionability = deriveInvoiceActionability(invoice, dispute, invoice ? promises.get(invoice.source_id) ?? null : null)
+    const debt = actionability.dispute
     const customerId = lastKnown?.customer_source_id ?? null
     const customer = customerId ? customerById.get(customerId) ?? previousCustomers.get(customerId) : null
     const baseValid = invoice !== null &&
@@ -103,10 +109,10 @@ export async function loadDisputeWorklist(params: {
       currentAmountDueNative: debt.currentAmountDueNative,
       recordedDisputedAmountNative: debt.recordedDisputedAmountNative,
       effectiveDisputedAmountNative: invoice ? debt.effectiveDisputedAmountNative : null,
-      collectibleAmountNative: invoice ? debt.collectibleAmountNative : null,
+      collectibleAmountNative: actionability.toChaseAmountNative,
       grossOutstandingBase: baseValid ? debt.grossOpenAmountBase : null,
       effectiveDisputedBase: baseValid ? debt.effectiveDisputedAmountBase : null,
-      collectibleBase: baseValid ? debt.collectibleAmountBase : null,
+      collectibleBase: baseValid ? actionability.toChaseAmountBase : null,
       customerHref: customerId && (invoice || customerById.has(customerId))
         ? `/customers?tenantId=${encodeURIComponent(context.tenantId)}&customerSourceId=${encodeURIComponent(customerId)}` : null,
     }

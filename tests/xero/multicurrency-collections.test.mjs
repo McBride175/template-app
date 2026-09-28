@@ -134,6 +134,7 @@ async function loadSummary({ baseCurrency = 'GBP', customers, invoices, payments
     canonical_invoices: invoices,
     canonical_payments: payments,
     invoice_disputes: disputes,
+    invoice_promises: [],
   }
 
   const supabase = {

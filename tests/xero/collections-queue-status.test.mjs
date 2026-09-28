@@ -738,7 +738,7 @@ test('queue is complete only when an eligible customer was actioned today', asyn
   assert.equal(payload.queue.remainingCustomerCount, 0)
 })
 
-test('future postpone and promise dates still suppress customers without becoming score inputs', async () => {
+test('only future explicit postponements suppress; legacy promise dates remain contact history', async () => {
   const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const yesterdayTimestamp = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
   const summaryRows = [
@@ -781,12 +781,12 @@ test('future postpone and promise dates still suppress customers without becomin
     ],
   })
 
-  assert.deepEqual(payload.rows.map((row) => row.customer_source_id), ['called'])
-  assert.equal(payload.queue.suppressedCustomerCount, 2)
+  assert.deepEqual(payload.rows.map((row) => row.customer_source_id), ['called', 'promised'])
+  assert.equal(payload.queue.suppressedCustomerCount, 1)
   assert.equal(payload.queue.suppression.postponedCustomerCount, 1)
-  assert.equal(payload.queue.suppression.promisedToPayCustomerCount, 1)
+  assert.equal(payload.queue.suppression.promisedToPayCustomerCount, 0)
   assert.equal(payload.queue.suppression.nextReturnDate, tomorrow)
-  assert.equal(payload.queue.remainingCustomerCount, 1)
+  assert.equal(payload.queue.remainingCustomerCount, 2)
   assert.equal(payload.queue.status, 'ready')
   assert.equal(payload.experience.hasPriorCollectionActivity, true)
 })
@@ -803,7 +803,7 @@ test('queue UI renders degraded review and unavailable states without hiding saf
   assert.match(source, /Needs review/)
   assert.match(source, /ReviewRequiredCustomers/)
   assert.match(source, /MultiCurrencyPlanGate/)
-  assert.match(source, /equivalent to collect/)
+  assert.match(source, /equivalent to chase/)
   assert.match(source, /invoiced/)
   assert.doesNotMatch(source, /CurrencyRate/)
   assert.match(source, /queueInfo\?\.status === 'no_overdue_customers'/)

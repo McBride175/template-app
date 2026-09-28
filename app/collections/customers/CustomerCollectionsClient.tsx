@@ -319,6 +319,27 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
     [initialCustomerSourceId, loginNextPath, overdueOnly, router, sortOption, tenantId]
   )
 
+  // Refresh just this customer's canonical summary; never rank or reload the portfolio after a Promise save.
+  const refreshPromiseCustomer = useCallback(async (customerSourceId: string) => {
+    if (!resolvedTenantId) return false
+    const params = new URLSearchParams({ tenantId: resolvedTenantId, scopeCustomerSourceId: customerSourceId })
+    try {
+      const response = await fetch(`/api/collections/customers?${params}`, { cache: 'no-store', credentials: 'include' })
+      const body = await response.json() as CollectionsApiResponse
+      if (!response.ok || !body.ok || body.tenantId !== resolvedTenantId || body.currencyHealth?.status === 'unavailable') return false
+      const updated = body.rows?.find(row => row.customer_source_id === customerSourceId)
+      const review = body.reviewRequiredCustomers?.find(row => row.customer_source_id === customerSourceId)
+      if (!updated && !review) return false
+      setRows(previous => {
+        const retained = previous.filter(row => row.customer_source_id !== customerSourceId)
+        return updated ? previous.some(row => row.customer_source_id === customerSourceId)
+          ? previous.map(row => row.customer_source_id === customerSourceId ? updated : row) : [...retained, updated] : retained
+      })
+      setReviewRequiredCustomers(previous => [...previous.filter(row => row.customer_source_id !== customerSourceId), ...(review ? [review] : [])])
+      return true
+    } catch { return false }
+  }, [resolvedTenantId])
+
   useEffect(() => {
     void loadRows(false)
   }, [loadRows])
@@ -685,6 +706,7 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
                         <div className="mt-2" ref={(element) => { invoiceSectionRef.current = element }}>
                           <CustomerInvoiceDisputes tenantId={resolvedTenantId}
                             customerSourceId={customer.customer_source_id} customerName={customer.customer_name}
+                            onPromiseChanged={() => refreshPromiseCustomer(customer.customer_source_id)}
                             onChanged={() => loadRows(true)}
                             onMutationStarted={() => setDisputeRefreshState(null)}
                             onMutationPending={(message) => setDisputeRefreshState({ stale: true, message })}
@@ -777,12 +799,15 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
                           invoiced
                         </p>
                       )}
-                    {row.has_active_dispute && (
+                    {(row.has_active_dispute || row.collectible_outstanding_base !== row.total_outstanding_base) && (
                       <p className="mt-0.5 text-xs text-gray-600">
-                        Disputed: {row.effective_disputed_outstanding_base_decimal === null
-                          ? 'Base amount unavailable'
-                          : formatMoney(Number(row.effective_disputed_outstanding_base_decimal), organisationBaseCurrency)}
-                        {' · '}{formatMoney(row.collectible_outstanding_base, organisationBaseCurrency)} to collect
+                        {row.has_active_dispute && <>
+                          Disputed: {row.effective_disputed_outstanding_base_decimal === null
+                            ? 'Base amount unavailable'
+                            : formatMoney(Number(row.effective_disputed_outstanding_base_decimal), organisationBaseCurrency)}
+                          {' · '}
+                        </>}
+                        {formatMoney(row.collectible_outstanding_base, organisationBaseCurrency)} to chase
                       </p>
                     )}
                   </td>
@@ -808,7 +833,7 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
                       (row.overdue_outstanding_base === null ||
                         row.collectible_overdue_base !== row.overdue_outstanding_base) && (
                         <p className="mt-0.5 text-xs text-gray-600">
-                          {formatMoney(row.collectible_overdue_base, organisationBaseCurrency)} to collect
+                          {formatMoney(row.collectible_overdue_base, organisationBaseCurrency)} to chase
                         </p>
                       )}
                     {row.has_active_dispute && (
@@ -894,6 +919,7 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
                   <tr ref={(element) => { invoiceSectionRef.current = element }}><td colSpan={10} className="p-0">
                     <CustomerInvoiceDisputes tenantId={resolvedTenantId}
                       customerSourceId={row.customer_source_id} customerName={row.customer_name}
+                      onPromiseChanged={() => refreshPromiseCustomer(row.customer_source_id)}
                       onChanged={() => loadRows(true)}
                       onMutationStarted={() => setDisputeRefreshState(null)}
                       onMutationPending={(message) => setDisputeRefreshState({ stale: true, message })}

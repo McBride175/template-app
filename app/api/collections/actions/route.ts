@@ -89,7 +89,7 @@ function shouldSuppressCustomerFromQueue(
   if (!latestAction?.nextActionDate) return false
 
   const suppressesQueue =
-    latestAction.type === 'postponed' || latestAction.outcome === 'promised_to_pay'
+    latestAction.type === 'postponed'
 
   if (!suppressesQueue) return false
 
@@ -354,7 +354,7 @@ export async function GET(request: NextRequest) {
     }
 
     const collectibleQueueRows = summaryRows.filter((row) =>
-      !(row.has_active_dispute && row.collectible_outstanding_base <= 0)
+      !((row.has_active_dispute || row.has_active_promise) && row.collectible_outstanding_base <= 0)
     )
     const scopeRows = overdueOnly
       ? collectibleQueueRows.filter((row) => row.collectible_overdue_base > 0)
@@ -370,17 +370,13 @@ export async function GET(request: NextRequest) {
       : queueEligibleRows
     const suppressedCustomerCount = scopeRows.length - filteredRows.length
     let postponedCustomerCount = 0
-    let promisedToPayCustomerCount = 0
+    const promisedToPayCustomerCount = 0 // Retained response compatibility; contact outcomes no longer suppress.
     let nextReturnDate: string | null = null
     for (const row of scopeRows) {
       const latestAction = latestActionByCustomerSourceId.get(row.customer_source_id)
       if (!shouldSuppressCustomerFromQueue(latestAction, todayDateIso)) continue
 
-      if (latestAction?.outcome === 'promised_to_pay') {
-        promisedToPayCustomerCount += 1
-      } else {
-        postponedCustomerCount += 1
-      }
+      postponedCustomerCount += 1
       if (
         latestAction?.nextActionDate &&
         (nextReturnDate === null || latestAction.nextActionDate < nextReturnDate)
@@ -488,6 +484,12 @@ export async function GET(request: NextRequest) {
         gross_overdue_base_decimal: row.gross_overdue_base_decimal,
         effective_disputed_outstanding_base_decimal: row.effective_disputed_outstanding_base_decimal,
         effective_disputed_overdue_base_decimal: row.effective_disputed_overdue_base_decimal,
+        active_promised_outstanding_base_decimal: row.active_promised_outstanding_base_decimal,
+        active_promised_overdue_base_decimal: row.active_promised_overdue_base_decimal,
+        to_chase_outstanding_base_decimal: row.to_chase_outstanding_base_decimal,
+        to_chase_overdue_base_decimal: row.to_chase_overdue_base_decimal,
+        to_chase_outstanding_base: row.to_chase_outstanding_base,
+        to_chase_overdue_base: row.to_chase_overdue_base,
         gross_total_outstanding_base: row.total_outstanding_base,
         gross_overdue_outstanding_base: row.overdue_outstanding_base,
         legacy_gross_total_outstanding_base_decimal: row.total_outstanding_base_decimal,
@@ -543,6 +545,12 @@ export async function GET(request: NextRequest) {
           gross_overdue_base_decimal: row.gross_overdue_base_decimal,
           effective_disputed_outstanding_base_decimal: row.effective_disputed_outstanding_base_decimal,
           effective_disputed_overdue_base_decimal: row.effective_disputed_overdue_base_decimal,
+          active_promised_outstanding_base_decimal: row.active_promised_outstanding_base_decimal,
+          active_promised_overdue_base_decimal: row.active_promised_overdue_base_decimal,
+          to_chase_outstanding_base_decimal: row.to_chase_outstanding_base_decimal,
+          to_chase_overdue_base_decimal: row.to_chase_overdue_base_decimal,
+          to_chase_outstanding_base: row.to_chase_outstanding_base,
+          to_chase_overdue_base: row.to_chase_overdue_base,
           collectible_outstanding_base_decimal: row.total_outstanding_base_decimal,
           collectible_overdue_base_decimal: row.overdue_outstanding_base_decimal,
           collectible_outstanding_base: row.total_outstanding_base,

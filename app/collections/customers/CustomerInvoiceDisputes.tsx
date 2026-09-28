@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
+import InvoiceAmounts from './InvoiceAmounts'
+import InvoicePromise from './InvoicePromise'
 import type { InvoiceDisputeView as InvoiceRow } from '@/lib/collections/invoice-dispute-view'
 
 interface ApiResponse {
@@ -54,6 +56,7 @@ interface InvoiceDisputeListProps {
   tenantId: string
   customerSourceId: string
   customerName: string
+  onPromiseChanged?: () => Promise<boolean>
   onChanged: () => Promise<boolean>
   onMutationStarted: () => void
   onMutationPending: (message: string) => void
@@ -62,7 +65,7 @@ interface InvoiceDisputeListProps {
 }
 
 export default function CustomerInvoiceDisputes(props: InvoiceDisputeListProps) {
-  const { tenantId, customerSourceId } = props
+  const { tenantId, customerSourceId, onPromiseChanged } = props
   const [invoices, setInvoices] = useState<InvoiceRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -87,6 +90,20 @@ export default function CustomerInvoiceDisputes(props: InvoiceDisputeListProps) 
     }
   }, [tenantId, customerSourceId])
 
+  const refreshPromise = useCallback(async (invoiceSourceId: string) => {
+    const params = new URLSearchParams({ tenantId, customerSourceId, invoiceSourceId })
+    const invoiceRefresh = (async () => {
+      const response = await fetch(`/api/collections/invoice-disputes?${params}`, { credentials: 'include', cache: 'no-store' })
+      const body = await response.json() as ApiResponse
+      if (!response.ok || !body.ok || !body.invoices?.length) return false
+      const updated = body.invoices.find(invoice => invoice.invoiceSourceId === invoiceSourceId)
+      if (!updated) return false
+      setInvoices(current => current.map(invoice => invoice.invoiceSourceId === invoiceSourceId ? updated : invoice))
+      return true
+    })()
+    const results = await Promise.allSettled([invoiceRefresh, onPromiseChanged?.() ?? Promise.resolve(true)])
+    return results.every(result => result.status === 'fulfilled' && result.value === true)
+  }, [tenantId, customerSourceId, onPromiseChanged])
   useEffect(() => { void reload() }, [reload])
   useEffect(() => {
     if (loading || typeof window === 'undefined' || !window.location.hash.startsWith('#invoice-')) return
@@ -95,14 +112,14 @@ export default function CustomerInvoiceDisputes(props: InvoiceDisputeListProps) 
     } catch { /* Ignore malformed external fragments. */ }
   }, [invoices, loading])
   return <InvoiceDisputeList {...props} invoices={invoices} loading={loading}
-    loadError={error} reload={reload} />
+    loadError={error} reload={reload} onPromiseRefresh={props.onPromiseChanged ? refreshPromise : undefined} />
 }
 
 /** Shared native editor and revision-safe mutation flow; data loading belongs to its surface. */
 export function InvoiceDisputeList({
   tenantId, customerSourceId, customerName, onChanged, onMutationStarted,
   onMutationPending, onMutationResult, invoices, loading = false, loadError = null,
-  reload, showBulkActions = true, disabled = false, onMutationError,
+  reload, showBulkActions = true, disabled = false, onMutationError, onPromiseRefresh,
 }: InvoiceDisputeListProps & {
   invoices: InvoiceRow[]
   loading?: boolean
@@ -110,6 +127,7 @@ export function InvoiceDisputeList({
   reload: () => Promise<boolean>
   showBulkActions?: boolean
   disabled?: boolean
+  onPromiseRefresh?: (invoiceId: string) => Promise<boolean>
 }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -213,7 +231,7 @@ export function InvoiceDisputeList({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="font-semibold text-gray-900">Invoices for {customerName}</h3>
-          <p className="text-xs text-gray-600">Disputes apply only to these invoice identities. Amounts below use invoice currency.</p>
+          <p className="text-xs text-gray-600">Amounts use invoice currency.</p>
         </div>
         <button type="button" className={actionClass} onClick={() => void reload()} disabled={loading || saving || disabled}>Refresh invoices</button>
       </div>
@@ -259,11 +277,7 @@ export function InvoiceDisputeList({
                 {showBulkActions && invoice.invoiceState === 'open' && invoice.isResolved && (
                   <p className="mt-2 text-xs text-gray-600">Resolved — reactivate before disputing again.</p>
                 )}
-                <div className="mt-3 grid gap-2 text-gray-700 sm:grid-cols-3">
-                  <p>Accounting outstanding: <strong>{amount(invoice.currentAmountDueNative, invoice.currencyCode)}</strong></p>
-                  <p>Effectively disputed: <strong>{amount(invoice.effectiveDisputedAmountNative, invoice.currencyCode)}</strong></p>
-                  <p>To collect: <strong>{amount(invoice.collectibleAmountNative, invoice.currencyCode)}</strong></p>
-                </div>
+                <InvoiceAmounts invoice={invoice} />
                 {invoice.disputeId && (
                   <p className="mt-2 text-xs text-gray-600">Recorded dispute: {amount(invoice.recordedDisputedAmountNative, invoice.currencyCode)}{invoice.disputeMode === 'full' ? ' (full amount intent)' : ''}</p>
                 )}
@@ -326,6 +340,7 @@ export function InvoiceDisputeList({
                     )}
                   </div>
                 )}
+                {onPromiseRefresh && <InvoicePromise invoice={invoice} tenantId={tenantId} onRefresh={onPromiseRefresh} disabled={disabled || saving} />}
               </div>
             ))}
           </div>

@@ -20,6 +20,7 @@ test('privacy export preserves owned dispute notes and state without internal re
         select(value) { columns = value.split(',').map((column) => column.trim()); return this },
         eq(column, value) { assert.equal(column, 'user_id'); owner = value; return this },
         order() { return this },
+        range() { return this },
         maybeSingle() { return Promise.resolve({ data: null, error: null }) },
         then(resolve, reject) { return Promise.resolve(result()).then(resolve, reject) },
       }

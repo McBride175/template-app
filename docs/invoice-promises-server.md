@@ -81,6 +81,7 @@ a later-observed same-day payment absent from the baseline may qualify. There is
 no invented intraday cash timestamp.
 
 Reconciliation already runs atomically with accounting promotion once Active
-Promise rows exist. Queue/actionability integration, Promise UI, worklist and
-privacy export changes are not implemented here. Legacy customer collection-action
-`promised_to_pay` suppression remains unchanged. Unapplied cash remains outcome-only.
+Promise rows exist. Phase 7 now integrates actionability into customer aggregation and
+the recommendation queue. Phase 8 adds customer/invoice Promise controls, bounded
+history and privacy export. A Promise worklist remains deferred. Legacy customer collection-action `promised_to_pay` remains contact
+history only; explicit postponement still suppresses. Unapplied cash remains outcome-only.

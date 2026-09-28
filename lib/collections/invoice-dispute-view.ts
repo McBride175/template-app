@@ -1,3 +1,5 @@
+import type { PromiseView } from '@/lib/collections/promise-presentation'
+
 /** Native-currency editing contract shared by customer context and the worklist. */
 export interface InvoiceDisputeView {
   invoiceSourceId: string
@@ -17,5 +19,23 @@ export interface InvoiceDisputeView {
   currentAmountDueNative: string | null
   recordedDisputedAmountNative: string | null
   effectiveDisputedAmountNative: string | null
+  /** Compatibility alias for canonical To chase. */
   collectibleAmountNative: string | null
+  activePromisedCoverageAmountNative?: string | null
+  toChaseAmountNative?: string | null
+  grossOpenAmountBase?: string | null
+  effectiveDisputedAmountBase?: string | null
+  activePromisedCoverageAmountBase?: string | null
+  toChaseAmountBase?: string | null
+  latestPromise?: PromiseView | null
+  activePromise?: {
+    id: string
+    status: 'active'
+    revision?: string
+    note?: string | null
+    promisedAmountNative: string | null
+    promisedDate?: string
+    qualifyingPaidAmountNative: string | null
+    activeCoverageAmountNative: string | null
+  } | null
 }

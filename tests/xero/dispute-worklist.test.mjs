@@ -40,6 +40,7 @@ function appFixture() {
       invoice('partial', { user_id: 'foreign-user', tenant_id: 'foreign-tenant', invoice_number: 'SECRET',
         amount_due_native: '99999', amount_due_base: '99999' }),
     ],
+    invoice_promises: [],
     invoice_disputes: [
       dispute('partial'),
       dispute('usd', { recorded_disputed_amount_native: '10000', amount_due_at_last_review_native: '25000' }),

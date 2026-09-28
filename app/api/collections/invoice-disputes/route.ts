@@ -75,7 +75,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Tenant and customer are required.' }, { status: 400 })
   }
   try {
-    const invoices = await loadCustomerInvoiceDisputes({ tenantId, customerSourceId })
+    const invoiceSourceId = requiredString(request.nextUrl.searchParams.get('invoiceSourceId'))
+    const invoices = await loadCustomerInvoiceDisputes({ tenantId, customerSourceId,
+      ...(invoiceSourceId ? { invoiceSourceId } : {}) })
     return NextResponse.json({ ok: true, invoices })
   } catch (error) {
     return errorResponse(error)

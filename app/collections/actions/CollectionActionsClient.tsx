@@ -1,5 +1,7 @@
 'use client'
 
+import { subscribePromiseActionability } from '@/lib/collections/promise-refresh'
+
 import Link from 'next/link'
 import {
   Fragment,
@@ -39,6 +41,7 @@ interface CollectionActionRow {
   overdue_outstanding_base: number | null
   total_outstanding_base: number | null
   collectible_overdue_base: number
+  active_promised_overdue_base_decimal?: string | null
   collectible_outstanding_base: number
   effective_disputed_overdue_base_decimal: string | null
   overdue_invoices_count: number
@@ -718,6 +721,8 @@ export default function CollectionActionsClient({
   useEffect(() => {
     void loadRows(false)
   }, [loadRows])
+
+  useEffect(() => subscribePromiseActionability(tenantId, () => { void loadRows(true) }), [tenantId, loadRows])
 
   const queueRows = useMemo(
     () => selectActionableFounderContextRows(rows, actionsTakenByCustomerId),
@@ -1690,7 +1695,7 @@ export default function CollectionActionsClient({
                           organisationBaseCurrency
                         )}
                       </span>{' '}
-                      {showMultiCurrencyAmounts ? 'equivalent to collect' : 'to collect'}
+                      {showMultiCurrencyAmounts ? 'equivalent to chase' : 'to chase'}
                     </p>
                     {currentQueueRow.overdue_outstanding_base !== null &&
                       currentQueueRow.effective_disputed_overdue_base_decimal !== null &&
@@ -1699,9 +1704,12 @@ export default function CollectionActionsClient({
                           {formatMoney(currentQueueRow.overdue_outstanding_base, organisationBaseCurrency)} gross overdue
                         </p>
                       )}
+                    {currentQueueRow.active_promised_overdue_base_decimal != null && Number(currentQueueRow.active_promised_overdue_base_decimal) > 0 && <p className="mt-0.5 text-xs text-gray-500">
+                      {formatMoney(Number(currentQueueRow.active_promised_overdue_base_decimal), organisationBaseCurrency)} currently promised
+                    </p>}
                     <Link href={customerInvoicesHref(currentQueueRow.customer_source_id)}
                       className="mt-1 inline-block text-xs font-medium text-gray-700 underline underline-offset-2">
-                      Manage invoices and disputes
+                      Manage invoices
                     </Link>
                     {showMultiCurrencyAmounts &&
                       formatInvoicedBreakdown(
@@ -1897,8 +1905,7 @@ export default function CollectionActionsClient({
                         />
                         {selectedOutcomeDate && (
                           <p className="text-xs text-gray-600">
-                            This customer will return to the queue on{' '}
-                            {formatDate(selectedOutcomeDate)}.
+                            Contact-history date: {formatDate(selectedOutcomeDate)}. This outcome does not postpone collection.
                           </p>
                         )}
                       </div>
@@ -1971,7 +1978,7 @@ export default function CollectionActionsClient({
             <thead className="bg-gray-50 text-left text-gray-700">
               <tr>
                 <th className="px-4 py-3 font-medium">Customer name</th>
-                <th className="px-4 py-3 font-medium">Overdue to collect</th>
+                <th className="px-4 py-3 font-medium">Overdue to chase</th>
                 <th className="px-4 py-3 font-medium">Actionable overdue invoices</th>
                 <th className="px-4 py-3 font-medium">Weighted avg days late</th>
                 <th className="px-4 py-3 font-medium">Last payment date</th>

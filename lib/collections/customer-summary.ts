@@ -19,11 +19,11 @@ import {
   type CollectionsCurrencyContext,
 } from '@/lib/collections/currency-context'
 import {
-  deriveInvoiceDispute,
-  type DerivedInvoiceDispute,
   type DisputeAccountingInvoice,
   type InvoiceDisputeRecord,
 } from '@/lib/collections/invoice-disputes'
+import { deriveInvoiceActionability, type DerivedInvoiceActionability } from '@/lib/collections/invoice-actionability'
+import { loadActiveInvoicePromises, assertInvoicePromiseSnapshotCurrent } from '@/lib/collections/invoice-promises-loading'
 import { loadInvoiceDisputesForSnapshot } from '@/lib/collections/invoice-disputes-server'
 import {
   compareDecimalValues,
@@ -35,6 +35,7 @@ import {
 } from '@/lib/money/currency'
 import {
   applyXeroAuthoritativeSnapshot,
+  assertXeroSnapshotIdentity,
   resolveXeroAuthoritativeSnapshot,
   toXeroSnapshotReference,
   type XeroAuthoritativeSnapshot,
@@ -42,6 +43,7 @@ import {
 } from '@/lib/xero/authoritative-snapshot'
 
 const PAGE_SIZE = 1000
+const IDENTITY_BATCH_SIZE = 100 // Bounded invoice-ID filters for scoped payment-date fallback.
 const MS_PER_DAY = 86_400_000
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const COLLECTIBLE_INVOICE_TYPE = 'ACCREC'
@@ -75,6 +77,13 @@ export interface CustomerCollectionsSummaryRow {
   actionable_open_invoices_count: number
   actionable_overdue_invoices_count: number
   has_active_dispute: boolean
+  has_active_promise: boolean
+  active_promised_outstanding_base_decimal: string | null
+  active_promised_overdue_base_decimal: string | null
+  to_chase_outstanding_base_decimal: string
+  to_chase_overdue_base_decimal: string
+  to_chase_outstanding_base: number
+  to_chase_overdue_base: number
   /** @deprecated Base-currency compatibility alias. */
   total_outstanding: number | null
   /** @deprecated Base-currency compatibility alias. */
@@ -108,6 +117,10 @@ export interface CollectibleNativeCurrencyBreakdown {
   currency_code: string
   effective_disputed_outstanding_native: string
   effective_disputed_overdue_native: string
+  active_promised_outstanding_native: string
+  active_promised_overdue_native: string
+  to_chase_outstanding_native: string
+  to_chase_overdue_native: string
   collectible_outstanding_native: string
   collectible_overdue_native: string
 }
@@ -171,7 +184,7 @@ interface CanonicalInvoiceRow extends CollectionsInvoiceCurrencyRow, DisputeAcco
 
 interface CurrentCollectionInvoice {
   accounting: CanonicalInvoiceRow
-  debt: DerivedInvoiceDispute
+  debt: DerivedInvoiceActionability
 }
 
 interface CanonicalPaymentRow {
@@ -187,6 +200,14 @@ interface MutableCustomerSummaryRow extends CustomerCollectionsSummaryRow {
   overdue_outstanding_base_amounts: string[]
   collectible_outstanding_base_amounts: string[]
   collectible_overdue_base_amounts: string[]
+  disputed_base_amounts: string[]
+  disputed_overdue_base_amounts: string[]
+  promised_base_amounts: string[]
+  promised_overdue_base_amounts: string[]
+  promised_base_complete: boolean
+  promised_overdue_base_complete: boolean
+  native_promised_total_by_currency: Map<string, string[]>
+  native_promised_overdue_by_currency: Map<string, string[]>
   gross_base_complete: boolean
   gross_overdue_base_complete: boolean
   overdue_weighted_days_numerator_amounts: string[]
@@ -452,6 +473,13 @@ function createMutableSummary(
     actionable_open_invoices_count: 0,
     actionable_overdue_invoices_count: 0,
     has_active_dispute: false,
+    has_active_promise: false,
+    active_promised_outstanding_base_decimal: '0',
+    active_promised_overdue_base_decimal: '0',
+    to_chase_outstanding_base_decimal: '0',
+    to_chase_overdue_base_decimal: '0',
+    to_chase_outstanding_base: 0,
+    to_chase_overdue_base: 0,
     total_outstanding: 0,
     overdue_outstanding: 0,
     oldest_overdue_invoice_date: null,
@@ -476,6 +504,14 @@ function createMutableSummary(
     overdue_outstanding_base_amounts: [],
     collectible_outstanding_base_amounts: [],
     collectible_overdue_base_amounts: [],
+    disputed_base_amounts: [],
+    disputed_overdue_base_amounts: [],
+    promised_base_amounts: [],
+    promised_overdue_base_amounts: [],
+    promised_base_complete: true,
+    promised_overdue_base_complete: true,
+    native_promised_total_by_currency: new Map<string, string[]>(),
+    native_promised_overdue_by_currency: new Map<string, string[]>(),
     gross_base_complete: true,
     gross_overdue_base_complete: true,
     overdue_weighted_days_numerator_amounts: [],
@@ -490,16 +526,18 @@ function createMutableSummary(
 
 async function fetchCanonicalCustomers(
   supabase: ServerSupabaseClient,
-  snapshot: XeroAuthoritativeSnapshot
+  snapshot: XeroAuthoritativeSnapshot,
+  customerSourceId?: string
 ) {
   const rows: CanonicalCustomerRow[] = []
 
   for (let from = 0; ; from += PAGE_SIZE) {
-    const query = supabase
+    let query = supabase
       .from('canonical_customers')
       .select('source_id, name, email, is_customer, is_supplier, status')
       .eq('user_id', snapshot.userId)
       .eq('tenant_id', snapshot.tenantId)
+    if (customerSourceId) query = query.eq('source_id', customerSourceId)
     const { data, error } = await applyXeroAuthoritativeSnapshot(query, snapshot)
       .order('source_id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
@@ -537,18 +575,20 @@ async function fetchCanonicalOrganisations(
 
 async function fetchCanonicalInvoices(
   supabase: ServerSupabaseClient,
-  snapshot: XeroAuthoritativeSnapshot
+  snapshot: XeroAuthoritativeSnapshot,
+  customerSourceId?: string
 ) {
   const rows: CanonicalInvoiceRow[] = []
 
   for (let from = 0; ; from += PAGE_SIZE) {
-    const query = supabase
+    let query = supabase
       .from('canonical_invoices')
       .select(
         'user_id, tenant_id, source_system, source_id, customer_source_id, type, status, issue_date, due_date, fully_paid_date, transaction_currency_code, organisation_base_currency_code, xero_currency_rate, total_native, amount_paid_native, amount_due_native, amount_credited_native, amount_due_base, currency_conversion_status, currency_conversion_failure_reason'
       )
       .eq('user_id', snapshot.userId)
       .eq('tenant_id', snapshot.tenantId)
+    if (customerSourceId) query = query.eq('customer_source_id', customerSourceId)
     const { data, error } = await applyXeroAuthoritativeSnapshot(query, snapshot)
       .order('source_id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
@@ -568,16 +608,20 @@ async function fetchCanonicalInvoices(
 
 async function fetchCanonicalPayments(
   supabase: ServerSupabaseClient,
-  snapshot: XeroAuthoritativeSnapshot
+  snapshot: XeroAuthoritativeSnapshot,
+  customerSourceId?: string,
+  invoiceSourceIds?: string[]
 ) {
   const rows: CanonicalPaymentRow[] = []
 
   for (let from = 0; ; from += PAGE_SIZE) {
-    const query = supabase
+    let query = supabase
       .from('canonical_payments')
       .select('invoice_source_id, customer_source_id, payment_date')
       .eq('user_id', snapshot.userId)
       .eq('tenant_id', snapshot.tenantId)
+    if (customerSourceId) query = query.eq('customer_source_id', customerSourceId)
+    if (invoiceSourceIds) query = query.in('invoice_source_id', invoiceSourceIds).is('customer_source_id', null)
     const { data, error } = await applyXeroAuthoritativeSnapshot(query, snapshot)
       .order('source_id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
@@ -598,23 +642,41 @@ async function fetchCanonicalPayments(
 export async function loadCustomerCollectionsSummaryWithMetadata(
   supabase: ServerSupabaseClient,
   userId: string,
-  tenantId: string
+  tenantId: string,
+  scope?: { customerSourceId: string; snapshot: XeroAuthoritativeSnapshot }
 ): Promise<CustomerCollectionsSummaryResult> {
   const { todayIso, todayUtcMs } = getTodayContext()
-  const snapshot = await resolveXeroAuthoritativeSnapshot({
+  const snapshot = scope?.snapshot ?? await resolveXeroAuthoritativeSnapshot({
     supabaseAdmin: supabase,
     userId,
     tenantId,
   })
 
-  const [organisations, customers, invoices, payments, disputes] = await Promise.all([
+  assertXeroSnapshotIdentity(snapshot, { userId, tenantId })
+
+  // The customer refresh uses the same canonical aggregation, scoped before any broad reads.
+  const scopedInvoices = scope ? await fetchCanonicalInvoices(supabase, snapshot, scope.customerSourceId) : null
+  const scopedInvoiceIds = scopedInvoices?.map(invoice => invoice.source_id)
+  const [organisations, customers, invoices, payments, disputes, promises] = await Promise.all([
     fetchCanonicalOrganisations(supabase, snapshot),
-    fetchCanonicalCustomers(supabase, snapshot),
-    fetchCanonicalInvoices(supabase, snapshot),
-    fetchCanonicalPayments(supabase, snapshot),
-    loadInvoiceDisputesForSnapshot({ admin: supabase, userId, tenantId, snapshot }),
+    fetchCanonicalCustomers(supabase, snapshot, scope?.customerSourceId),
+    scopedInvoices ?? fetchCanonicalInvoices(supabase, snapshot),
+    scope ? (async () => {
+      const direct = await fetchCanonicalPayments(supabase, snapshot, scope.customerSourceId)
+      for (let from = 0; from < scopedInvoiceIds!.length; from += IDENTITY_BATCH_SIZE) {
+        direct.push(...await fetchCanonicalPayments(supabase, snapshot, undefined, scopedInvoiceIds!.slice(from, from + IDENTITY_BATCH_SIZE)))
+      }
+      return direct
+    })() : fetchCanonicalPayments(supabase, snapshot),
+    loadInvoiceDisputesForSnapshot({ admin: supabase, userId, tenantId, snapshot, invoiceSourceIds: scopedInvoiceIds }),
+    loadActiveInvoicePromises({ admin: supabase, userId, tenantId, snapshot, customerSourceId: scope?.customerSourceId }),
   ])
 
+  await assertInvoicePromiseSnapshotCurrent({ admin: supabase, userId, tenantId, snapshot })
+  const currentInvoiceIds = new Set(invoices.filter((invoice) => invoice.source_system === 'xero').map((invoice) => invoice.source_id))
+  for (const invoiceId of promises.keys()) {
+    if (!currentInvoiceIds.has(invoiceId)) throw new Error('Active Promise current invoice context unavailable')
+  }
   const disputeByProviderInvoiceId = new Map<string, InvoiceDisputeRecord>()
   for (const dispute of disputes) {
     if (dispute.source_system === 'xero') {
@@ -623,26 +685,27 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
   }
   const currentInvoices: CurrentCollectionInvoice[] = invoices.map((accounting) => ({
     accounting,
-    debt: deriveInvoiceDispute(
+    debt: deriveInvoiceActionability(
       accounting,
       accounting.source_system === 'xero'
         ? disputeByProviderInvoiceId.get(accounting.source_id) ?? null
-        : null
+        : null,
+      accounting.source_system === 'xero' ? promises.get(accounting.source_id) ?? null : null
     ),
   }))
-  // Scoring health sees only collectible debt. Subscription currency access
+  // Scoring health sees only canonical To-chase debt. Subscription currency access
   // deliberately continues to receive the unmodified gross Xero invoices.
   const scoringCurrencyInvoices = currentInvoices.map(({ accounting, debt }) => ({
     ...accounting,
-    amount_due_native: debt.collectibleAmountNative ?? accounting.amount_due_native,
-    amount_due_base: debt.collectibleAmountBase,
+    amount_due_native: debt.toChaseAmountNative ?? accounting.amount_due_native,
+    amount_due_base: debt.toChaseAmountBase,
   }))
   const currencyEvaluation = evaluateCollectionsCurrencyHealth({
     organisations,
     invoices: scoringCurrencyInvoices,
   })
   // Gross reporting needs its own FX validity check. A fully disputed invoice
-  // can be safe for scoring while its accounting base value remains unknown.
+  // or promised invoice can be safe for scoring while its gross base value is unknown.
   const grossCurrencyEvaluation = evaluateCollectionsCurrencyHealth({
     organisations,
     invoices,
@@ -798,17 +861,38 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
       }
     }
 
-    const collectibleNative = debt.collectibleAmountNative
-    const collectibleBase = debt.collectibleAmountBase
+    const collectibleNative = debt.toChaseAmountNative
+    const collectibleBase = debt.toChaseAmountBase
     const disputedNative = debt.effectiveDisputedAmountNative
-    if (debt.isActive && disputedNative && isPositiveDecimal(disputedNative)) {
+    if (debt.dispute.isActive && disputedNative && isPositiveDecimal(disputedNative)) {
       summary.has_active_dispute = true
     }
     if (transactionCurrencyCode && disputedNative && isPositiveDecimal(disputedNative)) {
       appendDecimalAmount(summary.native_disputed_total_by_currency, transactionCurrencyCode, disputedNative)
       if (isOverdue) appendDecimalAmount(summary.native_disputed_overdue_by_currency, transactionCurrencyCode, disputedNative)
     }
-    if (!collectibleNative || !isPositiveDecimal(collectibleNative)) continue
+    if (debt.effectiveDisputedAmountBase !== null) {
+      summary.disputed_base_amounts.push(debt.effectiveDisputedAmountBase)
+      if (isOverdue) summary.disputed_overdue_base_amounts.push(debt.effectiveDisputedAmountBase)
+    }
+    const promisedNative = debt.activePromisedCoverageAmountNative
+    const promisedBase = debt.activePromisedCoverageAmountBase
+    if (debt.promise.isActive) summary.has_active_promise = true
+    if (promisedNative && isPositiveDecimal(promisedNative)) {
+      if (transactionCurrencyCode) {
+        appendDecimalAmount(summary.native_promised_total_by_currency, transactionCurrencyCode, promisedNative)
+        if (isOverdue) appendDecimalAmount(summary.native_promised_overdue_by_currency, transactionCurrencyCode, promisedNative)
+      }
+      if (promisedBase === null) {
+        summary.promised_base_complete = false
+        if (isOverdue) summary.promised_overdue_base_complete = false
+      } else {
+        summary.promised_base_amounts.push(promisedBase)
+        if (isOverdue) summary.promised_overdue_base_amounts.push(promisedBase)
+      }
+    }
+    if (collectibleNative === null) throw new Error('Current invoice actionability unavailable')
+    if (!isPositiveDecimal(collectibleNative)) continue
     if (!collectibleBase || !transactionCurrencyCode || !isPositiveDecimal(collectibleBase)) {
       throw new Error(`Currency health invariant failed for collectible invoice ${invoice.source_id}`)
     }
@@ -943,11 +1027,18 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
     row.collectible_outstanding_base = collectibleOutstandingBase
     row.collectible_overdue_base = collectibleOverdueBase
     row.effective_disputed_outstanding_base_decimal = row.gross_base_complete
-      ? sumDecimalValues([totalOutstandingBaseDecimal, `-${collectibleOutstandingBaseDecimal}`])
+      ? sumDecimalValues(row.disputed_base_amounts) ?? '0'
       : null
     row.effective_disputed_overdue_base_decimal = row.gross_overdue_base_complete
-      ? sumDecimalValues([overdueOutstandingBaseDecimal, `-${collectibleOverdueBaseDecimal}`])
+      ? sumDecimalValues(row.disputed_overdue_base_amounts) ?? '0'
       : null
+
+    row.active_promised_outstanding_base_decimal = row.promised_base_complete ? sumDecimalValues(row.promised_base_amounts) ?? '0' : null
+    row.active_promised_overdue_base_decimal = row.promised_overdue_base_complete ? sumDecimalValues(row.promised_overdue_base_amounts) ?? '0' : null
+    row.to_chase_outstanding_base_decimal = collectibleOutstandingBaseDecimal
+    row.to_chase_overdue_base_decimal = collectibleOverdueBaseDecimal
+    row.to_chase_outstanding_base = collectibleOutstandingBase
+    row.to_chase_overdue_base = collectibleOverdueBase
 
     if (collectibleOverdueBase <= 0) {
       row.weighted_avg_overdue_days = 0
@@ -976,6 +1067,14 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
           sumDecimalValues(row.native_disputed_total_by_currency.get(currencyCode) ?? []) ?? '0',
         effective_disputed_overdue_native:
           sumDecimalValues(row.native_disputed_overdue_by_currency.get(currencyCode) ?? []) ?? '0',
+        active_promised_outstanding_native:
+          sumDecimalValues(row.native_promised_total_by_currency.get(currencyCode) ?? []) ?? '0',
+        active_promised_overdue_native:
+          sumDecimalValues(row.native_promised_overdue_by_currency.get(currencyCode) ?? []) ?? '0',
+        to_chase_outstanding_native:
+          sumDecimalValues(row.native_collectible_total_by_currency.get(currencyCode) ?? []) ?? '0',
+        to_chase_overdue_native:
+          sumDecimalValues(row.native_collectible_overdue_by_currency.get(currencyCode) ?? []) ?? '0',
         collectible_outstanding_native:
           sumDecimalValues(row.native_collectible_total_by_currency.get(currencyCode) ?? []) ?? '0',
         collectible_overdue_native:
@@ -1019,6 +1118,13 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
       actionable_open_invoices_count: row.actionable_open_invoices_count,
       actionable_overdue_invoices_count: row.actionable_overdue_invoices_count,
       has_active_dispute: row.has_active_dispute,
+      has_active_promise: row.has_active_promise,
+      active_promised_outstanding_base_decimal: row.active_promised_outstanding_base_decimal,
+      active_promised_overdue_base_decimal: row.active_promised_overdue_base_decimal,
+      to_chase_outstanding_base_decimal: row.to_chase_outstanding_base_decimal,
+      to_chase_overdue_base_decimal: row.to_chase_overdue_base_decimal,
+      to_chase_outstanding_base: row.to_chase_outstanding_base,
+      to_chase_overdue_base: row.to_chase_overdue_base,
       total_outstanding: row.total_outstanding,
       overdue_outstanding: row.overdue_outstanding,
       oldest_overdue_invoice_date: row.oldest_overdue_invoice_date,

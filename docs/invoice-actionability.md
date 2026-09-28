@@ -1,7 +1,8 @@
 # Pure invoice actionability — Phase 4
 
-This is a dormant, synchronous domain calculation. It performs no queries, writes,
-provider calls, lifecycle decisions or application integration.
+This is the canonical synchronous domain calculation. The pure function performs
+no queries, writes, provider calls or lifecycle decisions. Phase 7 aggregation and
+invoice DTOs consume its result; see [the integration contract](promise-collections-integration.md).
 
 ## Inputs and canonical flow
 
@@ -68,5 +69,7 @@ missing-invoice operational conventions; canonical top-level monetary values are
 the contract for future consumers.
 
 Pure outcome qualification/resolution now exists separately (Phase 5A); it never
-calls actionability. Automatic reconciliation, persistence reads, customer aggregation,
-queue/scorer integration, legacy suppression transition and UI remain unimplemented.
+calls actionability. Automatic reconciliation (Phase 5B), authenticated backend reads/mutations (Phase 6)
+and customer/queue actionability integration (Phase 7) are implemented. Promise
+editor/history UI is available in the customer invoice context (Phase 8). Legacy promise contact outcomes no longer
+suppress the queue; explicit postponement remains.

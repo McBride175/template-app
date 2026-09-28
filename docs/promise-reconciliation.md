@@ -1,8 +1,9 @@
 # Atomic Promise reconciliation — Phase 5B
 
 Structured Promises now reconcile at authoritative Xero generation promotion.
-There is still no Promise CRUD API, UI, queue/scoring integration or legacy
-`promised_to_pay` cutover. Unapplied cash is outcome evidence only.
+Authenticated Promise CRUD (Phase 6) and canonical queue actionability (Phase 7)
+are implemented. There is still no Promise editor/history UI. Legacy
+`promised_to_pay` contact outcomes no longer suppress the queue. Unapplied cash is outcome evidence only.
 
 ## Prepare, decide, commit
 

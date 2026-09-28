@@ -494,6 +494,7 @@ test('pointer changes after resolution cannot mix generations within a logical r
     afterMaybeSingle(tableName) {
       if (tableName !== 'xero_sync_tenant_state' || changed) return
       changed = true
+      tables.xero_sync_runs.find(row => row.id === RUN_B).status = 'succeeded'
       tables.xero_sync_tenant_state[0] = {
         ...tables.xero_sync_tenant_state[0],
         active_sync_run_id: RUN_B,
@@ -501,13 +502,10 @@ test('pointer changes after resolution cannot mix generations within a logical r
     },
   })
 
-  const result = await loadCustomerCollectionsSummaryWithMetadata(
-    database.client,
-    USER_ID,
-    TENANT_ID
+  await assert.rejects(
+    loadCustomerCollectionsSummaryWithMetadata(database.client, USER_ID, TENANT_ID),
+    /Accounting snapshot changed.*refresh required/
   )
-  assert.deepEqual(result.snapshot, { mode: 'generation', syncRunId: RUN_A })
-  assert.ok(result.rows.every((row) => row.customer_source_id.startsWith('a')))
 })
 
 for (const [name, tables, expectedCode] of [

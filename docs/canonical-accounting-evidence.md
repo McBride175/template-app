@@ -2,7 +2,7 @@
 
 Phase 3A supplies accounting evidence independently of collection amounts.
 Phase 5B now consumes the unchanged contract for atomic Promise reconciliation.
-Promise creation baselines, user CRUD/UI and queue actionability remain absent.
+Later completed phases use this evidence for creation baselines, automatic reconciliation, user CRUD/UI and canonical queue actionability. This importer itself makes no Promise decisions.
 
 ## Compatibility boundary
 

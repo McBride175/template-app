@@ -80,7 +80,7 @@ The final Xero design contains only:
 - `xero_accounting_evidence_observations`: resource completeness and fetch-start provenance for later Promise use
 - `customer_overrides`: user-controlled collection priority overrides
 - `invoice_disputes`: user-authored invoice dispute state keyed by user, tenant, provider, and provider invoice ID independently of Xero sync generations
-- `invoice_promises`, `invoice_promise_events`: dormant invoice-level commitment storage and immutable lifecycle history; service-only atomic commands, with atomic accounting-promotion reconciliation but no collections reads, UI or queue monetary effect yet
+- `invoice_promises`, `invoice_promise_events`: invoice-level commitment storage and immutable lifecycle history; service-only atomic commands, atomic accounting-promotion reconciliation and canonical collections actionability; no Promise editor/UI yet
 - `xero_scheduled_sync_runs`: internal scheduler lock and cadence state
 - `collection_actions`: user-owned action history
 
@@ -181,7 +181,7 @@ Currency access and currency health are independent contracts. Currency access c
 
 ### Pure invoice actionability (Phase 4)
 
-`lib/collections/invoice-actionability.ts` provides a dormant pure calculation:
+`lib/collections/invoice-actionability.ts` provides the canonical pure calculation:
 current invoice → existing dispute derivation → fixed Promise derivation → To chase.
 `deriveInvoicePromise` consumes only operational status, fixed commitment and an
 already-certified paid total. Active coverage is capped by post-dispute native debt;
@@ -191,9 +191,32 @@ decimal strings. Base coverage is the existing post-dispute base remainder minus
 the final To-chase valuation, preserving reconciliation without independently
 rounding each component. Missing/invalid current accounting data leaves To chase
 unavailable. See `docs/invoice-actionability.md` for the input/output contract.
-This domain is not connected to application reads, Promise persistence, queue or
-scoring. Outcome reconciliation runs at certified generation promotion; queue actionability is not integrated. Unapplied cash has no actionability
-effect, and legacy collection-action promise suppression remains unchanged.
+Customer aggregation and invoice DTOs now consume this domain (Phase 7). Outcome
+reconciliation runs at certified generation promotion. Unapplied cash has no actionability
+effect. Legacy collection-action `promised_to_pay` no longer suppresses customers;
+explicit `action_type = postponed` still suppresses until its next-action date.
+
+### Structured Promise recommendation inputs (Phase 7)
+
+One paginated, owner/tenant/provider-scoped Active operational Promise read supplies
+an invoice identity map. Numeric SELECT casts return exact commitment/paid text;
+no payment baselines, evidence, events or resolver enter scoring reads. A final
+snapshot check rejects reads spanning promotion, so live Promise evaluation state
+cannot be combined with balances from another generation. Missing Active invoice
+context fails closed rather than asserting zero debt.
+
+Canonical invoice To chase is summed into customer `to_chase_*` fields and the
+existing `collectible_*` compatibility aliases. Effective disputed and active promised
+coverage totals remain separate from retained gross accounting values. Exposure,
+weighted overdue age, actionable invoice counts, current relative deterioration,
+portfolio benchmarks and monetary ties all consume To chase. The 50/25/15/10 scorer,
+bonuses, overrides, payment recency and historical payment baseline are unchanged.
+Fully covered debt leaves the chase queue; terminal commitments supply no coverage.
+FX health evaluates positive To chase; plan entitlement still evaluates gross invoices.
+Customer/invoice/queue/first-value amounts agree. Legacy contact rows are retained
+without backfill; their date is historical and does not schedule monetary suppression.
+Phase 8 adds invoice Promise editing and bounded lifecycle history; unified Action History remains separate.
+See [the integration contract](docs/promise-collections-integration.md).
 
 ### Pure Promise evidence resolution (Phase 5A)
 
@@ -206,7 +229,7 @@ transition again. Cash only vetoes a negative outcome; no allocation or actionab
 effect exists. Negative resolution needs complete ready evidence with all resource
 starts on/after the next-local-day boundary; early Kept needs complete payment proof.
 The functions themselves do not call database writers or sync. Phase 5B now
-consumes them at atomic accounting promotion; queue effects and UI remain absent. See `docs/promise-outcome-resolution.md` for the exact
+consumes them at atomic accounting promotion; queue actionability is integrated through Phase 4; Promise UI is provided in the customer invoice context. See `docs/promise-outcome-resolution.md` for the exact
 contracts and Phase 5B persistence handoff, including nonterminal evaluation support.
 
 ## Database access model
@@ -222,8 +245,8 @@ require the last event's terms/status to agree with the operational record; even
 independent of operational revision. Auth-user erasure cascades both tables.
 Sync-run provenance is retained as UUID values rather than retention-coupled FKs,
 with owner/tenant checks when the command first uses it. Accounting promotion now reconciles this storage from certified evidence.
-Application actionability, queue scoring and legacy promise suppression remain
-unconnected to structured Promises. See `docs/invoice-promises-persistence.md` for the command contract.
+Collections reads now use canonical structured Promise actionability; legacy
+promise contact outcomes no longer suppress the queue. See `docs/invoice-promises-persistence.md` for the command contract.
 
 RLS is enabled on every application table. Grants are explicit rather than relying on Supabase's broad default privileges.
 
@@ -302,8 +325,8 @@ the previous accounting/Promise state. With zero Active Promises, ordinary
 accounting promotion rules remain unchanged. Repeated/uncertain committed
 promotion is a read-only no-op. Empty Active sets skip evidence loading.
 
-Promise CRUD/UI, customer-summary/queue integration and legacy suppression
-cutover are not implemented. Unapplied cash remains outcome-only and is never
+Authenticated Promise CRUD and customer-summary/queue integration are implemented;
+Promise editor/history UI is not. Unapplied cash remains outcome-only and is never
 allocated. See [the reconciliation contract](docs/promise-reconciliation.md).
 
 ### Canonical accounting evidence (Phase 3A)
@@ -313,17 +336,17 @@ including paginated catch-up. Exact monetary tokens use lossless JSON parsing an
 PostgreSQL numeric storage; service-only exact read views return decimal text.
 The existing authorised payment-recency projection and `collections_readiness_v2`
 promotion contract remain unchanged. Evidence resource failures record unavailable
-streams rather than zero cash, without adding a Promise-readiness dependency to
-collections promotion. Fenced evidence persistence failures still fail the candidate.
+streams rather than zero cash, without making Promise readiness a general promotion prerequisite: it is required
+only when the locked tenant set contains Active Promises. Fenced evidence persistence failures still fail the candidate.
 `promise_accounting_evidence_v1` readiness requires three complete resource observations,
 matching mapped/source counts, an authoritative succeeded generation, and normalized
 organisation timezone. Each resource records collection start and successful completion;
 promotion time is not evidence of a post-deadline fetch. Xero timezone enums use pinned
 Unicode CLDR Windows/territory data to produce validated IANA zones, with no fallback
 for unknown context. Missing foreign cash FX remains explicit unavailable valuation.
-No allocations, Promise baselines, lifecycle decisions, monetary coverage or UI use
-this evidence yet. See `docs/canonical-accounting-evidence.md` for the contract and
-local disposable database tests. Phase 3B hosted Test certification remains outstanding.
+Promise creation baselines and automatic lifecycle reconciliation consume this
+evidence; unapplied cash remains outcome-only, with no allocation or cash UI. See `docs/canonical-accounting-evidence.md` for the contract and
+local disposable database tests. Phase 3B hosted Test certification is complete.
 
 ## Resend
 
@@ -365,7 +388,7 @@ Google OAuth has no direct Google secret in application code; provider credentia
 ### Authenticated Promise server operations (Phase 6)
 
 `/api/collections/invoice-promises` provides scoped create/edit/cancel and bounded
-invoice/history reads without UI or collections integration. Creation validates
+invoice/history reads, used by the customer invoice UI and structured actionability. Creation validates
 one held evidence-ready authoritative generation and snapshots only the invoice's
 known payment IDs; fixed amount and organisation-local date are server validated.
 Financial edits use the existing pure qualifier/resolver; an immediately Kept edit
@@ -374,6 +397,19 @@ avoid evidence-array reloads. A new forward migration adds service-only snapshot
 preparation and atomic multi-event request commands, using the existing promotion
 state-row/Promise-tenant locking and event-backed idempotency. No browser grants,
 API status setter, Reactivate, scoring or legacy cutover are added. Automatic
-promotion reconciliation remains operational; structured Promises still have no
-queue or UI effect. See `docs/invoice-promises-server.md` for the API and retry
-contract. Privacy export remains a later pre-rollout requirement.
+promotion reconciliation remains operational; structured Promises feed canonical queue actionability and the invoice UI. See `docs/invoice-promises-server.md` for the API and retry
+contract. Promise privacy export is included before user-facing rollout.
+
+
+### Invoice Promise presentation (Phase 8)
+
+Customer invoices expose compact fixed-commitment controls and bounded lifecycle
+history. Monetary rows display server-derived Outstanding / Disputed / Promised /
+To chase, with zero adjustments hidden. Edits use current revisions; blank/zero
+amount means cancellation. Terminal outcomes are read-only and Unclear is passive.
+Financial saves refresh one invoice and one scoped customer summary, then invalidate
+an open queue for one complete ranking fetch; notes do neither. Creation snapshots,
+resolver/reconciliation decisions and scoring weights remain server/domain owned.
+Privacy export now includes owned Promise terms/notes/status/timestamps and meaningful
+immutable events, paginated without command/baseline/resolver internals. No Promise
+worklist or unified timeline is added. See `docs/promise-customer-experience.md`.

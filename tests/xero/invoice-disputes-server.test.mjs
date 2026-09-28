@@ -28,6 +28,7 @@ function query(table) {
   const builder = {
     select() { return this },
     eq(column, value) { state.filters.push([column, value]); return this },
+    in(column, values) { state.filters.push([column, values]); return this },
     order() { return this },
     range(from, to) { state.range = [from, to]; return this },
     update(payload) { state.action = 'update'; state.payload = payload; return this },
@@ -46,7 +47,7 @@ function query(table) {
     then(resolve, reject) { return Promise.resolve({ data: execute(), error: null }).then(resolve, reject) },
   }
   function execute() {
-    const rows = table === 'canonical_invoices' ? invoices : disputes
+    const rows = table === 'canonical_invoices' ? invoices : table === 'invoice_promises' ? [] : disputes
     if (state.action === 'insert') {
       const payload = state.payload
       const identity = ['user_id', 'tenant_id', 'source_system', 'invoice_source_id']
@@ -71,7 +72,7 @@ function query(table) {
       })
     }
     let matched = rows.filter((row) => state.filters.every(([key, value]) =>
-      key === 'revision' ? String(row[key]) === String(value) : row[key] === value))
+      Array.isArray(value) ? value.includes(row[key]) : key === 'revision' ? String(row[key]) === String(value) : row[key] === value))
     if (state.action === 'update') {
       for (const row of matched) { Object.assign(row, state.payload); row.revision += 1 }
     }
@@ -500,8 +501,8 @@ test('customer invoice DTO retains native amounts and revision without unvalidat
     assert.equal(row.recordedDisputedAmountNative, '3000')
     assert.equal(row.effectiveDisputedAmountNative, '3000')
     assert.equal(row.collectibleAmountNative, '5000')
-    assert.equal('grossOpenAmountBase' in row, false)
-    assert.equal('effectiveDisputedAmountBase' in row, false)
+    assert.equal(row.grossOpenAmountBase, null)
+    assert.equal(row.effectiveDisputedAmountBase, null)
     assert.equal('collectibleAmountBase' in row, false)
     assert.equal('user_id' in row, false)
   } finally {

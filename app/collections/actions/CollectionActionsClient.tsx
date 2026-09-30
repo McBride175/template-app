@@ -41,6 +41,9 @@ interface CollectionActionRow {
   overdue_outstanding_base: number | null
   total_outstanding_base: number | null
   collectible_overdue_base: number
+  customer_to_chase_overdue_base: number
+  customer_credit_applied_base: number
+  has_actionable_overdue_balance: boolean
   active_promised_overdue_base_decimal?: string | null
   collectible_outstanding_base: number
   effective_disputed_overdue_base_decimal: string | null
@@ -694,7 +697,7 @@ export default function CollectionActionsClient({
         const nextRows = payload.rows ?? []
         const visibleRows = effectiveOverdueOnly
           ? nextRows.filter(
-              (row) => row.actionable_overdue_invoices_count > 0 || row.collectible_overdue_base > 0
+              (row) => row.has_actionable_overdue_balance
             )
           : nextRows
         const nextActionsTakenByCustomerId = payload.actionsTakenByCustomerId ?? {}
@@ -1691,12 +1694,17 @@ export default function CollectionActionsClient({
                     <p>
                       <span className="font-medium text-gray-900">
                         {formatMoney(
-                          currentQueueRow.collectible_overdue_base,
+                          currentQueueRow.customer_to_chase_overdue_base,
                           organisationBaseCurrency
                         )}
                       </span>{' '}
                       {showMultiCurrencyAmounts ? 'equivalent to chase' : 'to chase'}
                     </p>
+                    {currentQueueRow.customer_credit_applied_base > 0 && (
+                      <p className="mt-0.5 text-xs text-gray-500">
+                        {formatMoney(currentQueueRow.customer_credit_applied_base, organisationBaseCurrency)} Xero credit deducted
+                      </p>
+                    )}
                     {currentQueueRow.overdue_outstanding_base !== null &&
                       currentQueueRow.effective_disputed_overdue_base_decimal !== null &&
                       Number(currentQueueRow.effective_disputed_overdue_base_decimal) > 0 && (
@@ -1711,7 +1719,7 @@ export default function CollectionActionsClient({
                       className="mt-1 inline-block text-xs font-medium text-gray-700 underline underline-offset-2">
                       Manage invoices
                     </Link>
-                    {showMultiCurrencyAmounts &&
+                    {showMultiCurrencyAmounts && currentQueueRow.customer_credit_applied_base === 0 &&
                       formatInvoicedBreakdown(
                         currentQueueRow.collectible_native_currency_breakdown,
                         'collectible_overdue_native'
@@ -2002,10 +2010,15 @@ export default function CollectionActionsClient({
                     </td>
                     <td className="px-4 py-3">
                       <p>
-                        {formatMoney(row.collectible_overdue_base, organisationBaseCurrency)}
+                        {formatMoney(row.customer_to_chase_overdue_base, organisationBaseCurrency)}
                         {showMultiCurrencyAmounts ? ' equivalent' : ''}
                       </p>
-                      {showMultiCurrencyAmounts &&
+                      {row.customer_credit_applied_base > 0 && (
+                        <p className="mt-0.5 text-xs text-gray-500">
+                          {formatMoney(row.customer_credit_applied_base, organisationBaseCurrency)} Xero credit deducted
+                        </p>
+                      )}
+                      {showMultiCurrencyAmounts && row.customer_credit_applied_base === 0 &&
                         formatInvoicedBreakdown(
                           row.collectible_native_currency_breakdown,
                           'collectible_overdue_native'

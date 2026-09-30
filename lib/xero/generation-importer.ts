@@ -12,6 +12,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import {
   createXeroAuthorisedAccrecInvoicesConfig,
   createXeroCashCollectionConfig,
+  createXeroCreditNotesCollectionConfig,
   createXeroAuthorisedAccrecPaymentsConfig,
   createXeroContactsCollectionConfig,
   createXeroInvoicesCollectionConfig,
@@ -54,6 +55,21 @@ import {
   type XeroPersistenceCounts,
 } from '@/lib/xero/persistence'
 import { mapXeroPaymentEvidence, mapXeroUnappliedCashEvidence, persistXeroAccountingEvidence, type EvidenceObservation, type EvidenceResource } from '@/lib/xero/accounting-evidence'
+import { mapXeroCreditNoteEvidence, persistXeroCreditNoteEvidence, type CreditNoteObservation } from '@/lib/xero/credit-note-evidence'
+import {
+  completeCreditStabilityObservation,
+  CustomerCreditStabilityError,
+  signatureForAuthorisedInvoices,
+  signatureForCreditRows,
+  type CreditStabilityObservation,
+} from '@/lib/xero/customer-credit-stability'
+import {
+  persistCustomerCreditValidation,
+  validateCustomerCreditStability,
+  type CreditResource,
+  type CreditValidationReason,
+  type CreditValidationResource,
+} from '@/lib/xero/customer-credit-validation'
 import { assessXeroGenerationImportCapabilities } from '@/lib/xero/scopes'
 import {
   getValidXeroAccessTokenForTenant,
@@ -150,6 +166,8 @@ interface XeroGenerationImportDependencies {
   mapCanonical: typeof mapXeroGenerationToCanonical
   recordReadiness: typeof recordXeroGenerationReadiness
   persistEvidence: typeof persistXeroAccountingEvidence
+  persistCreditNoteEvidence: typeof persistXeroCreditNoteEvidence
+  persistCreditValidation: typeof persistCustomerCreditValidation
   now: () => number
   monotonicNow: () => number
   recordLatency: (event: FirstValueLatencyEvent) => void
@@ -238,6 +256,8 @@ const DEFAULT_DEPENDENCIES: XeroGenerationImportDependencies = {
   mapCanonical: mapXeroGenerationToCanonical,
   recordReadiness: recordXeroGenerationReadiness,
   persistEvidence: persistXeroAccountingEvidence,
+  persistCreditNoteEvidence: persistXeroCreditNoteEvidence,
+  persistCreditValidation: persistCustomerCreditValidation,
   now: Date.now,
   monotonicNow,
   recordLatency: recordFirstValueLatency,
@@ -271,8 +291,8 @@ function parseUpdatedAt(record: ProviderRecord) {
 }
 
 function mergeProviderRecords(params: {
-  resource: 'contacts' | 'invoices' | 'payments' | 'overpayments' | 'prepayments'
-  sourceIdKey: 'ContactID' | 'InvoiceID' | 'PaymentID' | 'OverpaymentID' | 'PrepaymentID'
+  resource: 'contacts' | 'invoices' | 'payments' | 'overpayments' | 'prepayments' | 'creditnotes'
+  sourceIdKey: 'ContactID' | 'InvoiceID' | 'PaymentID' | 'OverpaymentID' | 'PrepaymentID' | 'CreditNoteID'
   collections: readonly (readonly ProviderRecord[])[]
 }) {
   const merged = new Map<string, ProviderRecord>()
@@ -747,14 +767,15 @@ export async function importXeroGeneration(params: {
 
   const fetchCollection = (
     config: XeroPaginatedCollectionConfig<ProviderRecord>,
-    ifModifiedSince?: string
+    ifModifiedSince?: string,
+    requestDeadlineAtMs = deadlineAtMs
   ) => withAuthenticationRetry((token) => dependencies.fetchCollection({
     accessToken: token,
     tenantId,
     config,
     ifModifiedSince,
     signal: lease.signal,
-    deadlineAtMs,
+    deadlineAtMs: requestDeadlineAtMs,
     dependencies: dependencies.requestDependencies,
   }))
 
@@ -814,6 +835,7 @@ export async function importXeroGeneration(params: {
     const paidInvoicesConfig = createXeroPaidAccrecInvoicesConfig()
     const authorisedPaymentsConfig = createXeroAuthorisedAccrecPaymentsConfig()
 
+    const invoiceObservationStartedAt = new Date(dependencies.now()).toISOString()
     const [primaryResults, organisationPersistenceMs] = await Promise.all([
       runWithConcurrency([
         () => timeProviderCall('contacts', () => fetchCollection(contactsConfig)),
@@ -835,6 +857,7 @@ export async function importXeroGeneration(params: {
       }), catchUpSince)),
       () => timeProviderCall('catchUpPayments', () => fetchCollection(createXeroPaymentsCollectionConfig({ where: 'PaymentType=="ACCRECPAYMENT"' }), catchUpSince)),
     ], XERO_GENERATION_IMPORT_MAX_PROVIDER_CONCURRENCY)
+    const invoiceObservationCompletedAt = new Date(dependencies.now()).toISOString()
     const providerWallMs = elapsedMilliseconds(providerStartedAt, dependencies.monotonicNow())
     dependencies.recordLatency({
       stage: 'T4',
@@ -886,6 +909,32 @@ export async function importXeroGeneration(params: {
           completed_at: null, complete: false, source_count: 0, page_requests: 0, populated_pages: 0 } satisfies EvidenceObservation }
       }
     }), 3)
+    const creditNoteStartedAt = new Date(dependencies.now()).toISOString()
+    let creditNoteRecords: ProviderRecord[] = []
+    let creditNoteObservation: CreditNoteObservation = {
+      resource: 'creditnotes', started_at: creditNoteStartedAt, completed_at: null,
+      page_requests: 0, populated_pages: 0, source_count: 0, complete: false,
+    }
+    try {
+      // Optional foundation evidence must leave time for ordinary generation promotion.
+      const creditDeadlineAtMs = Math.min(deadlineAtMs - 20_000, dependencies.now() + 30_000)
+      if (creditDeadlineAtMs > dependencies.now()) {
+        const config = createXeroCreditNotesCollectionConfig()
+        const primary = await fetchCollection(config, undefined, creditDeadlineAtMs)
+        const catchUp = await fetchCollection(config, catchUpSince, creditDeadlineAtMs)
+        assertCanContinue()
+        creditNoteRecords = mergeProviderRecords({ resource: 'creditnotes', sourceIdKey: 'CreditNoteID',
+          collections: [primary.records, catchUp.records] })
+        creditNoteObservation = { ...creditNoteObservation,
+          completed_at: new Date(dependencies.now()).toISOString(),
+          page_requests: primary.pageRequestCount + catchUp.pageRequestCount,
+          populated_pages: primary.populatedPageCount + catchUp.populatedPageCount,
+          source_count: creditNoteRecords.filter(record => record.Type === 'ACCRECCREDIT').length,
+          complete: true }
+      }
+    } catch {
+      assertCanContinue()
+    }
     const authorisedInvoiceCount = invoices.filter(isAuthorisedInvoice).length
     const paidInvoiceCount = invoices.filter(isPaidInvoice).length
     const resourcesFetchedAt = new Date(dependencies.now()).toISOString()
@@ -947,6 +996,8 @@ export async function importXeroGeneration(params: {
         runId: authority.syncRunId,
       })
     }
+    const initialCashRows: Partial<Record<CreditResource, ProviderRecord[]>> = {}
+    const initialCashObservations: Partial<Record<CreditResource, EvidenceObservation>> = {}
     for (const collection of evidenceCollections) {
       assertCanContinue()
       let rows: ProviderRecord[] = []
@@ -962,10 +1013,82 @@ export async function importXeroGeneration(params: {
         }
       }
       await dependencies.persistEvidence({ ...authority, supabaseAdmin, organisation: organisationResult.records[0], rows, observation })
+      if (collection.resource === 'overpayments' || collection.resource === 'prepayments') {
+        initialCashRows[collection.resource] = rows
+        initialCashObservations[collection.resource] = observation
+      }
       assertCanContinue()
     }
+    let creditNoteRows: ProviderRecord[] = []
+    if (creditNoteObservation.complete) {
+      try {
+        creditNoteRows = mapXeroCreditNoteEvidence(creditNoteRecords, contacts, organisationResult.records[0])
+        creditNoteObservation = { ...creditNoteObservation, source_count: creditNoteRows.length }
+      } catch {
+        creditNoteObservation = { ...creditNoteObservation, complete: false }
+      }
+    }
+    await dependencies.persistCreditNoteEvidence({ ...authority, supabaseAdmin, rows: creditNoteRows, observation: creditNoteObservation })
+    assertCanContinue()
     const canonicalCount = Object.values(mapping.counts).reduce((sum, count) => sum + count, 0)
     await completeStep('canonical_mapping', canonicalCount)
+    const initial: Partial<Record<CreditValidationResource, CreditStabilityObservation>> = {}
+    let initialProblem: CreditValidationReason | undefined
+    const observe = (resource: CreditValidationResource, rows: ProviderRecord[], observation: {
+      started_at: string; completed_at: string | null; complete: boolean; page_requests: number; populated_pages: number
+    }) => {
+      if (!observation.complete) return
+      try {
+        const signed = resource === 'invoices' ? signatureForAuthorisedInvoices(rows)
+          : signatureForCreditRows(resource === 'overpayments' ? 'overpayment' : resource === 'prepayments' ? 'prepayment' : 'credit_note', rows)
+        const complete = completeCreditStabilityObservation({ ...observation, ...signed })
+        if (complete) initial[resource] = complete
+      } catch (error) {
+        if (error instanceof CustomerCreditStabilityError) initialProblem ??= error.reason
+        else initialProblem ??= resource === 'invoices' ? 'invalid_invoice_state' : 'invalid_credit_state'
+      }
+    }
+    observe('invoices', invoices.filter(isAuthorisedInvoice), {
+      started_at: invoiceObservationStartedAt, completed_at: invoiceObservationCompletedAt, complete: true,
+      page_requests: authorisedPrimary.pageRequestCount + paidPrimary.pageRequestCount + invoicesCatchUp.pageRequestCount,
+      populated_pages: authorisedPrimary.populatedPageCount + paidPrimary.populatedPageCount + invoicesCatchUp.populatedPageCount,
+    })
+    for (const resource of ['overpayments', 'prepayments'] as const) {
+      if (initialCashObservations[resource]) observe(resource, initialCashRows[resource] ?? [], initialCashObservations[resource])
+    }
+    observe('creditnotes', creditNoteRows, creditNoteObservation)
+    const verificationDeadlineAtMs = Math.min(deadlineAtMs - 20_000, dependencies.now() + 30_000)
+    const creditValidation = await validateCustomerCreditStability({
+      initial, initialProblem, now: dependencies.now, deadlineAtMs: verificationDeadlineAtMs,
+      readInvoices: async () => {
+        const started_at = new Date(dependencies.now()).toISOString()
+        const result = await fetchCollection(createXeroAuthorisedAccrecInvoicesConfig(), undefined, verificationDeadlineAtMs)
+        const signed = signatureForAuthorisedInvoices(result.records)
+        const observed = completeCreditStabilityObservation({ ...signed, started_at,
+          completed_at: new Date(dependencies.now()).toISOString(), complete: true,
+          page_requests: result.pageRequestCount, populated_pages: result.populatedPageCount })
+        if (!observed) throw new CustomerCreditStabilityError('invalid_invoice_state')
+        return observed
+      },
+      readCredit: async resource => {
+        const started_at = new Date(dependencies.now()).toISOString()
+        const result = await fetchCollection(resource === 'creditnotes'
+          ? createXeroCreditNotesCollectionConfig() : createXeroCashCollectionConfig(resource),
+        undefined, verificationDeadlineAtMs)
+        const rows = resource === 'creditnotes'
+          ? mapXeroCreditNoteEvidence(result.records, contacts, organisationResult.records[0])
+          : mapXeroUnappliedCashEvidence(resource, result.records, contacts, organisationResult.records[0])
+        const signed = signatureForCreditRows(resource === 'creditnotes' ? 'credit_note' : resource === 'overpayments' ? 'overpayment' : 'prepayment', rows)
+        const observed = completeCreditStabilityObservation({ ...signed, started_at,
+          completed_at: new Date(dependencies.now()).toISOString(), complete: true,
+          page_requests: result.pageRequestCount, populated_pages: result.populatedPageCount })
+        if (!observed) throw new CustomerCreditStabilityError('invalid_credit_state')
+        return observed
+      },
+    })
+    assertCanContinue()
+    await dependencies.persistCreditValidation({ ...authority, supabaseAdmin, validation: creditValidation })
+    assertCanContinue()
     const canonicalMappingMs = elapsedMilliseconds(
       canonicalMappingStartedAt,
       dependencies.monotonicNow()

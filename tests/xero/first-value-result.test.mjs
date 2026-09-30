@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFile } from 'node:fs/promises'
 import { loadTypeScriptModule } from './test-helpers/ts-module-loader.mjs'
+import React from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 
 const firstValue = loadTypeScriptModule('lib/collections/first-value.ts')
 const projectFile = (path) => new URL(`../../${path}`, import.meta.url)
@@ -10,7 +12,9 @@ function row(overrides = {}) {
   return {
     customer_source_id: 'customer-one',
     customer_name: 'Customer One',
-    overdue_outstanding_base: 18_400,
+    customer_overdue_to_chase_base: 18_400,
+    customer_to_chase_overdue_base: 18_400,
+    has_actionable_overdue_balance: true,
     overdue_invoices_count: 3,
     weighted_avg_overdue_days: 47,
     relative_lateness_days: 12,
@@ -128,6 +132,44 @@ test('actioned, postponed-equivalent, and do-not-chase rows cannot become the fi
   ]
   const selected = firstValue.selectFirstValuePriorities(rows, { actioned: {} })
   assert.deepEqual(selected.map((item) => item.customer_source_id), ['first-live'])
+})
+
+test('first-value selection requires the canonical post-credit customer amount', () => {
+  const rows = [
+    row({ customer_source_id: 'covered', customer_to_chase_overdue_base: 0,
+      has_actionable_overdue_balance: false,
+      override_level: 'priority', recommended_action: 'Review now' }),
+    row({ customer_source_id: 'partial', customer_to_chase_overdue_base: 300 }),
+  ]
+  assert.deepEqual(firstValue.selectFirstValuePriorities(rows, {}).map(item => item.customer_source_id),
+    ['partial'])
+})
+
+test('first-value action headline renders the canonical customer amount', () => {
+  const { default: FirstValueResultView } = loadTypeScriptModule(
+    'app/start/result/FirstValueResultView.tsx',
+    { mocks: { 'next/link': 'a' } }
+  )
+  const candidate = row({
+    collectible_overdue_base: 1000,
+    overdue_outstanding_base: 1000,
+    customer_overdue_to_chase_base: 700,
+    customer_to_chase_overdue_base: 700,
+    actionable_overdue_invoices_count: 1,
+    first_value_reasons: [{ kind: 'exposure', text: 'Current customer exposure' }],
+  })
+  const html = renderToStaticMarkup(React.createElement(FirstValueResultView, {
+    data: {
+      rows: [candidate], actionsTakenByCustomerId: {}, organisationBaseCurrency: 'GBP',
+      portfolio: { analysedOverdueBase: 700, analysedOverdueCustomerCount: 1, rankingStatus: 'complete' },
+      queue: { status: 'ready', mappedCustomerCount: 1, mappedInvoiceCount: 1,
+        eligibleCustomerCount: 1, suppressedCustomerCount: 0, actionedTodayCount: 0,
+        remainingCustomerCount: 1, reviewRequiredCustomerCount: 0 },
+      currencyHealth: { status: 'healthy', affectedInvoiceCount: 0, affectedCustomerCount: 0 },
+    }, tenantId: 'tenant-a', organisationName: 'Example', lastSyncedAt: null,
+  }))
+  assert.match(html, /£700 overdue to collect/)
+  assert.doesNotMatch(html, /£1,000 overdue to collect/)
 })
 
 test('successful empty outcomes distinguish no overdue debt from no current action', () => {

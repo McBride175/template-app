@@ -39,7 +39,7 @@ export async function loadCollectionsCurrencyContext(params: {
     const query = params.supabaseAdmin
       .from('canonical_invoices')
       .select(
-        'type, status, customer_source_id, transaction_currency_code, amount_due_native'
+        'type, status, customer_source_id, transaction_currency_code, amount_due_native::text'
       )
       .eq('user_id', snapshot.userId)
       .eq('tenant_id', snapshot.tenantId)

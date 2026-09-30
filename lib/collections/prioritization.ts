@@ -52,7 +52,12 @@ export interface PrioritizationCustomerRow {
   customer_source_id: string
   customer_name: string
   customer_email: string | null
-  overdue_outstanding_base: number
+  /** Certified customer-level monetary actionability, after available Xero credit. */
+  customer_overdue_to_chase_base: number
+  /** Exact monetary eligibility is established before numeric scoring. */
+  has_actionable_overdue_balance: boolean
+  /** Invoice-derived actionability before customer credit; used only for ageing signals. */
+  invoice_overdue_to_chase_base: number
   total_outstanding_base: number
   overdue_invoices_count: number
   open_invoices_count: number
@@ -138,7 +143,7 @@ function describeExposureDriver(
   exposureRelativeToLargestPercent: number
 ) {
   const amount = formatAmount(
-    row.overdue_outstanding_base,
+    row.customer_overdue_to_chase_base,
     row.organisation_base_currency_code
   )
   const relativeToLargest = `${exposureRelativeToLargestPercent.toFixed(1)}%`
@@ -236,7 +241,7 @@ function computeExposureComponents(
   totalOverdueOutstandingBase: number,
   maxOverdueOutstandingBase: number
 ) {
-  const customerOverdueOutstanding = Math.max(0, row.overdue_outstanding_base)
+  const customerOverdueOutstanding = Math.max(0, row.customer_overdue_to_chase_base)
   const normalizedTotalOverdue = Math.max(0, totalOverdueOutstandingBase)
   const normalizedMaxOverdue = Math.max(0, maxOverdueOutstandingBase)
 
@@ -293,7 +298,7 @@ function computeUrgencyComponents(
   row: PrioritizationCustomerRow,
   context: UrgencyNormalizationContext
 ) {
-  if (row.overdue_outstanding_base <= 0) {
+  if (row.invoice_overdue_to_chase_base <= 0) {
     return {
       weightedAvgDays: 0,
       portfolioAvgWeightedDays: 0,
@@ -398,7 +403,7 @@ export function computePrioritizationBaseScore(scores: PrioritizationComponentSc
 }
 
 export function recommendAction(row: PrioritizationCustomerRow, finalScore: number) {
-  if (row.overdue_outstanding_base <= 0) return 'No action' as const
+  if (!row.has_actionable_overdue_balance) return 'No action' as const
   if (finalScore >= PRIORITIZATION_CONFIG.actions.reviewNowMin) return 'Review now' as const
   if (finalScore >= PRIORITIZATION_CONFIG.actions.followUpMin) return 'Follow up' as const
   if (finalScore > PRIORITIZATION_CONFIG.actions.monitorMinExclusive) return 'Monitor' as const
@@ -415,7 +420,7 @@ export function buildReason(
   relativeLatenessScore: number,
   overrideLevel: CustomerOverrideLevel = DEFAULT_OVERRIDE_LEVEL
 ) {
-  if (row.overdue_outstanding_base <= 0) {
+  if (!row.has_actionable_overdue_balance) {
     return 'No chase needed: there are no overdue receivables.'
   }
 
@@ -537,7 +542,7 @@ export function prioritiseCustomer(
   const { baseScore: behaviourBaseScore, behaviourScore } = computeBehaviourComponents(row)
   const relativeLatenessScore = computeRelativeLatenessScore(
     {
-      overdueOutstandingBase: row.overdue_outstanding_base,
+      overdueOutstandingBase: row.invoice_overdue_to_chase_base,
       relativeLatenessDays: row.relative_lateness_days,
     },
     context.relativeLateness

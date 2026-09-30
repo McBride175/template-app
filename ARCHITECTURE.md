@@ -78,6 +78,8 @@ The final Xero design contains only:
 - `canonical_customers`, `canonical_invoices`, and `canonical_payments`: normalized accounting data
 - `canonical_payment_evidence`, `canonical_unapplied_cash_evidence`: exact generation-scoped payment/remaining-cash evidence, independent of collections amounts
 - `xero_accounting_evidence_observations`: resource completeness and fetch-start provenance for later Promise use
+- `canonical_credit_note_evidence`: exact generation-scoped AR credit-note residual evidence, separate from Promise cash
+- `xero_customer_credit_validations`: generation-scoped credit-note traversal and ordered observational stability evidence, with fenced ready/unavailable certification
 - `customer_overrides`: user-controlled collection priority overrides
 - `invoice_disputes`: user-authored invoice dispute state keyed by user, tenant, provider, and provider invoice ID independently of Xero sync generations
 - `invoice_promises`, `invoice_promise_events`: invoice-level commitment storage and immutable lifecycle history; service-only atomic commands, atomic accounting-promotion reconciliation and canonical collections actionability; no Promise editor/UI yet
@@ -93,8 +95,10 @@ authoritative invoice snapshot. A zero or absent current invoice does not
 automatically resolve the user-authored dispute. Customer summary loads tenant-owned
 disputes once, joins them by durable provider invoice ID, and uses the dispute
 domain derivation before current-debt scoring. Gross accounting balances remain
-separate from collectible balances. Customer exposure, actionable invoice counts,
-weighted overdue age, and portfolio benchmarks use the same collectible population;
+separate from collectible balances. Customer Exposure uses certified customer-level
+overdue To chase; actionable invoice counts and weighted overdue age remain invoice-derived.
+Portfolio Exposure benchmarks use the customer-level amount while ageing benchmarks
+retain the pre-credit invoice population;
 historical paid-invoice timing and payment recency remain unchanged.
 Collections recommendation amounts and actionable invoice counts are explicit
 collectible fields; existing outstanding balances and invoice counts in the
@@ -207,13 +211,16 @@ context fails closed rather than asserting zero debt.
 
 Canonical invoice To chase is summed into customer `to_chase_*` fields and the
 existing `collectible_*` compatibility aliases. Effective disputed and active promised
-coverage totals remain separate from retained gross accounting values. Exposure,
-weighted overdue age, actionable invoice counts, current relative deterioration,
-portfolio benchmarks and monetary ties all consume To chase. The 50/25/15/10 scorer,
+coverage totals remain separate from retained gross accounting values. Invoice-level
+To chase drives weighted age, actionable invoice counts and current relative
+deterioration; certified customer-level overdue To chase drives Exposure and monetary
+queue eligibility. The 50/25/15/10 scorer,
 bonuses, overrides, payment recency and historical payment baseline are unchanged.
 Fully covered debt leaves the chase queue; terminal commitments supply no coverage.
 FX health evaluates positive To chase; plan entitlement still evaluates gross invoices.
-Customer/invoice/queue/first-value amounts agree. Legacy contact rows are retained
+Invoice To chase remains invoice-derived; queue and first-value operational
+eligibility use the customer net amount without allocating credit to invoices.
+Legacy contact rows are retained
 without backfill; their date is historical and does not schedule monetary suppression.
 Phase 8 adds invoice Promise editing and bounded lifecycle history; unified Action History remains separate.
 See [the integration contract](docs/promise-collections-integration.md).
@@ -347,6 +354,34 @@ for unknown context. Missing foreign cash FX remains explicit unavailable valuat
 Promise creation baselines and automatic lifecycle reconciliation consume this
 evidence; unapplied cash remains outcome-only, with no allocation or cash UI. See `docs/canonical-accounting-evidence.md` for the contract and
 local disposable database tests. Phase 3B hosted Test certification is complete.
+
+### Customer-credit evidence, certification and summary contract (Phases 1–3)
+
+The generation importer also fetches AR credit notes without a status filter and
+persists their exact `RemainingCredit`, lifecycle, customer and currency context in
+`canonical_credit_note_evidence`. `canonical_customer_credit_evidence_exact` combines
+that source with existing receive overpayment and prepayment residuals for a future
+customer-credit consumer. It is not read by Promise reconciliation. A separate
+`xero_customer_credit_validations` records credit-note traversal and the fresh invoice
+exact-money contract. After all initial invoice and credit observations complete, one
+bounded verification sweep fully traverses authorised AR invoices, then all three
+credit resources. Normalised identity, status, currency, due-date, exact residual and
+provider-version signatures must match the initial evidence. A fenced, generation-scoped
+certificate records ready or a bounded unavailable reason; later accounting evidence
+writes invalidate ready certification. This is observational stability, not a
+transactional Xero snapshot. The held-generation customer-summary loader reads the
+certificate once and exact combined credit evidence in bounded pages, then calls the
+pure calculation per customer after invoice To chase and ageing have been derived.
+`invoice_to_chase_overdue_base_decimal` keeps pre-credit invoice actionability distinct
+from `customer_to_chase_overdue_base_decimal`; ready zero, unavailable and unsupported
+currency remain separate states. Existing `to_chase_*` and `collectible_*` fields retain
+their pre-credit meaning. Total/future invoice actionability and weighted lateness are
+unchanged. Phase 4 passes customer net overdue to Exposure, its portfolio monetary
+benchmarks, queue monetary eligibility and first-value selection. The portfolio age
+and relative-deterioration reference populations retain invoice-derived overdue
+actionability, even when credit removes a customer from the operational queue.
+The browser's overdue-only filter consumes the server's customer net amount; no
+browser credit calculation or new credit presentation is added.
 
 ## Resend
 

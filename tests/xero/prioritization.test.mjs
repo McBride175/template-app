@@ -14,7 +14,7 @@ const { buildRelativeLatenessContext } = loadTypeScriptModule(
 )
 
 function buildCustomer(overrides = {}) {
-  return {
+  const customer = {
     customer_source_id: 'customer-1',
     customer_name: 'Example Customer',
     customer_email: null,
@@ -29,6 +29,12 @@ function buildCustomer(overrides = {}) {
     relative_lateness_days: null,
     organisation_base_currency_code: 'GBP',
     ...overrides,
+  }
+  return {
+    ...customer,
+    customer_overdue_to_chase_base: customer.overdue_outstanding_base,
+    has_actionable_overdue_balance: customer.overdue_outstanding_base > 0,
+    invoice_overdue_to_chase_base: customer.overdue_outstanding_base,
   }
 }
 
@@ -111,6 +117,24 @@ test('locks each production component weight and the all-maximum total', () => {
     }),
     100
   )
+})
+
+test('customer credit changes only Exposure; invoice-derived urgency and deterioration survive net zero', () => {
+  const before = buildCustomer({ relative_lateness_days: 30 })
+  const after = { ...before, customer_overdue_to_chase_base: 0,
+    has_actionable_overdue_balance: false }
+  const relativeContext = buildRelativeLatenessContext([
+    { overdueOutstandingBase: 500, relativeLatenessDays: 30 },
+  ])
+  const rankingContext = { ...context, relativeLateness: relativeContext }
+  const original = prioritiseCustomer(before, rankingContext, 'priority')
+  const covered = prioritiseCustomer(after, rankingContext, 'priority')
+  assert.equal(covered.exposure_score, 0)
+  assert.equal(covered.urgency_score, original.urgency_score)
+  assert.equal(covered.relative_lateness_score, original.relative_lateness_score)
+  assert.equal(covered.payment_recency_score, original.payment_recency_score)
+  assert.equal(covered.recommended_action, 'No action')
+  assert.equal(covered.override_level, 'priority')
 })
 
 test('partial-payment status is score-neutral at component, final-score and explanation level', () => {
@@ -307,7 +331,7 @@ function rankScenario(customers, overrideByCustomerId = {}) {
     .sort(
       (left, right) =>
         right.priority_score - left.priority_score ||
-        right.overdue_outstanding_base - left.overdue_outstanding_base ||
+        right.customer_overdue_to_chase_base - left.customer_overdue_to_chase_base ||
         left.customer_name.localeCompare(right.customer_name)
     )
 }

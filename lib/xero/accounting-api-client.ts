@@ -18,6 +18,7 @@ export type XeroAccountingCollectionName =
   | 'payments'
   | 'overpayments'
   | 'prepayments'
+  | 'creditnotes'
 export type XeroGranularCapability =
   | 'accounting.settings'
   | 'accounting.contacts'
@@ -740,9 +741,12 @@ export async function requestXeroAccountingCollectionPage<
     try {
       let payload: unknown
       try {
-        payload = ['payments', 'overpayments', 'prepayments'].includes(options.resource)
+        payload = ['invoices', 'payments', 'overpayments', 'prepayments', 'creditnotes'].includes(options.resource)
           ? parseLossless(await response.text(), (key, value) => isLosslessNumber(value)
-              ? ['Amount', 'RemainingCredit', 'CurrencyRate'].includes(key) ? value.toString() : Number(value.toString())
+              ? (options.resource === 'invoices'
+                ? ['AmountDue', 'Total', 'AmountPaid', 'AmountCredited', 'CurrencyRate'].includes(key)
+                : ['Amount', 'RemainingCredit', 'CurrencyRate'].includes(key))
+                ? value.toString() : Number(value.toString())
               : value)
           : await response.json()
       } catch {
@@ -949,6 +953,12 @@ export function createXeroCashCollectionConfig(resource: 'overpayments' | 'prepa
   const sourceIdKey = resource === 'overpayments' ? 'OverpaymentID' : 'PrepaymentID'
   return { resource, path: `/${name}`, responseKey: name, sourceIdKey, order: sourceIdKey,
     query: {}, granularCapability: 'accounting.payments', getSourceId: record => sourceIdFromKey(sourceIdKey, record) }
+}
+
+export function createXeroCreditNotesCollectionConfig(): XeroPaginatedCollectionConfig<Record<string, unknown>> {
+  return { resource: 'creditnotes', path: '/CreditNotes', responseKey: 'CreditNotes',
+    sourceIdKey: 'CreditNoteID', order: 'CreditNoteID', query: { where: 'Type=="ACCRECCREDIT"' },
+    granularCapability: 'accounting.invoices', getSourceId: record => sourceIdFromKey('CreditNoteID', record) }
 }
 
 export function createXeroAuthorisedAccrecPaymentsConfig(

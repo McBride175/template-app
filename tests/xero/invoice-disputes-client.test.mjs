@@ -318,6 +318,56 @@ test('customer parent keeps save outcome visible while stale balances and action
   assert.equal(nodes(recovered, (node) => node.type === InvoiceControl).length, 1)
 })
 
+test('customer summary shows only canonical customer To chase when Xero credit is applied', () => {
+  for (const [creditState, applied, net, expected] of [
+    ['ready', 0, 1000, null],
+    ['unavailable', 0, 1000, null],
+    ['unsupported_currency', 0, 1000, null],
+    ['ready', 300, 700, '700.00 to chase'],
+    ['ready', 1000, 0, 'No overdue amount to chase'],
+    ['ready', 1500, 0, 'No overdue amount to chase'],
+  ]) {
+    const h = harness()
+    const { default: Parent } = loadTypeScriptModule('app/collections/customers/CustomerCollectionsClient.tsx', {
+      mocks: {
+        react: h.react, 'react/jsx-runtime': h.jsxRuntime,
+        'next/navigation': { useRouter: () => ({ replace() {}, push() {} }) },
+        '@/app/components/ui/Card': () => null,
+        '@/app/components/ui/Button': () => null,
+        '@/app/collections/customers/CustomerInvoiceDisputes': () => null,
+        '@/app/collections/MultiCurrencyPlanGate': () => null,
+        '@/lib/collections/payment-behavior-copy': {
+          formatCurrentOverdueAge: () => '0 days',
+          formatHistoricalPaymentTiming: () => 'Unknown',
+          formatRelativeLateness: () => 'Unknown',
+        },
+        '@/lib/auth-flow': { buildLoginPath: () => '/login' },
+        '@/lib/collections/founder-context': { FOUNDER_CONTEXT_OPTIONS: [] },
+      },
+    })
+    h.render(Parent, { tenantId: 'tenant-a' })
+    h.states[0] = [{ customer_source_id: 'customer-a', customer_name: 'Customer A',
+      customer_email: null, total_outstanding_base: 1000, overdue_outstanding_base: 1000,
+      collectible_outstanding_base: 1000, collectible_overdue_base: 1000,
+      customer_to_chase_overdue_base: net, customer_credit_applied_base: applied,
+      customer_credit_state: creditState,
+      overdue_invoices_count: 1, oldest_overdue_days: 15, native_currency_breakdown: [],
+      has_active_dispute: false, override_level: 'normal' }]
+    h.states[6] = false
+    const tree = h.render(Parent, { tenantId: 'tenant-a' })
+    const cells = nodes(tree, node => node.type === 'td')
+    const totalCell = JSON.stringify(cells[1]?.props.children)
+    const overdueCell = JSON.stringify(cells[2]?.props.children)
+    assert.doesNotMatch(totalCell, /to chase/i)
+    if (expected) assert.match(overdueCell, new RegExp(expected))
+    else assert.doesNotMatch(overdueCell, /Xero credit|to chase/i)
+    if (applied > 0) {
+      assert.match(overdueCell, /Xero credit deducted/)
+      assert.doesNotMatch(overdueCell, /1,000.00 to chase/)
+    } else assert.doesNotMatch(overdueCell, /Xero credit/)
+  }
+})
+
 test('worklist preserves successful-save state when refresh fails and restores controls after retry', async () => {
   const h = harness()
   const InvoiceControl = () => null

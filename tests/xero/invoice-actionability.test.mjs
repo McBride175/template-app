@@ -200,6 +200,15 @@ test('no split preserves canonical base and full coverage uses its entire known 
   reconciles(result)
 })
 
+test('fractional Dispute coverage subtracts exactly from a large invoice balance', () => {
+  const due = '12345678901234567890.123456789012345678901'
+  const inv = invoice(due, { amount_due_base: due })
+  const result = derive(inv, dispute('0.000000000000000001', { amount_due_at_last_review_native: due }), null)
+  assert.equal(result.currentAmountDueNative, due)
+  assert.equal(result.effectiveDisputedAmountNative, '0.000000000000000001')
+  assert.equal(result.toChaseAmountNative, '12345678901234567890.123456789012345677901')
+})
+
 test('missing invoice leaves current monetary values unavailable and retains commitment terms', () => {
   const result = derive(null, null, promise())
   assert.equal(result.invoiceState, 'unavailable')

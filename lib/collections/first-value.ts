@@ -15,7 +15,7 @@ export interface FirstValueReason {
 export interface FirstValuePriorityRow {
   customer_source_id: string
   customer_name: string
-  overdue_outstanding_base: number
+  customer_overdue_to_chase_base: number
   overdue_invoices_count: number
   weighted_avg_overdue_days: number
   relative_lateness_days: number | null
@@ -62,7 +62,7 @@ export function buildFirstValueReasons(
 ): FirstValueReason[] {
   const candidates: Array<FirstValueReason & { contribution: number }> = []
   const amount = formatMoney(
-    Math.max(0, row.overdue_outstanding_base),
+    Math.max(0, row.customer_overdue_to_chase_base),
     row.organisation_base_currency_code
   )
 
@@ -146,6 +146,7 @@ export function buildFirstValueReasons(
 
 export function selectFirstValuePriorities<T extends {
   customer_source_id: string
+  has_actionable_overdue_balance: boolean
   override_level: CustomerOverrideLevel
   recommended_action: FirstValuePriorityRow['recommended_action']
 }>(
@@ -157,6 +158,7 @@ export function selectFirstValuePriorities<T extends {
     .filter(
       (row) =>
         !actionsTakenByCustomerId[row.customer_source_id] &&
+        row.has_actionable_overdue_balance &&
         row.override_level !== 'do_not_chase' &&
         row.recommended_action !== 'No action'
     )

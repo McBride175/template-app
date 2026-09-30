@@ -41,6 +41,8 @@ insert into public.canonical_invoices(sync_run_id,user_id,tenant_id,source_id,cu
   select run,'${user}','tenant-a','i1','c1','ACCREC','GBP','GBP','identity' from fixture;
 create function pg_temp.store(observation jsonb,rows jsonb default '[]',user_id uuid default '${user}',tenant text default 'tenant-a',tz text default 'Europe/London')
 returns void language sql as $$select public.persist_xero_accounting_evidence((select run from fixture),user_id,tenant,'${owner}',1,observation,rows,tz)$$;
+create function pg_temp.store_credit(observation jsonb,rows jsonb default '[]',user_id uuid default '${user}',tenant text default 'tenant-a')
+returns void language sql as $$select public.persist_xero_credit_note_evidence((select run from fixture),user_id,tenant,'${owner}',1,observation,rows)$$;
 create function pg_temp.inspect() returns jsonb language sql as $$select public.inspect_xero_accounting_evidence((select run from fixture),'${user}','tenant-a')$$;
 -- Administrative fixture promotion, not a replacement for the unchanged production promotion RPC.
 create function pg_temp.promote_fixture() returns void language plpgsql as $$begin
@@ -50,6 +52,85 @@ create function pg_temp.promote_fixture() returns void language plpgsql as $$beg
 function check(statement){assert.match(psql(`begin;${helpers}${statement} select 'evidence_ok';rollback;`),/evidence_ok/)}
 function store(resource,rows=[],overrides={}){return `select pg_temp.store(${json({...observation(resource,rows.length),...overrides})},${json(rows)});`}
 function expectFailure(resource,rows,overrides={}){return `select pg_temp.fails(${sql(store(resource,rows,overrides))});`}
+const creditNote={source_id:'cn1',customer_source_id:'c1',provider_type:'ACCRECCREDIT',status:'AUTHORISED',residual_state:'qualifying',
+  remaining_credit_native:'12345678901234567890.123456789012345678901',currency_code:'GBP',organisation_base_currency_code:'GBP',
+  xero_currency_rate:'1.000000000000000001',source_updated_at:'2026-09-29T10:00:00Z'}
+function storeCredit(rows=[],overrides={}){return `select pg_temp.store_credit(${json({...observation('creditnotes',rows.length),...overrides})},${json(rows)});`}
+const stableObservation=(count,signature,started_at,completed_at)=>({count,signature,started_at,completed_at,
+  page_requests:count?2:1,populated_pages:count?1:0,complete:true})
+const initialCreditObservations={
+  invoices:stableObservation(1,'a'.repeat(64),'2026-09-30T22:59:59Z','2026-09-30T23:00:02Z'),
+  overpayments:stableObservation(0,'b'.repeat(64),'2026-09-30T22:59:59Z','2026-09-30T23:00:02Z'),
+  prepayments:stableObservation(0,'c'.repeat(64),'2026-09-30T22:59:59Z','2026-09-30T23:00:02Z'),
+  creditnotes:stableObservation(0,'d'.repeat(64),'2026-09-30T22:59:59Z','2026-09-30T23:00:02Z'),
+}
+const verifiedCreditObservations=Object.fromEntries(Object.entries(initialCreditObservations).map(([resource,entry])=>[
+  resource,{...entry,started_at:resource==='invoices'?'2026-09-30T23:00:03Z':'2026-09-30T23:00:05Z',
+    completed_at:resource==='invoices'?'2026-09-30T23:00:04Z':'2026-09-30T23:00:06Z'},
+]))
+const stableCreditCertificate={readiness_state:'ready',reason_code:'stable_observation',consistency_result:'matched',
+  validation_started_at:'2026-09-30T23:00:03Z',validation_completed_at:'2026-09-30T23:00:07Z',
+  resource_observations:{initial:initialCreditObservations,verification:verifiedCreditObservations}}
+function recordCredit(validation=stableCreditCertificate,identity={}){
+  return `select public.record_xero_customer_credit_stability_validation((select run from fixture),
+    '${identity.user??user}','${identity.tenant??'tenant-a'}','${identity.owner??owner}',${identity.fence??1},
+    'customer_credit_v1','invoice_exact_v1',${json(validation)});`
+}
+
+test('stable complete empty credit streams can certify one fenced generation; later invoice or evidence writes invalidate it',
+  {skip:!enabled},()=>check(`
+    update public.canonical_invoices set status='AUTHORISED' where sync_run_id=(select run from fixture);
+    ${store('overpayments')}${store('prepayments')}${storeCredit()}
+    ${recordCredit()}
+    select pg_temp.ok((select readiness_state='ready' and consistency_result='matched' and validation_fencing_token=1
+      from public.xero_customer_credit_validations where sync_run_id=(select run from fixture)),'stable certificate');
+    ${recordCredit()}
+    select pg_temp.ok((select readiness_state='ready' from public.xero_customer_credit_validations
+      where sync_run_id=(select run from fixture)),'idempotent certificate');
+    update public.canonical_invoices set amount_due=1 where sync_run_id=(select run from fixture);
+    select pg_temp.ok((select readiness_state='unavailable' and reason_code='evidence_changed_after_validation'
+      from public.xero_customer_credit_validations where sync_run_id=(select run from fixture)),'late write invalidates');
+    select pg_temp.fails(${sql(recordCredit())});
+  `))
+test('changed, incomplete, wrong-owner, and wrong-fence certificates cannot become ready', {skip:!enabled},()=>check(`
+    update public.canonical_invoices set status='AUTHORISED' where sync_run_id=(select run from fixture);
+    ${store('overpayments')}${store('prepayments')}${storeCredit()}
+    select pg_temp.fails(${sql(recordCredit(stableCreditCertificate,{user:other}))});
+    select pg_temp.fails(${sql(recordCredit(stableCreditCertificate,{fence:2}))});
+    select pg_temp.fails(${sql(recordCredit({...stableCreditCertificate,resource_observations:{...stableCreditCertificate.resource_observations,
+      verification:{...verifiedCreditObservations,creditnotes:{...verifiedCreditObservations.creditnotes,signature:'e'.repeat(64)}}}}))});
+    select pg_temp.fails(${sql(recordCredit({...stableCreditCertificate,resource_observations:{...stableCreditCertificate.resource_observations,
+      verification:{...verifiedCreditObservations,creditnotes:{...verifiedCreditObservations.creditnotes,started_at:'2026-09-30T23:00:01Z'}}}}))});
+    ${recordCredit({...stableCreditCertificate,readiness_state:'unavailable',reason_code:'credit_state_changed',consistency_result:'changed'})}
+    select pg_temp.ok((select readiness_state='unavailable' from public.xero_customer_credit_validations
+      where sync_run_id=(select run from fixture)),'failed observation remains unavailable');
+  `))
+
+test('persisted numeric residual crosses exact view, canonical customer summary and DTO without binary rounding',
+  {skip:!enabled},async()=>{
+    const exactResidual=psql(`begin;${helpers}${storeCredit([creditNote])}
+      select remaining_credit_native from public.canonical_customer_credit_evidence_exact where source_kind='credit_note';rollback;`)
+    assert.equal(exactResidual,creditNote.remaining_credit_native)
+    const { createDisputesJourney, journeyInvoice, USER_ID: journeyUser, TENANT_ID: journeyTenant } =
+      await import('../xero/test-helpers/disputes-journey-fixture.mjs')
+    const due='12345678901234567890.123456789012345678902'
+    const app=createDisputesJourney({invoices:[journeyInvoice('a','acme',due)]})
+    app.tables.xero_customer_credit_validations=[{sync_run_id:'generation-1',user_id:journeyUser,tenant_id:journeyTenant,
+      source_system:'xero',contract_version:'customer_credit_v1',invoice_money_contract_version:'invoice_exact_v1',
+      readiness_state:'ready',reason_code:'stable_observation',consistency_result:'matched',
+      resource_observations:{initial:{overpayments:{count:0},prepayments:{count:0},creditnotes:{count:1}}}}]
+    app.tables.canonical_customer_credit_evidence_exact=[{sync_run_id:'generation-1',user_id:journeyUser,
+      tenant_id:journeyTenant,source_system:'xero',source_kind:'credit_note',source_id:'cn1',customer_source_id:'acme',
+      provider_type:'ACCRECCREDIT',status:'AUTHORISED',residual_state:'qualifying',remaining_credit_native:exactResidual,
+      currency_code:'GBP',organisation_base_currency_code:'GBP',xero_currency_rate:'1'}]
+    const response=await app.customers()
+    assert.equal(response.status,200)
+    const row=response.body.rows.find(row=>row.customer_source_id==='acme')
+    assert.equal(row.invoice_to_chase_overdue_base_decimal,due)
+    assert.equal(row.available_customer_credit_base_decimal,exactResidual)
+    assert.equal(row.customer_to_chase_overdue_base_decimal,'0.000000000000000000001')
+    assert.equal(row.to_chase_outstanding_base_decimal,due)
+  })
 
 test('forward replay enables RLS and only scoped service operations; numeric survives the JSON read boundary', {skip:!enabled},()=>check(`
   grant select on fixture to service_role;
@@ -146,4 +227,70 @@ test('complete evidence on a failed candidate is never authoritative',{skip:!ena
   ${store('payments')}${store('overpayments')}${store('prepayments')}
   update public.xero_sync_runs set status='failed',lease_owner=null,lease_expires_at=null,failed_at=now(),error_code='fixture_failure' where id=(select run from fixture);
   select pg_temp.ok((pg_temp.inspect()->>'ready')::boolean=false,'failed candidate');
+`))
+
+test('credit-note residuals persist exactly, remain separate from Promise, and never produce a ready certificate',{skip:!enabled},()=>check(`
+  ${store('payments')}${store('overpayments',[cash])}${store('prepayments',[{...cash,source_kind:'prepayment',source_id:'cash2',provider_type:'RECEIVE-PREPAYMENT'}])}
+  ${storeCredit([creditNote])}${storeCredit([creditNote])}
+  select pg_temp.ok((select remaining_credit_native::text=${sql(creditNote.remaining_credit_native)}
+    from public.canonical_credit_note_evidence where source_id='cn1'),'exact credit residual');
+  select pg_temp.ok((select xero_currency_rate::text=${sql(creditNote.xero_currency_rate)}
+    from public.canonical_credit_note_evidence where source_id='cn1'),'exact credit rate');
+  select pg_temp.ok((select count(*)=3 from public.canonical_customer_credit_evidence_exact),'three distinct credit kinds');
+  select pg_temp.ok((select count(distinct source_kind)=3 from public.canonical_customer_credit_evidence_exact),'source identity');
+  select pg_temp.ok((select jsonb_typeof(to_jsonb(c)->'remaining_credit_native')='string'
+    from public.canonical_customer_credit_evidence_exact c where source_kind='credit_note'),'exact read boundary');
+  select pg_temp.ok((select count(*)=2 from public.canonical_unapplied_cash_evidence_exact),'Promise cash unaffected');
+  select pg_temp.ok((select count(*)=3 from public.xero_accounting_evidence_observations),'Promise resources unchanged');
+  select pg_temp.ok((select readiness_state='unavailable' and credit_notes_complete and credit_notes_source_count=1
+    and invoice_money_contract_version='invoice_exact_v1' from public.xero_customer_credit_validations),'no ready certificate');
+  select pg_temp.promote_fixture();
+  select pg_temp.ok((pg_temp.inspect()->>'ready')::boolean,'Promise readiness unchanged');
+`))
+
+test('completed empty credit-note observation cannot silently become non-empty in the same run',{skip:!enabled},()=>check(`
+  ${storeCredit()}
+  select pg_temp.ok((select credit_notes_complete and credit_notes_source_count=0 and credit_notes_mapped_count=0
+    and readiness_state='unavailable' from public.xero_customer_credit_validations),'complete empty');
+  select pg_temp.fails(${sql(storeCredit([creditNote]))});
+  select pg_temp.ok((select count(*)=0 from public.canonical_credit_note_evidence),'conflicting replay rolled back');
+`))
+
+test('invalid credit-note state remains visible and cannot be certified',{skip:!enabled},()=>check(`
+  ${storeCredit([{...creditNote,status:'PAID',residual_state:'invalid'}])}
+  select pg_temp.ok((select credit_notes_invalid_count=1 and readiness_state='unavailable'
+    from public.xero_customer_credit_validations),'contradictory state retained');
+  select pg_temp.ok((select status='PAID' and remaining_credit_native::text=${sql(creditNote.remaining_credit_native)}
+    from public.canonical_credit_note_evidence),'positive paid residual not zeroed');
+`))
+
+test('incomplete credit-note traversal is not interpreted as observed zero',{skip:!enabled},()=>check(`
+  ${storeCredit([],{complete:false,completed_at:null,page_requests:0,populated_pages:0})}
+  select pg_temp.ok((select not credit_notes_complete and credit_notes_completed_at is null and readiness_state='unavailable'
+    from public.xero_customer_credit_validations),'incomplete unavailable');
+`))
+
+test('credit-note scope, immutable replay and row security reject unsafe writes',{skip:!enabled},()=>check(`
+  select pg_temp.fails(${sql(`select pg_temp.store_credit(${json(observation('creditnotes',1))},${json([creditNote])},'${other}');`)});
+  select pg_temp.fails(${sql(`select pg_temp.store_credit(${json(observation('creditnotes',1))},${json([creditNote])},'${user}','other-tenant');`)});
+  select pg_temp.fails(${sql(storeCredit([{...creditNote,customer_source_id:'wrong'}]))});
+  ${storeCredit([creditNote])}
+  select pg_temp.fails(${sql(storeCredit([{...creditNote,remaining_credit_native:'1'}]))});
+  select pg_temp.fails(${sql(storeCredit([creditNote,creditNote]))});
+  select pg_temp.ok((select count(*)=1 from public.canonical_credit_note_evidence),'conflicts did not overwrite');
+  select pg_temp.ok((select relrowsecurity from pg_class where oid='public.canonical_credit_note_evidence'::regclass),'credit RLS');
+  select pg_temp.ok(not has_table_privilege('authenticated','public.canonical_credit_note_evidence','SELECT,INSERT,UPDATE,DELETE'),'browser inaccessible');
+  select pg_temp.ok(not has_table_privilege('service_role','public.xero_customer_credit_validations','INSERT,UPDATE,DELETE'),'no service ready bypass');
+  select pg_temp.ok(not has_function_privilege('authenticated','public.persist_xero_credit_note_evidence(uuid,uuid,text,uuid,bigint,jsonb,jsonb)','EXECUTE'),'no browser RPC');
+`))
+
+test('PostgreSQL invoice and Dispute numerics survive exact text reads',{skip:!enabled},()=>check(`
+  update public.canonical_invoices set amount_due_native=${sql(creditNote.remaining_credit_native)}::numeric,
+    amount_due_base=${sql(creditNote.remaining_credit_native)}::numeric where source_id='i1';
+  insert into public.invoice_disputes(user_id,tenant_id,source_system,invoice_source_id,dispute_mode,
+    recorded_disputed_amount_native,amount_due_at_last_review_native)
+    values('${user}','tenant-a','xero','i1','partial','0.000000000000000001'::numeric,${sql(creditNote.remaining_credit_native)}::numeric);
+  select pg_temp.ok((select amount_due_native::text=${sql(creditNote.remaining_credit_native)} from public.canonical_invoices),'exact invoice due');
+  select pg_temp.ok((select recorded_disputed_amount_native::text='0.000000000000000001'
+    and amount_due_at_last_review_native::text=${sql(creditNote.remaining_credit_native)} from public.invoice_disputes),'exact Dispute operands');
 `))

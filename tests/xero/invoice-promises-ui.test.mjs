@@ -187,9 +187,9 @@ for (const status of ['kept', 'missed', 'unclear', 'cancelled']) test(`terminal 
 })
 
 for (const [fields, expected, omitted] of [
-  [{ currentAmountDueNative: '10000', activePromisedCoverageAmountNative: '4000', toChaseAmountNative: '6000' }, /Outstanding£10,000.00Promised£4,000.00To chase£6,000.00/, /Disputed/],
-  [{}, /Outstanding£9,000.00Promised£3,000.00To chase£6,000.00/, /Disputed/],
-  [{ currentAmountDueNative: '10000', effectiveDisputedAmountNative: '8000', activePromisedCoverageAmountNative: '2000', toChaseAmountNative: '0' }, /Outstanding£10,000.00Disputed£8,000.00Promised£2,000.00To chase£0.00/, /Paid/],
+  [{ currentAmountDueNative: '10000', activePromisedCoverageAmountNative: '4000', toChaseAmountNative: '6000' }, /Outstanding£10,000.00Promised£4,000.00/, /Disputed|To chase/],
+  [{}, /Outstanding£9,000.00Promised£3,000.00/, /Disputed|To chase/],
+  [{ currentAmountDueNative: '10000', effectiveDisputedAmountNative: '8000', activePromisedCoverageAmountNative: '2000', toChaseAmountNative: '0' }, /Outstanding£10,000.00Disputed£8,000.00Promised£2,000.00/, /Paid|To chase/],
   [{ activePromise: null, latestPromise: null, activePromisedCoverageAmountNative: '0', toChaseAmountNative: '9000' }, /Outstanding£9,000.00/, /Promised|To chase|Disputed/],
 ]) test(`monetary disclosure consumes canonical server values ${expected}`, async () => {
   const ui = await render(InvoiceAmounts, { invoice: invoice(fields) })
@@ -251,7 +251,8 @@ test('single Promise mutation retains all other invoices and only refreshes the 
   const reads = ui.requests.filter(request => request.options.method !== 'POST')
   assert.equal(reads.length, 2); assert.ok(reads[1].url.includes('invoiceSourceId=invoice-a'))
   assert.equal(document.getElementById('invoice-invoice-b').textContent.includes('Record promise'), true)
-  assert.match(document.getElementById('invoice-invoice-a').textContent, /To chase£6,000.00/)
+  assert.match(document.getElementById('invoice-invoice-a').textContent, /Outstanding£9,000.00Promised£3,000.00/)
+  assert.doesNotMatch(document.getElementById('invoice-invoice-a').textContent, /To chase/)
   assert.equal(ui.container.textContent.includes('Loading invoices…'), false)
   await ui.close()
 })
@@ -272,10 +273,10 @@ test('Promise display preserves large exact decimal amounts without number round
 })
 
 
-for (const status of ['missed', 'unclear', 'cancelled', 'kept']) test(`terminal ${status} shows reopened To chase with zero Promise coverage omitted`, async () => {
+for (const status of ['missed', 'unclear', 'cancelled', 'kept']) test(`terminal ${status} keeps invoice outstanding without a competing To chase amount`, async () => {
   const ui = await render(InvoiceAmounts, { invoice: invoice({ activePromise: null, latestPromise: promise({ status }), activePromisedCoverageAmountNative: '0', toChaseAmountNative: '9000' }) })
-  assert.match(ui.container.textContent, /Outstanding£9,000.00To chase£9,000.00/)
-  assert.doesNotMatch(ui.container.textContent, /Promised/)
+  assert.match(ui.container.textContent, /Outstanding£9,000.00/)
+  assert.doesNotMatch(ui.container.textContent, /Promised|To chase/)
   await ui.close()
 })
 

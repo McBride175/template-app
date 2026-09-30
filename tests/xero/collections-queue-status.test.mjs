@@ -75,6 +75,11 @@ function buildSummaryRow(overrides = {}) {
     ...overrides,
   })
 
+  row.invoice_to_chase_overdue_base_decimal ??= row.collectible_overdue_base_decimal
+  row.invoice_to_chase_overdue_base ??= row.collectible_overdue_base
+  row.customer_to_chase_overdue_base_decimal ??= row.invoice_to_chase_overdue_base_decimal
+  row.customer_to_chase_overdue_base ??= row.invoice_to_chase_overdue_base
+
   return row
 }
 
@@ -640,6 +645,128 @@ test('relative-lateness portfolio context uses the full eligible queue before li
   assert.equal(payload.queue.relativeLateness.mode, 'portfolio-relative')
   assert.equal(payload.queue.relativeLateness.materialP50Days, 12)
   assert.ok(Math.abs(payload.rows[0].relative_lateness_score - 48.148148148148145) < 1e-9)
+})
+
+test('credit-zero queue removal leaves other customers ageing and deterioration reference unchanged', async () => {
+  const summaryRows = [8, 10, 12, 14, 16].map((relativeLatenessDays, index) =>
+    buildSummaryRow({
+      customer_source_id: `customer-${index + 1}`,
+      customer_name: `Customer ${index + 1}`,
+      historical_paid_invoice_count: 5,
+      relative_lateness_days: relativeLatenessDays,
+      weighted_avg_overdue_days: 20 + 10 * index,
+    })
+  )
+  const options = { summaryRows, sourceCounts: { customers: 5, invoices: 5, payments: 15 } }
+  const before = (await requestActions(options)).payload
+  summaryRows[4].customer_to_chase_overdue_base_decimal = '0'
+  summaryRows[4].customer_to_chase_overdue_base = 0
+  const after = (await requestActions(options)).payload
+  assert.equal(after.rows.some(row => row.customer_source_id === 'customer-5'), false)
+  assert.equal(after.portfolio.totalOverdueBase, 2000)
+  assert.equal(before.portfolio.totalOverdueBase, 2500)
+  assert.equal(after.portfolio.weightedAverageOverdueDays, before.portfolio.weightedAverageOverdueDays)
+  assert.equal(after.portfolio.weightedAverageOverdueDays, 40)
+  assert.deepEqual(after.queue.relativeLateness, before.queue.relativeLateness)
+  for (const current of after.rows) {
+    const previous = before.rows.find(row => row.customer_source_id === current.customer_source_id)
+    assert.equal(current.urgency_score, previous.urgency_score)
+    assert.equal(current.relative_lateness_score, previous.relative_lateness_score)
+    assert.equal(current.payment_recency_score, previous.payment_recency_score)
+  }
+})
+
+test('actions response carries the canonical net amount and applied-credit explanation without client arithmetic', async () => {
+  const { payload } = await requestActions({
+    summaryRows: [buildSummaryRow({
+      customer_to_chase_overdue_base_decimal: '200',
+      customer_to_chase_overdue_base: 200,
+      customer_credit_applied_base: 300,
+    })],
+    sourceCounts: { customers: 1, invoices: 1, payments: 0 },
+  })
+  assert.equal(payload.rows.length, 1)
+  assert.equal(payload.rows[0].collectible_overdue_base, 500)
+  assert.equal(payload.rows[0].customer_to_chase_overdue_base, 200)
+  assert.equal(payload.rows[0].customer_credit_applied_base, 300)
+  const client = await readFile(COLLECTION_ACTIONS_CLIENT_PATH, 'utf8')
+  assert.match(client, /formatMoney\(\s*currentQueueRow\.customer_to_chase_overdue_base/)
+  assert.match(client, /formatMoney\(row\.customer_to_chase_overdue_base/)
+  assert.doesNotMatch(client, /formatMoney\(\s*(?:currentQueueRow|row)\.collectible_overdue_base/)
+})
+
+test('Actions card and table render the customer net amount without a competing pre-credit action amount', async () => {
+  const { payload } = await requestActions({
+    summaryRows: [buildSummaryRow({
+      total_outstanding_base: 1000,
+      overdue_outstanding_base: 1000,
+      collectible_outstanding_base: 1000,
+      collectible_overdue_base: 1000,
+      invoice_to_chase_overdue_base: 1000,
+      invoice_to_chase_overdue_base_decimal: '1000',
+      customer_to_chase_overdue_base_decimal: '700',
+      customer_to_chase_overdue_base: 700,
+      customer_credit_applied_base: 300,
+    })],
+    sourceCounts: { customers: 1, invoices: 1, payments: 0 },
+  })
+  const states = []
+  let cursor = 0
+  const react = {
+    Fragment: Symbol('Fragment'),
+    useState(initial) {
+      const slot = cursor++
+      if (!(slot in states)) states[slot] = typeof initial === 'function' ? initial() : initial
+      return [states[slot], value => { states[slot] = typeof value === 'function' ? value(states[slot]) : value }]
+    },
+    useRef(initial) { return { current: initial } },
+    useCallback(callback) { return callback },
+    useMemo(factory) { return factory() },
+    useEffect() {},
+  }
+  const jsx = (type, props) => ({ type, props: props ?? {} })
+  const { default: CollectionActionsClient } = loadTypeScriptModule('app/collections/actions/CollectionActionsClient.tsx', {
+    mocks: {
+      react, 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: react.Fragment },
+      'next/navigation': { useRouter: () => ({ replace() {}, push() {} }) },
+      'next/link': 'a',
+      '@/app/components/ui/Card': () => null,
+      '@/app/components/ui/Button': () => null,
+      '@/app/collections/MultiCurrencyPlanGate': () => null,
+      '@/app/dashboard/DashboardXeroConnectionCard': () => null,
+      '@/app/collections/FounderContextControl': () => null,
+    },
+  })
+  cursor = 0
+  CollectionActionsClient({ tenantId: 'queue-tenant' })
+  states[0] = payload.rows
+  states[16] = false // loading
+  states[24] = 'GBP' // organisation base currency
+  cursor = 0
+  const tree = CollectionActionsClient({ tenantId: 'queue-tenant', showQueue: true })
+  const nodes = (node, predicate) => !node || typeof node !== 'object' ? []
+    : Array.isArray(node) ? node.flatMap(child => nodes(child, predicate))
+      : [...(predicate(node) ? [node] : []), ...nodes(node.props?.children, predicate)]
+  const actionAmounts = nodes(tree, node => node.type === 'p')
+    .map(node => JSON.stringify(node.props.children))
+    .filter(value => value.includes('700') || value.includes('to chase') || value.includes('Xero credit deducted'))
+  assert.equal(actionAmounts.filter(value => value.includes('700')).length, 2)
+  assert.equal(actionAmounts.filter(value => value.includes('Xero credit deducted')).length, 2)
+  assert.equal(actionAmounts.some(value => value.includes('1,000') && value.includes('to chase')), false)
+})
+
+test('exact positive customer balance remains actionable when numeric scoring rounds it to zero', async () => {
+  const { payload } = await requestActions({
+    summaryRows: [buildSummaryRow({
+      customer_to_chase_overdue_base_decimal: '0.000000000000000000000001',
+      customer_to_chase_overdue_base: 0,
+    })],
+    sourceCounts: { customers: 1, invoices: 1, payments: 0 },
+  })
+  assert.equal(payload.rows.length, 1)
+  assert.equal(payload.rows[0].has_actionable_overdue_balance, true)
+  assert.equal(payload.rows[0].customer_to_chase_overdue_base_decimal,
+    '0.000000000000000000000001')
 })
 
 test('relative lateness context excludes customers suppressed from the queue', async () => {

@@ -18,7 +18,7 @@ interface Invoice extends DisputeAccountingInvoice, CollectionsInvoiceCurrencyRo
 }
 interface Customer { source_id: string; name: string }
 type Context = Awaited<ReturnType<typeof authenticateDisputeTenant>>
-const INVOICE_COLUMNS = 'user_id, tenant_id, source_system, source_id, customer_source_id, invoice_number, reference, issue_date, due_date, type, status, amount_due_native, amount_due_base, transaction_currency_code, organisation_base_currency_code, xero_currency_rate, currency_conversion_status, currency_conversion_failure_reason'
+const INVOICE_COLUMNS = 'user_id, tenant_id, source_system, source_id, customer_source_id, invoice_number, reference, issue_date, due_date, type, status, amount_due_native::text, amount_due_base::text, transaction_currency_code, organisation_base_currency_code, xero_currency_rate::text, currency_conversion_status, currency_conversion_failure_reason'
 
 /** Bounded identity batches and database pages, never one lookup per dispute. */
 async function loadIdentityRows<T>(context: Context, table: 'canonical_invoices' | 'canonical_customers',

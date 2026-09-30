@@ -49,7 +49,7 @@ export function createDisputesJourney({ invoices = [
     if (!Object.hasOwn(tables, table)) throw new Error(`Unexpected fixture table: ${table}`)
     calls.push(table)
     const filters = [], orders = []
-    let page = null, limit = null, changes = null, insert = null
+    let page = null, limit = null, changes = null, insert = null, head = false
     const run = () => {
       if (insert) {
         const keys = ['user_id', 'tenant_id', 'source_system', 'invoice_source_id']
@@ -70,12 +70,13 @@ export function createDisputesJourney({ invoices = [
         }
         return 0
       })
+      const count = rows.length
       if (page) rows = rows.slice(page[0], page[1] + 1)
       if (limit !== null) rows = rows.slice(0, limit)
-      return { data: structuredClone(rows), error: null }
+      return { data: head ? null : structuredClone(rows), count: head ? count : null, error: null }
     }
     const query = {
-      select() { return this },
+      select(_columns, options) { head = options?.head === true; return this },
       eq(key, value) { filters.push((row) => String(row[key]) === String(value)); return this },
       is(key, value) { filters.push((row) => (row[key] ?? null) === value); return this },
       in(key, values) { filters.push((row) => values.includes(row[key])); return this },

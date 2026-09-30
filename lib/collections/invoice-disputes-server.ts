@@ -28,8 +28,8 @@ import { loadLatestInvoicePromisePresentation, assertInvoicePromiseSnapshotCurre
 const SOURCE_SYSTEM = 'xero'
 const PAGE_SIZE = 1000
 const IDENTITY_BATCH_SIZE = 100 // Keep PostgREST identity filters below practical URL limits.
-const DISPUTE_COLUMNS = 'id, user_id, tenant_id, source_system, invoice_source_id, dispute_mode, recorded_disputed_amount_native, amount_due_at_last_review_native, note, is_active, resolved_at, created_at, updated_at, revision'
-const INVOICE_COLUMNS = 'user_id, tenant_id, source_id, source_system, customer_source_id, type, status, amount_due_native, amount_due_base, transaction_currency_code, organisation_base_currency_code, xero_currency_rate'
+const DISPUTE_COLUMNS = 'id, user_id, tenant_id, source_system, invoice_source_id, dispute_mode, recorded_disputed_amount_native::text, amount_due_at_last_review_native::text, note, is_active, resolved_at, created_at, updated_at, revision'
+const INVOICE_COLUMNS = 'user_id, tenant_id, source_id, source_system, customer_source_id, type, status, amount_due_native::text, amount_due_base::text, transaction_currency_code, organisation_base_currency_code, xero_currency_rate::text'
 const CUSTOMER_INVOICE_COLUMNS = `${INVOICE_COLUMNS}, invoice_number, reference, issue_date, due_date`
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>

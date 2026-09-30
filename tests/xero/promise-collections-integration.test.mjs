@@ -124,7 +124,9 @@ test('portfolio, weighted age, current deterioration and scorer inputs share the
   assert.equal(after.queue.portfolio.largestCustomerOverdueBase, maximum)
   assert.equal(after.queue.portfolio.weightedAverageOverdueDays, weightedAge)
   const expected = prioritiseCustomer({ ...after.customer,
-    overdue_outstanding_base: after.customer.to_chase_overdue_base,
+    customer_overdue_to_chase_base: after.customer.to_chase_overdue_base,
+    has_actionable_overdue_balance: after.customer.to_chase_overdue_base > 0,
+    invoice_overdue_to_chase_base: after.customer.to_chase_overdue_base,
     total_outstanding_base: after.customer.to_chase_outstanding_base,
     overdue_invoices_count: after.customer.actionable_overdue_invoices_count,
     open_invoices_count: after.customer.actionable_open_invoices_count,

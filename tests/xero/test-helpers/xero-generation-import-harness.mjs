@@ -125,6 +125,7 @@ export function createGenerationImportHarness(options = {}) {
   let heartbeatCount = 0
   let tokenLoads = 0
   let readinessRecords = 0
+  const creditValidations = []
 
   const primary = {
     contacts: options.contacts ?? [contact('contact-a')],
@@ -246,7 +247,7 @@ export function createGenerationImportHarness(options = {}) {
           name = 'invoices:paid'
           records = primary.paidInvoices
         }
-      } else if (['overpayments', 'prepayments'].includes(request.config.resource)) {
+      } else if (['overpayments', 'prepayments', 'creditnotes'].includes(request.config.resource)) {
         name = `${isCatchUp ? 'catchup:' : ''}${request.config.resource}`
         records = options[request.config.resource] ?? []
       } else {
@@ -262,6 +263,15 @@ export function createGenerationImportHarness(options = {}) {
     async persistEvidence(params) {
       events.push(`evidence:${params.observation.resource}:${params.observation.complete}`)
       if (options.persistEvidence) return options.persistEvidence(params)
+    },
+    async persistCreditNoteEvidence(params) {
+      events.push(`creditnotes:${params.observation.complete}`)
+      if (options.persistCreditNoteEvidence) return options.persistCreditNoteEvidence(params)
+    },
+    async persistCreditValidation(params) {
+      events.push(`credit-validation:${params.validation.readiness_state}:${params.validation.reason_code}`)
+      creditValidations.push(params)
+      if (options.persistCreditValidation) return options.persistCreditValidation(params)
     },
     async persistRaw({ resourceType, records }) {
       events.push(`persist:${resourceType}`)
@@ -339,5 +349,6 @@ export function createGenerationImportHarness(options = {}) {
     get readinessRecords() {
       return readinessRecords
     },
+    creditValidations,
   }
 }

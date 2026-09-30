@@ -41,6 +41,8 @@ interface CustomerCollectionsSummaryRow {
   overdue_outstanding_base: number | null
   collectible_outstanding_base: number
   collectible_overdue_base: number
+  customer_to_chase_overdue_base: number
+  customer_credit_applied_base: number
   effective_disputed_outstanding_base_decimal: string | null
   effective_disputed_overdue_base_decimal: string | null
   has_active_dispute: boolean
@@ -799,15 +801,11 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
                           invoiced
                         </p>
                       )}
-                    {(row.has_active_dispute || row.collectible_outstanding_base !== row.total_outstanding_base) && (
+                    {row.has_active_dispute && (
                       <p className="mt-0.5 text-xs text-gray-600">
-                        {row.has_active_dispute && <>
-                          Disputed: {row.effective_disputed_outstanding_base_decimal === null
-                            ? 'Base amount unavailable'
-                            : formatMoney(Number(row.effective_disputed_outstanding_base_decimal), organisationBaseCurrency)}
-                          {' · '}
-                        </>}
-                        {formatMoney(row.collectible_outstanding_base, organisationBaseCurrency)} to chase
+                        Disputed: {row.effective_disputed_outstanding_base_decimal === null
+                          ? 'Base amount unavailable'
+                          : formatMoney(Number(row.effective_disputed_outstanding_base_decimal), organisationBaseCurrency)}
                       </p>
                     )}
                   </td>
@@ -829,13 +827,20 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
                           invoiced
                         </p>
                       )}
-                    {row.collectible_overdue_base > 0 &&
+                    {(row.customer_to_chase_overdue_base > 0 || row.customer_credit_applied_base > 0) &&
                       (row.overdue_outstanding_base === null ||
-                        row.collectible_overdue_base !== row.overdue_outstanding_base) && (
+                        row.customer_to_chase_overdue_base !== row.overdue_outstanding_base) && (
                         <p className="mt-0.5 text-xs text-gray-600">
-                          {formatMoney(row.collectible_overdue_base, organisationBaseCurrency)} to chase
+                          {row.customer_to_chase_overdue_base > 0
+                            ? `${formatMoney(row.customer_to_chase_overdue_base, organisationBaseCurrency)} to chase`
+                            : 'No overdue amount to chase'}
                         </p>
                       )}
+                    {row.customer_credit_applied_base > 0 && (
+                      <p className="mt-0.5 text-xs text-gray-500">
+                        {formatMoney(row.customer_credit_applied_base, organisationBaseCurrency)} Xero credit deducted
+                      </p>
+                    )}
                     {row.has_active_dispute && (
                       <p className="mt-0.5 text-xs text-gray-600">
                         Disputed: {row.effective_disputed_overdue_base_decimal === null

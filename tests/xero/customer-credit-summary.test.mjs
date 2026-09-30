@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { loadTypeScriptModule } from './test-helpers/ts-module-loader.mjs'
 import { createDisputesJourney, daysAgo, journeyInvoice, USER_ID, TENANT_ID } from './test-helpers/disputes-journey-fixture.mjs'
+import { promise as promiseFixture, cash as cashFixture, observation as promiseObservation } from './test-helpers/promise-evidence-fixture.mjs'
 
 const snapshotModule = loadTypeScriptModule('lib/xero/authoritative-snapshot.ts')
 const { loadCustomerCollectionsSummaryWithMetadata } = loadTypeScriptModule('lib/collections/customer-summary.ts', {
@@ -34,6 +35,24 @@ async function summary(app, customerSourceId) {
 const customer = result => result.rows.find(row => row.customer_source_id === 'acme')
 
 for (const kind of ['overpayment','prepayment','credit_note']) {
+  test(`${kind} allocated value and ordinary payments are not deducted again from AmountDue`, async () => {
+    const app = createDisputesJourney({ invoices:[journeyInvoice('a','acme','700', {
+      total_native:'1000', amount_credited_native:'300',
+    })] })
+    certify(app, [credit(kind,'200')])
+    const row = customer(await summary(app))
+    assert.equal(row.invoice_to_chase_overdue_base_decimal, '700')
+    assert.equal(row.available_customer_credit_base_decimal, '200')
+    assert.equal(row.customer_to_chase_overdue_base_decimal, '500')
+    const invoices = (await app.invoices('acme')).body.invoices
+    assert.equal(invoices[0].toChaseAmountNative, '700')
+    const actions = (await app.actions()).body
+    assert.equal(actions.portfolio.totalOverdueBase, 500)
+    assert.equal(app.firstValue(actions)[0].customer_to_chase_overdue_base, 500)
+    certify(app, [])
+    Object.assign(app.tables.canonical_invoices[0], { amount_credited_native:'0', amount_paid_native:'300' })
+    assert.equal(customer(await summary(app)).customer_to_chase_overdue_base_decimal, '700')
+  })
   test(`${kind} exact residual appears only in the new customer overdue contract`, async () => {
     const app = createDisputesJourney({ invoices:[journeyInvoice('a','acme',1000)] })
     certify(app, [credit(kind,'300')])
@@ -47,6 +66,58 @@ for (const kind of ['overpayment','prepayment','credit_note']) {
     assert.equal(row.to_chase_outstanding_base_decimal, '1000')
   })
 }
+
+test('dispute then Promise coverage precede one customer deduction, with exact fractional coverage', async () => {
+  for (const [outstanding, disputed, promised, remaining, invoiceChase, customerChase] of [
+    ['1000','200','300','150','500','350'],
+    ['1000000000000000.123456789012345678901','0.1','0.02','1000000000000000.0034567890123456789',
+      '1000000000000000.003456789012345678901','0.000000000000000000001'],
+  ]) {
+    const app = createDisputesJourney({ invoices:[journeyInvoice('a','acme',outstanding)] })
+    assert.equal((await app.mutate({ operation:'partial', invoiceSourceId:'a', disputedAmountNative:disputed })).status, 200)
+    app.tables.invoice_promises.push({ id:'promise-a', user_id:USER_ID, tenant_id:TENANT_ID, source_system:'xero',
+      invoice_source_id:'a', customer_source_id:'acme', currency_code:'GBP', status:'active',
+      promised_amount_native:promised, qualifying_paid_amount_native:'0', promised_date:daysAgo(-7), revision:'3' })
+    const before = customer(await summary(app))
+    certify(app, [credit('credit_note',remaining)])
+    const after = customer(await summary(app))
+    assert.equal(after.invoice_to_chase_overdue_base_decimal, invoiceChase)
+    assert.equal(after.customer_to_chase_overdue_base_decimal, customerChase)
+    assert.equal(after.weighted_avg_overdue_days, before.weighted_avg_overdue_days)
+    assert.equal(after.actionable_overdue_invoices_count, before.actionable_overdue_invoices_count)
+    const invoice = (await app.invoices('acme')).body.invoices[0]
+    assert.equal(invoice.toChaseAmountNative, invoiceChase)
+    assert.equal(invoice.activePromise.promisedAmountNative, promised)
+    assert.equal(after.effective_disputed_outstanding_base_decimal, disputed)
+  }
+})
+
+test('one residual can make two Promises Unclear while cash and credit note are deducted once per customer', async () => {
+  const { qualifyPromisePayments } = loadTypeScriptModule('lib/collections/promise-payment-qualification.ts')
+  const { resolvePromiseOutcome } = loadTypeScriptModule('lib/collections/promise-outcome-resolution.ts')
+  const app = createDisputesJourney({ invoices:[journeyInvoice('a','acme',1000), journeyInvoice('b','acme',1000)] })
+  const cashRow = cashFixture({ ...credit('overpayment','300'), remaining_credit_base:'300' })
+  const observation = promiseObservation([], [cashRow], {
+    sync_run_id:'generation-1', user_id:USER_ID, tenant_id:TENANT_ID,
+  })
+  for (const [id, amount] of [['a','200'], ['b','250']]) {
+    const promise = promiseFixture({ id:`promise-${id}`, invoice_source_id:id, customer_source_id:'acme',
+      user_id:USER_ID, tenant_id:TENANT_ID, promised_amount_native:amount })
+    const result = resolvePromiseOutcome({ promise, observation, cash:[cashRow], promiseValuation:null,
+      qualifiedPayments:qualifyPromisePayments({ promise, observation, payments:[] }) })
+    assert.equal(result.decision, 'unclear')
+    assert.equal(result.qualifying_paid_amount_native, '0')
+    assert.deepEqual(result.evidence.cash_comparison.sources, [{source_kind:'overpayment',source_id:'overpayment-1'}])
+    app.tables.invoice_promises.push({ ...promise, status:result.decision })
+  }
+  certify(app, [credit('overpayment','300'), credit('credit_note','400')])
+  const row = customer(await summary(app))
+  assert.equal(row.active_promised_outstanding_base_decimal, '0')
+  assert.equal(row.invoice_to_chase_overdue_base_decimal, '2000')
+  assert.equal(row.available_customer_credit_base_decimal, '700')
+  assert.equal(row.customer_to_chase_overdue_base_decimal, '1300')
+  assert.equal((await app.actions()).body.portfolio.totalOverdueBase, 1300)
+})
 
 test('three credit kinds combine once, clamp at zero, and leave invoice ageing and counts intact', async () => {
   const app = createDisputesJourney({ invoices:[

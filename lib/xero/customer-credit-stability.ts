@@ -29,6 +29,26 @@ function digest(rows: readonly unknown[][]) {
   return createHash('sha256').update(JSON.stringify(rows)).digest('hex')
 }
 
+/** Check provider tokens before the shared Promise mapper can normalize an invalid rate to null. */
+export function assertCustomerCreditProviderRates(
+  resource: 'invoices' | 'overpayments' | 'prepayments' | 'creditnotes',
+  records: readonly RecordValue[],
+  organisationBaseCurrency: unknown
+) {
+  const base = normalizeCurrencyCode(organisationBaseCurrency)
+  const type = { invoices: 'ACCREC', overpayments: 'RECEIVE-OVERPAYMENT',
+    prepayments: 'RECEIVE-PREPAYMENT', creditnotes: 'ACCRECCREDIT' }[resource]
+  const reason = resource === 'invoices' ? 'invalid_invoice_state' : 'invalid_credit_state'
+  for (const record of records) {
+    if (text(record.Type)?.toUpperCase() !== type || text(record.Status)?.toUpperCase() !== 'AUTHORISED' ||
+      record.CurrencyRate === undefined || record.CurrencyRate === null) continue
+    const rate = exact(record.CurrencyRate, reason)
+    if (rate === '0' || (base && normalizeCurrencyCode(record.CurrencyCode) === base && rate !== '1')) {
+      throw new CustomerCreditStabilityError(reason)
+    }
+  }
+}
+
 /** Signatures compare the current authorised AR set, including membership. */
 export function signatureForAuthorisedInvoices(records: readonly RecordValue[]) {
   const tuples: unknown[][] = []

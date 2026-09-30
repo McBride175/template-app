@@ -153,3 +153,47 @@ test('optional deadline yields one unavailable result without retrying toward co
   assert.equal(missingInitial.reason_code, 'initial_invoice_incomplete')
   assert.equal(invoiceReads, 0)
 })
+
+test('explicitly invalid provider currency rates cannot become certified missing rates', async () => {
+  const promiseObservations = []
+  for (const resource of ['overpayments', 'prepayments']) {
+    for (const rate of ['0', '-1', 'invalid']) {
+      const { validation } = await run({ [resource]: [cash(resource, { CurrencyRate: rate })],
+        persistEvidence: evidence => promiseObservations.push(evidence) })
+      assert.equal(validation.readiness_state, 'unavailable', `${resource}: ${rate}`)
+      assert.equal(validation.reason_code, 'invalid_credit_state')
+    }
+    const changed = await run({}, ({ name, count, records }) => name === resource && count === 2
+      ? pageResult(records.map(record => ({ ...record, CurrencyRate: '0' }))) : null)
+    assert.equal(changed.validation.reason_code, 'invalid_credit_state')
+  }
+  assert.equal(promiseObservations.length, 18)
+  assert.ok(promiseObservations.every(evidence => evidence.observation.complete))
+  assert.deepEqual([...new Set(promiseObservations.map(evidence => evidence.observation.resource))],
+    ['payments', 'overpayments', 'prepayments'])
+  const invoiceRate = await run({ authorisedInvoices: [invoice('i1', 'c1', 'AUTHORISED', undefined,
+    { AmountDue: '1000', CurrencyRate: '2' })] })
+  assert.equal(invoiceRate.validation.readiness_state, 'unavailable')
+  assert.equal(invoiceRate.validation.reason_code, 'invalid_invoice_state')
+  const normalizedEnums = await run({ overpayments: [cash('overpayments', {
+    Type:'receive-overpayment', Status:'authorised', CurrencyRate:'0',
+  })] })
+  assert.equal(normalizedEnums.validation.reason_code, 'invalid_credit_state')
+  const missingOptionalRates = await run({ overpayments: [cash('overpayments', { CurrencyRate: null })],
+    prepayments: [cash('prepayments', { CurrencyRate: undefined })] })
+  assert.equal(missingOptionalRates.validation.readiness_state, 'ready')
+})
+
+test('allocation removal changes both invoice debt and residual and withholds the whole generation', async () => {
+  const { validation, counts } = await run({
+    authorisedInvoices: [invoice('i1', 'c1', 'AUTHORISED', undefined, { AmountDue: '800' })],
+    overpayments: [cash('overpayments', { RemainingCredit: '300' })], prepayments: [], creditnotes: [],
+  }, ({ name, count, records }) => count === 2 && name === 'invoices:authorised'
+    ? pageResult(records.map(record => ({ ...record, AmountDue: '1000' })))
+    : count === 2 && name === 'overpayments'
+      ? pageResult(records.map(record => ({ ...record, RemainingCredit: '500' }))) : null)
+  assert.equal(validation.readiness_state, 'unavailable')
+  assert.equal(validation.reason_code, 'invoice_state_changed')
+  assert.equal(counts.get('invoices:authorised'), 2)
+  assert.equal(counts.get('overpayments'), 2)
+})

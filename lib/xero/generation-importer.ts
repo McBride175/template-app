@@ -57,6 +57,7 @@ import {
 import { mapXeroPaymentEvidence, mapXeroUnappliedCashEvidence, persistXeroAccountingEvidence, type EvidenceObservation, type EvidenceResource } from '@/lib/xero/accounting-evidence'
 import { mapXeroCreditNoteEvidence, persistXeroCreditNoteEvidence, type CreditNoteObservation } from '@/lib/xero/credit-note-evidence'
 import {
+  assertCustomerCreditProviderRates,
   completeCreditStabilityObservation,
   CustomerCreditStabilityError,
   signatureForAuthorisedInvoices,
@@ -1036,9 +1037,10 @@ export async function importXeroGeneration(params: {
     let initialProblem: CreditValidationReason | undefined
     const observe = (resource: CreditValidationResource, rows: ProviderRecord[], observation: {
       started_at: string; completed_at: string | null; complete: boolean; page_requests: number; populated_pages: number
-    }) => {
+    }, providerRows: ProviderRecord[] = rows) => {
       if (!observation.complete) return
       try {
+        assertCustomerCreditProviderRates(resource, providerRows, organisationResult.records[0].BaseCurrency)
         const signed = resource === 'invoices' ? signatureForAuthorisedInvoices(rows)
           : signatureForCreditRows(resource === 'overpayments' ? 'overpayment' : resource === 'prepayments' ? 'prepayment' : 'credit_note', rows)
         const complete = completeCreditStabilityObservation({ ...observation, ...signed })
@@ -1054,15 +1056,17 @@ export async function importXeroGeneration(params: {
       populated_pages: authorisedPrimary.populatedPageCount + paidPrimary.populatedPageCount + invoicesCatchUp.populatedPageCount,
     })
     for (const resource of ['overpayments', 'prepayments'] as const) {
-      if (initialCashObservations[resource]) observe(resource, initialCashRows[resource] ?? [], initialCashObservations[resource])
+      if (initialCashObservations[resource]) observe(resource, initialCashRows[resource] ?? [], initialCashObservations[resource],
+        evidenceCollections.find(collection => collection.resource === resource)?.records ?? [])
     }
-    observe('creditnotes', creditNoteRows, creditNoteObservation)
+    observe('creditnotes', creditNoteRows, creditNoteObservation, creditNoteRecords)
     const verificationDeadlineAtMs = Math.min(deadlineAtMs - 20_000, dependencies.now() + 30_000)
     const creditValidation = await validateCustomerCreditStability({
       initial, initialProblem, now: dependencies.now, deadlineAtMs: verificationDeadlineAtMs,
       readInvoices: async () => {
         const started_at = new Date(dependencies.now()).toISOString()
         const result = await fetchCollection(createXeroAuthorisedAccrecInvoicesConfig(), undefined, verificationDeadlineAtMs)
+        assertCustomerCreditProviderRates('invoices', result.records, organisationResult.records[0].BaseCurrency)
         const signed = signatureForAuthorisedInvoices(result.records)
         const observed = completeCreditStabilityObservation({ ...signed, started_at,
           completed_at: new Date(dependencies.now()).toISOString(), complete: true,
@@ -1075,6 +1079,7 @@ export async function importXeroGeneration(params: {
         const result = await fetchCollection(resource === 'creditnotes'
           ? createXeroCreditNotesCollectionConfig() : createXeroCashCollectionConfig(resource),
         undefined, verificationDeadlineAtMs)
+        assertCustomerCreditProviderRates(resource, result.records, organisationResult.records[0].BaseCurrency)
         const rows = resource === 'creditnotes'
           ? mapXeroCreditNoteEvidence(result.records, contacts, organisationResult.records[0])
           : mapXeroUnappliedCashEvidence(resource, result.records, contacts, organisationResult.records[0])

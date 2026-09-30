@@ -355,18 +355,21 @@ Promise creation baselines and automatic lifecycle reconciliation consume this
 evidence; unapplied cash remains outcome-only, with no allocation or cash UI. See `docs/canonical-accounting-evidence.md` for the contract and
 local disposable database tests. Phase 3B hosted Test certification is complete.
 
-### Customer-credit evidence, certification and summary contract (Phases 1–3)
+### Customer-credit evidence, certification and summary contract (Phases 1–5)
 
 The generation importer also fetches AR credit notes without a status filter and
 persists their exact `RemainingCredit`, lifecycle, customer and currency context in
 `canonical_credit_note_evidence`. `canonical_customer_credit_evidence_exact` combines
-that source with existing receive overpayment and prepayment residuals for a future
-customer-credit consumer. It is not read by Promise reconciliation. A separate
+that source with existing receive overpayment and prepayment residuals for the
+customer-summary calculation. It is not read by Promise reconciliation. A separate
 `xero_customer_credit_validations` records credit-note traversal and the fresh invoice
 exact-money contract. After all initial invoice and credit observations complete, one
 bounded verification sweep fully traverses authorised AR invoices, then all three
 credit resources. Normalised identity, status, currency, due-date, exact residual and
-provider-version signatures must match the initial evidence. A fenced, generation-scoped
+provider-version signatures must match the initial evidence. Certification checks original
+provider rate tokens before shared mapping can normalize an invalid rate to null;
+explicit invalid rates or non-unit base-currency rates withhold credit certification
+without changing Promise evidence or ordinary sync. A fenced, generation-scoped
 certificate records ready or a bounded unavailable reason; later accounting evidence
 writes invalidate ready certification. This is observational stability, not a
 transactional Xero snapshot. The held-generation customer-summary loader reads the
@@ -380,8 +383,10 @@ unchanged. Phase 4 passes customer net overdue to Exposure, its portfolio moneta
 benchmarks, queue monetary eligibility and first-value selection. The portfolio age
 and relative-deterioration reference populations retain invoice-derived overdue
 actionability, even when credit removes a customer from the operational queue.
-The browser's overdue-only filter consumes the server's customer net amount; no
-browser credit calculation or new credit presentation is added.
+The browser's overdue-only filter consumes the server's customer net amount. Customer
+summary, actions and first-value displays use that same amount without browser credit
+arithmetic. A positive applied deduction may show one compact “Xero credit deducted”
+line; invoice amounts remain unchanged and no invoice-level To chase is displayed.
 
 ## Resend
 
@@ -439,8 +444,8 @@ contract. Promise privacy export is included before user-facing rollout.
 ### Invoice Promise presentation (Phase 8)
 
 Customer invoices expose compact fixed-commitment controls and bounded lifecycle
-history. Monetary rows display server-derived Outstanding / Disputed / Promised /
-To chase, with zero adjustments hidden. Edits use current revisions; blank/zero
+history. Monetary rows display server-derived Outstanding / Disputed / Promised,
+with zero adjustments hidden. To chase is shown at customer level. Edits use current revisions; blank/zero
 amount means cancellation. Terminal outcomes are read-only and Unclear is passive.
 Financial saves refresh one invoice and one scoped customer summary, then invalidate
 an open queue for one complete ranking fetch; notes do neither. Creation snapshots,

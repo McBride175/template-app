@@ -138,7 +138,7 @@ test('first value remains independent and founder context starts in the operatio
   assert.match(actionsClient, /overrideRequestsInFlight/)
   assert.match(founderControl, /Know something Yuohme doesn&apos;t\?/)
   assert.match(founderControl, /Optionally add durable context/)
-  assert.match(founderControl, /Use Postpone or a payment promise/)
+  assert.match(founderControl, /Use Do not follow up until/)
   assert.match(founderControl, /aria-pressed=/)
   assert.match(founderControl, /min-h-11/)
   assert.match(founderControl, /grid-cols-2 gap-2 sm:grid-cols-4/)

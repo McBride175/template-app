@@ -200,6 +200,78 @@ reconciliation runs at certified generation promotion. Unapplied cash has no act
 effect. Legacy collection-action `promised_to_pay` no longer suppresses customers;
 explicit `action_type = postponed` still suppresses until its next-action date.
 
+### Generic Action History persistence (Phase 2)
+
+`collection_actions` retains legacy contact/postponement rows and now also stores
+customer-level V1 `action_type = outcome` records. V1 writes accept only
+`no_response`, `message_sent`, `responded_no_commitment`, and
+`reviewed_no_chase`, with a bounded optional note and required date-only
+`next_action_date`. The durable key is owner, Xero tenant, provider (`xero`),
+and Xero ContactID; no generation-specific canonical UUID is stored. The server
+uses the authoritative organisation timezone for its default next day and
+custom-date validation, falling back to UTC if timezone metadata is unavailable.
+
+`/api/collections/action-history` authenticates and scopes create, latest,
+bounded customer-history, and delete operations. Create requires a caller-stable
+action UUID for retry deduplication and validates the current owned canonical
+customer. History reads include V1 rows only; legacy rows remain stored and
+available to existing consumers and privacy export. This persistence phase does
+not change queue eligibility, portfolio benchmarks, scoring, or invoice
+Promise/Dispute authority.
+
+### Action History queue eligibility (Phase 3)
+
+The Actions queue first loads authoritative customer accounting and operational
+coverage, builds monetary and invoice-ageing populations, and calculates
+portfolio benchmarks and customer scores. A shared eligibility decision then
+applies the latest V1 outcome's `next_action_date`, legacy postponement, existing
+same-day legacy action, founder `do_not_chase`, and no-actionable-debt rules.
+V1 dates expire on the Xero organisation's calendar date (UTC fallback); legacy
+postponement retains its existing UTC return-date comparison. Temporary
+deferrals are removed before the response limit. The same decision feeds queue
+counts and first-value/founder selectors; Customers browsing and direct reads
+remain unaffected.
+
+The server-only `latest_collection_queue_actions` RPC uses indexed, per-customer
+latest V1 and legacy lookups in bounded batches. It returns no score input.
+Failure to read required Action History data fails the Actions queue closed.
+
+### Action History recording experience (Phase 4)
+
+The priority card presents four V1 outcome buttons. An optional note and
+follow-up timing are separate disclosures; the default request omits the date
+so the server calculates tomorrow. The queue response supplies organisation-
+calendar presets for custom timing. A confirmed write removes the customer
+from the displayed card immediately, followed by one authoritative queue
+reload for current eligibility, counts and the next card. Undo deletes the
+stable V1 action ID and reloads the queue before restoring focus. A failed or
+uncertain create retains the same ID for retry. Previous/Next only navigate.
+
+The queue's bounded latest-action RPC also returns a short V1 note excerpt for
+compact recent activity. Retained legacy actions are labelled as legacy facts,
+and invoice Promises and Disputes remain in their own interfaces. The persistent
+founder override is displayed as Never chase; its stored `do_not_chase` value
+and scoring behaviour are unchanged.
+
+### Customer collection history (Phase 5)
+
+`/customers/[customerSourceId]/history` reads one owned current customer by
+durable Xero source ID in the held authoritative tenant snapshot. A dedicated
+service-role-only, security-invoker SQL function projects V1 and retained legacy
+`collection_actions`, immutable `invoice_promise_events` joined to their
+authoritative Promise, and only created/currently-resolved Dispute timestamps.
+It orders by timestamp and namespaced event ID and returns a bounded keyset
+page. Current invoice numbers are resolved in one snapshot-scoped batch solely
+for display; missing references fall back to the provider invoice ID. Dispute
+ownership is established only through an invoice in the held snapshot, and
+conflicting retained customer identities suppress the milestone. A missing
+current invoice or ambiguous ownership makes that Dispute milestone unavailable
+rather than inventing historical customer ownership. Promise and Dispute storage is never
+copied into generic actions. The history endpoint is independent of queue
+ranking and actionability. Only V1 generic actions may be deleted here, through
+the existing scoped Action History delete contract; the page then reloads
+history without mutating queue state.
+
 ### Structured Promise recommendation inputs (Phase 7)
 
 One paginated, owner/tenant/provider-scoped Active operational Promise read supplies

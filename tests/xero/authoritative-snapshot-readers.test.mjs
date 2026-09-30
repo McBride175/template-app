@@ -660,7 +660,7 @@ test('overrides and collection actions continue joining by stable Xero source id
     'utf8'
   )
   assert.match(source, /customer_overrides/)
-  assert.match(source, /collection_actions/)
+  assert.match(source, /loadLatestQueueActions/)
   assert.match(source, /customer_source_id/)
   assert.doesNotMatch(source, /canonical_customer_id/)
 })

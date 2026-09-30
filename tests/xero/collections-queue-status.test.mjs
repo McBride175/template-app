@@ -167,13 +167,15 @@ function loadActionsRoute({
   reviewRequiredCustomers = [],
   currencyIssues = [],
   currencyContext = buildCurrencyContext(summaryRows),
+  organisationTimezone = null,
+  failActionRead = false,
   onCurrencyLog = () => {},
   onResultReadStart = () => {},
   resultReadDelayMs = 0,
 }) {
   const tables = {
     customer_overrides: [],
-    collection_actions: actionRows,
+    collection_actions: actionRows.map((row) => ({ source_system: 'xero', ...row })),
   }
 
   return loadTypeScriptModule(COLLECTION_ACTIONS_ROUTE_PATH, {
@@ -215,6 +217,7 @@ function loadActionsRoute({
             rows: summaryRows,
             sourceCounts,
             organisationBaseCurrency,
+            organisationTimezone,
             currencyHealth,
             currencyContext,
             reviewRequiredCustomers,
@@ -232,6 +235,25 @@ function loadActionsRoute({
       '@/lib/collections/currency-health': {
         logCollectionsCurrencyHealth(params) {
           onCurrencyLog(params)
+        },
+      },
+      '@/lib/collections/action-history-queue-server': {
+        async loadLatestQueueActions({ userId, tenantId, customerSourceIds }) {
+          if (failActionRead) throw new Error('Action History unavailable')
+          onResultReadStart()
+          if (resultReadDelayMs) await new Promise((resolve) => setTimeout(resolve, resultReadDelayMs))
+          const owned = tables.collection_actions.filter((row) => row.user_id === userId &&
+            row.tenant_id === tenantId && row.source_system === 'xero')
+          const rows = customerSourceIds.flatMap((customerSourceId) => {
+            const customerRows = owned.filter((row) => row.customer_source_id === customerSourceId)
+              .sort((a, b) => b.action_timestamp.localeCompare(a.action_timestamp) || b.id.localeCompare(a.id))
+            return ['outcome', 'legacy'].flatMap((format) => {
+              const action = customerRows.find((row) => format === 'outcome'
+                ? row.action_type === 'outcome' : ['called', 'emailed', 'postponed'].includes(row.action_type))
+              return action ? [{ ...action, action_format: format === 'outcome' ? 'v1' : 'legacy' }] : []
+            })
+          })
+          return { rows, hasPriorActionActivity: owned.length > 0 }
         },
       },
       '@/lib/collections/tenant-context': {
@@ -740,8 +762,8 @@ test('Actions card and table render the customer net amount without a competing 
   cursor = 0
   CollectionActionsClient({ tenantId: 'queue-tenant' })
   states[0] = payload.rows
-  states[16] = false // loading
-  states[24] = 'GBP' // organisation base currency
+  states[18] = false // loading
+  states[28] = 'GBP' // organisation base currency
   cursor = 0
   const tree = CollectionActionsClient({ tenantId: 'queue-tenant', showQueue: true })
   const nodes = (node, predicate) => !node || typeof node !== 'object' ? []
@@ -769,7 +791,7 @@ test('exact positive customer balance remains actionable when numeric scoring ro
     '0.000000000000000000000001')
 })
 
-test('relative lateness context excludes customers suppressed from the queue', async () => {
+test('legacy postponement excludes a customer after scores and benchmarks are calculated', async () => {
   const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const yesterdayTimestamp = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
   const relativeValues = [25, 30, 35, 40, 45]
@@ -783,9 +805,13 @@ test('relative lateness context excludes customers suppressed from the queue', a
     })
   )
 
-  const { payload } = await requestActions({
+  const base = {
     summaryRows,
     sourceCounts: { customers: 5, invoices: 20, payments: 15 },
+  }
+  const { payload: baseline } = await requestActions(base)
+  const { payload } = await requestActions({
+    ...base,
     actionRows: [
       {
         id: 'suppress-fifth-customer',
@@ -800,11 +826,104 @@ test('relative lateness context excludes customers suppressed from the queue', a
     ],
   })
 
-  assert.equal(payload.queue.relativeLateness.materialObservationCount, 4)
-  assert.equal(payload.queue.relativeLateness.mode, 'absolute-fallback')
+  assert.equal(payload.queue.relativeLateness.materialObservationCount, 5)
+  assert.deepEqual(payload.queue.relativeLateness, baseline.queue.relativeLateness)
+  assert.deepEqual(payload.portfolio, baseline.portfolio)
   assert.equal(payload.rows.some((row) => row.customer_source_id === 'customer-5'), false)
   const firstCustomer = payload.rows.find((row) => row.customer_source_id === 'customer-1')
-  assert.ok(Math.abs(firstCustomer.relative_lateness_score - 81.48148148148148) < 1e-9)
+  assert.equal(firstCustomer.priority_score,
+    baseline.rows.find((row) => row.customer_source_id === 'customer-1').priority_score)
+})
+
+test('latest V1 outcome controls deferral, expiry, deletion and limited queue slots without changing scores', async () => {
+  const today = new Date().toISOString().slice(0, 10)
+  const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
+  const later = new Date(Date.parse(`${today}T00:00:00Z`) + 5 * 86_400_000).toISOString().slice(0, 10)
+  const summaryRows = ['alpha', 'beta', 'gamma'].map((id, index) => buildSummaryRow({
+    customer_source_id: id, customer_name: id, customer_to_chase_overdue_base: 1000 - index * 100,
+    customer_to_chase_overdue_base_decimal: String(1000 - index * 100),
+  }))
+  const base = { summaryRows, sourceCounts: { customers: 3, invoices: 3, payments: 0 }, limit: 1 }
+  const action = (id, date, timestamp) => ({ id, user_id: 'queue-user', tenant_id: 'queue-tenant',
+    customer_source_id: 'alpha', action_type: 'outcome', outcome: 'no_response',
+    next_action_date: date, action_timestamp: timestamp })
+  const older = action('00000000-0000-4000-8000-000000000001', later, '2026-09-28T00:00:00Z')
+  const newer = action('00000000-0000-4000-8000-000000000002', today, '2026-09-29T00:00:00Z')
+  const baseline = (await requestActions(base)).payload
+  const deferred = (await requestActions({ ...base, actionRows: [older] })).payload
+  assert.equal(deferred.rows[0].customer_source_id, 'beta')
+  assert.equal(deferred.queue.suppressedCustomerCount, 1)
+  assert.equal(deferred.queue.remainingCustomerCount, baseline.queue.remainingCustomerCount - 1)
+  assert.deepEqual(deferred.portfolio, baseline.portfolio)
+  assert.deepEqual(deferred.queue.relativeLateness, baseline.queue.relativeLateness)
+  assert.equal(deferred.rows[0].priority_score,
+    (await requestActions({ ...base, limit: 3 })).payload.rows.find((row) => row.customer_source_id === 'beta').priority_score)
+
+  const superseded = (await requestActions({ ...base, actionRows: [older, newer] })).payload
+  assert.equal(superseded.rows[0].customer_source_id, 'alpha')
+  assert.equal(superseded.rows[0].priority_score, baseline.rows[0].priority_score)
+  assert.equal(superseded.queue.suppressedCustomerCount, 0)
+  const afterDeletingLatest = (await requestActions({ ...base, actionRows: [older] })).payload
+  assert.equal(afterDeletingLatest.rows[0].customer_source_id, 'beta')
+  const afterDeletingAll = (await requestActions(base)).payload
+  assert.equal(afterDeletingAll.rows[0].customer_source_id, 'alpha')
+
+  const custom = (await requestActions({ ...base, actionRows: [action('custom', tomorrow,
+    '2026-09-29T00:00:00Z')] })).payload
+  assert.equal(custom.queue.suppression.nextReturnDate, tomorrow)
+})
+
+test('unavailable required Action History data fails the active queue closed', async () => {
+  const { response, payload } = await requestActions({ summaryRows: [buildSummaryRow()],
+    sourceCounts: { customers: 1, invoices: 1, payments: 0 }, failActionRead: true })
+  assert.equal(response.status, 500)
+  assert.equal(payload.rows, undefined)
+})
+
+test('foreign owner, tenant and provider actions never defer this queue', async () => {
+  const later = new Date(Date.now() + 5 * 86_400_000).toISOString().slice(0, 10)
+  const action = { id: 'foreign', user_id: 'queue-user', tenant_id: 'queue-tenant',
+    source_system: 'xero', customer_source_id: 'contact-overdue', action_type: 'outcome',
+    outcome: 'no_response', next_action_date: later, action_timestamp: new Date().toISOString() }
+  const base = { summaryRows: [buildSummaryRow()], sourceCounts: { customers: 1, invoices: 1, payments: 0 } }
+  for (const foreign of [
+    { ...action, user_id: 'someone-else' },
+    { ...action, tenant_id: 'another-tenant' },
+    { ...action, source_system: 'another-provider' },
+    { ...action, customer_source_id: 'different-customer' },
+  ]) {
+    const { payload } = await requestActions({ ...base, actionRows: [foreign] })
+    assert.equal(payload.rows.length, 1)
+    assert.equal(payload.queue.suppressedCustomerCount, 0)
+  }
+})
+
+test('priority rows expose truthful compact V1 and legacy recent activity without changing scores', async () => {
+  const base = { summaryRows: [buildSummaryRow()],
+    sourceCounts: { customers: 1, invoices: 1, payments: 0 }, organisationTimezone: 'Europe/London' }
+  const v1 = { id: '00000000-0000-4000-8000-000000000001', user_id: 'queue-user',
+    tenant_id: 'queue-tenant', customer_source_id: 'contact-overdue', action_type: 'outcome',
+    outcome: 'no_response', note: 'Remember this call', next_action_date: '2026-01-01',
+    action_timestamp: '2026-09-28T10:00:00Z' }
+  const baseline = (await requestActions(base)).payload
+  const withV1 = (await requestActions({ ...base, actionRows: [v1] })).payload
+  assert.equal(withV1.rows[0].priority_score, baseline.rows[0].priority_score)
+  assert.deepEqual(withV1.portfolio, baseline.portfolio)
+  assert.deepEqual(withV1.rows[0].recent_activity, {
+    format: 'v1', outcome: 'no_response', note: 'Remember this call', actionType: null,
+    actionTimestamp: '2026-09-28T10:00:00Z', nextActionDate: '2026-01-01',
+  })
+  assert.ok(withV1.followUpSchedule.tomorrow > withV1.followUpSchedule.today)
+  assert.ok(withV1.followUpSchedule.nextWeek > withV1.followUpSchedule.inThreeDays)
+  const legacy = { ...v1, id: '00000000-0000-4000-8000-000000000002',
+    action_type: 'called', outcome: 'spoke_to_customer', note: null,
+    next_action_date: null, action_timestamp: '2026-09-29T10:00:00Z' }
+  const withLegacy = (await requestActions({ ...base, actionRows: [v1, legacy] })).payload
+  assert.deepEqual(withLegacy.rows[0].recent_activity, {
+    format: 'legacy', outcome: 'spoke_to_customer', note: null, actionType: 'called',
+    actionTimestamp: '2026-09-29T10:00:00Z', nextActionDate: null,
+  })
+  assert.equal(withLegacy.rows[0].priority_score, baseline.rows[0].priority_score)
 })
 
 test('raw-only failure mode is reported as no mapped data rather than queue complete', async () => {

@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import Card from '@/app/components/ui/Card'
 import Button from '@/app/components/ui/Button'
 import CustomerInvoiceDisputes from '@/app/collections/customers/CustomerInvoiceDisputes'
@@ -12,6 +13,7 @@ import {
   formatRelativeLateness,
 } from '@/lib/collections/payment-behavior-copy'
 import { buildLoginPath } from '@/lib/auth-flow'
+import { customerHistoryUrl } from '@/lib/collections/customer-history-url'
 import {
   FOUNDER_CONTEXT_OPTIONS,
   type FounderContextLevel,
@@ -363,7 +365,7 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
 
       if (overrideLevel === 'do_not_chase') {
         const confirmed = window.confirm(
-          `Do not chase removes ${row.customer_name} from the chase queue until you change the setting. Use Postpone or a payment promise for a temporary delay. Continue?`
+          `Never chase removes ${row.customer_name} from the chase queue until you change the setting. Do not follow up until is a temporary date on a recorded outcome. Continue?`
         )
         if (!confirmed) return
       }
@@ -515,11 +517,11 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
             <h2 className="text-lg font-semibold text-gray-900">Customer context</h2>
             <p className="mt-1 max-w-3xl text-sm leading-relaxed text-gray-600">
               Yuohme ranks customers from Xero first. If you know something the accounting data
-              cannot show, you can optionally set Priority, Safe, or Do not chase here. Normal is
+              cannot show, you can optionally set Priority, Safe, or Never chase here. Normal is
               the default and needs no action.
             </p>
             <p className="mt-2 text-xs leading-relaxed text-gray-500">
-              Customer context stays in place until you change it. Use Postpone, a payment promise,
+              Customer context stays in place until you change it. Use a dated outcome or invoice promise,
               or an action log for temporary collection workflow.
             </p>
           </div>
@@ -699,6 +701,10 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
                   </p>
                   {resolvedTenantId && (
                     <div className="mt-2">
+                      <Link href={customerHistoryUrl(customer.customer_source_id, resolvedTenantId)}
+                        className="mr-2 inline-flex min-h-11 items-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900">
+                        View history
+                      </Link>
                       <button type="button" className="min-h-11 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900"
                         aria-expanded={expandedCustomerSourceId === customer.customer_source_id}
                         onClick={() => setExpandedCustomerSourceId((current) => current === customer.customer_source_id ? null : customer.customer_source_id)}>
@@ -912,6 +918,10 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
                     </span>
                   </td>
                   <td className="px-4 py-3">
+                    {resolvedTenantId && <Link href={customerHistoryUrl(row.customer_source_id, resolvedTenantId)}
+                      className="mr-2 inline-flex min-h-11 items-center whitespace-nowrap rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50">
+                      View history
+                    </Link>}
                     <button type="button" className="min-h-11 whitespace-nowrap rounded-md border border-gray-300 px-3 py-2 text-sm font-medium hover:bg-gray-50"
                       aria-expanded={expandedCustomerSourceId === row.customer_source_id}
                       onClick={() => setExpandedCustomerSourceId((current) => current === row.customer_source_id ? null : row.customer_source_id)}>

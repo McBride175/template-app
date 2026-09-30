@@ -1,4 +1,5 @@
 import { PRIORITIZATION_CONFIG, type CustomerOverrideLevel } from '@/lib/collections/prioritization'
+import { isEligibleActiveQueueRow, type QueueEligibilityReason } from '@/lib/collections/queue-eligibility'
 
 export type FirstValueReasonKind =
   | 'exposure'
@@ -149,19 +150,14 @@ export function selectFirstValuePriorities<T extends {
   has_actionable_overdue_balance: boolean
   override_level: CustomerOverrideLevel
   recommended_action: FirstValuePriorityRow['recommended_action']
+  queue_eligibility_reason?: QueueEligibilityReason
 }>(
   rankedRows: readonly T[],
   actionsTakenByCustomerId: Readonly<Record<string, unknown>>,
   limit = 3
 ) {
   return rankedRows
-    .filter(
-      (row) =>
-        !actionsTakenByCustomerId[row.customer_source_id] &&
-        row.has_actionable_overdue_balance &&
-        row.override_level !== 'do_not_chase' &&
-        row.recommended_action !== 'No action'
-    )
+    .filter((row) => isEligibleActiveQueueRow(row, actionsTakenByCustomerId))
     .slice(0, Math.max(0, limit))
 }
 

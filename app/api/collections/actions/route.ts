@@ -8,6 +8,9 @@ import {
   prioritiseCustomer,
 } from '@/lib/collections/prioritization'
 import { buildFirstValueReasons } from '@/lib/collections/first-value'
+import { followUpPresets } from '@/lib/collections/action-history'
+import { loadLatestQueueActions } from '@/lib/collections/action-history-queue-server'
+import { resolveQueueEligibility } from '@/lib/collections/queue-eligibility'
 import {
   buildRelativeLatenessContext,
 } from '@/lib/collections/relative-lateness'
@@ -59,15 +62,6 @@ interface CustomerOverrideRow {
   override_level: CustomerOverrideLevel
 }
 
-interface CollectionActionRow {
-  id: string
-  customer_source_id: string
-  action_type: string
-  outcome: string | null
-  next_action_date: string | null
-  action_timestamp: string
-}
-
 interface LoggedCollectionAction {
   type: CollectionActionType
   takenAtIso: string
@@ -80,20 +74,6 @@ function toUtcDateIso(value: string) {
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return null
   return parsed.toISOString().slice(0, 10)
-}
-
-function shouldSuppressCustomerFromQueue(
-  latestAction: LoggedCollectionAction | undefined,
-  todayDateIso: string
-) {
-  if (!latestAction?.nextActionDate) return false
-
-  const suppressesQueue =
-    latestAction.type === 'postponed'
-
-  if (!suppressesQueue) return false
-
-  return latestAction.nextActionDate > todayDateIso
 }
 
 function parseLimit(value: string | null) {
@@ -202,6 +182,7 @@ export async function GET(request: NextRequest) {
       rows: summaryRows,
       sourceCounts,
       organisationBaseCurrency,
+      organisationTimezone,
       currencyHealth,
       currencyEvaluation,
       currencyContext,
@@ -239,14 +220,12 @@ export async function GET(request: NextRequest) {
       .eq('tenant_id', tenantId)
       .then((value) => ({ value, durationMs: elapsedMilliseconds(overridesStartedAt) }))
     const actionsStartedAt = monotonicNow()
-    const actionsPromise = supabaseAdmin
-      .from('collection_actions')
-      .select(
-        'id, customer_source_id, action_type, outcome, next_action_date, action_timestamp'
-      )
-      .eq('user_id', user.id)
-      .eq('tenant_id', tenantId)
-      .order('action_timestamp', { ascending: false })
+    const actionsPromise = loadLatestQueueActions({
+      admin: supabaseAdmin,
+      userId: user.id,
+      tenantId,
+      customerSourceIds: summaryRows.map((row) => row.customer_source_id),
+    })
       .then((value) => ({ value, durationMs: elapsedMilliseconds(actionsStartedAt) }))
     const [overridesResult, actionsResult] = await Promise.all([
       overridesPromise,
@@ -254,9 +233,12 @@ export async function GET(request: NextRequest) {
     ])
 
     const overrideLevelByCustomerSourceId = new Map<string, CustomerOverrideLevel>()
-    const latestActionByCustomerSourceId = new Map<string, LoggedCollectionAction>()
+    const latestLegacyActionByCustomerSourceId = new Map<string, LoggedCollectionAction>()
+    const latestV1ByCustomerSourceId = new Map<string, (typeof actionRows)[number]>()
     const actionsTakenByCustomerId: Record<string, LoggedCollectionAction> = {}
-    const todayDateIso = entitlement.usageDate
+    const legacyTodayDateIso = entitlement.usageDate
+    const followUpSchedule = followUpPresets(organisationTimezone ?? null)
+    const organisationTodayDateIso = followUpSchedule.today
 
     const { data: overrideRows, error: overrideError } = overridesResult.value
     const hasPriorOverrideActivity = (overrideRows?.length ?? 0) > 0
@@ -274,35 +256,29 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const { data: actionRows, error: actionError } = actionsResult.value
-    const hasPriorActionActivity = (actionRows?.length ?? 0) > 0
+    const { rows: actionRows, hasPriorActionActivity } = actionsResult.value
     const hasPriorCollectionActivity = hasPriorOverrideActivity || hasPriorActionActivity
 
-    if (actionError) {
-      if (!isMissingRelationError(actionError, 'collection_actions')) {
-        throw new Error(`Failed to load collection actions: ${actionError.message}`)
+    for (const row of actionRows) {
+      if (row.action_format === 'v1') {
+        latestV1ByCustomerSourceId.set(row.customer_source_id, row)
+        continue
       }
-    } else {
-      for (const row of (actionRows ?? []) as CollectionActionRow[]) {
-        if (latestActionByCustomerSourceId.has(row.customer_source_id)) continue
-
-        const actionType = parseCollectionActionType(row.action_type)
-        if (!actionType) continue
-
-        latestActionByCustomerSourceId.set(row.customer_source_id, {
+      const actionType = parseCollectionActionType(row.action_type)
+      if (!actionType) throw new Error('Latest legacy action had an invalid type')
+      latestLegacyActionByCustomerSourceId.set(row.customer_source_id, {
           type: actionType,
           takenAtIso: row.action_timestamp,
           outcome: parseCollectionActionOutcome(row.outcome),
           nextActionDate: row.next_action_date,
           actionId: row.id,
-        })
-      }
+      })
+    }
 
-      for (const [customerSourceId, latestAction] of latestActionByCustomerSourceId.entries()) {
-        const actionDateIso = toUtcDateIso(latestAction.takenAtIso)
-        if (actionDateIso === todayDateIso) {
-          actionsTakenByCustomerId[customerSourceId] = latestAction
-        }
+    for (const [customerSourceId, latestAction] of latestLegacyActionByCustomerSourceId.entries()) {
+      const actionDateIso = toUtcDateIso(latestAction.takenAtIso)
+      if (actionDateIso === legacyTodayDateIso) {
+        actionsTakenByCustomerId[customerSourceId] = latestAction
       }
     }
 
@@ -372,52 +348,13 @@ export async function GET(request: NextRequest) {
       ? monetaryQueueRows.filter(hasMonetaryOverdue)
       : monetaryQueueRows
 
-    const isNotPostponed = (row: (typeof summaryRows)[number]) => {
-      const latestAction = latestActionByCustomerSourceId.get(row.customer_source_id)
-      return !shouldSuppressCustomerFromQueue(latestAction, todayDateIso)
-    }
-    const ageingRows = invoiceScopeRows.filter(isNotPostponed)
-      .filter(hasInvoiceOverdue)
-    const queueEligibleRows = monetaryQueueRows.filter(isNotPostponed)
-
-    const filteredRows = overdueOnly
-      ? queueEligibleRows.filter(hasMonetaryOverdue)
-      : queueEligibleRows
-    const suppressedCustomerCount = scopeRows.length - filteredRows.length
-    let postponedCustomerCount = 0
+    // These benchmark populations depend only on accounting and authoritative
+    // Promise/Dispute/credit state. Neither V1 nor legacy contact history enters.
+    const ageingRows = invoiceScopeRows.filter(hasInvoiceOverdue)
+    const filteredRows = scopeRows
     const promisedToPayCustomerCount = 0 // Retained response compatibility; contact outcomes no longer suppress.
-    let nextReturnDate: string | null = null
-    for (const row of scopeRows) {
-      const latestAction = latestActionByCustomerSourceId.get(row.customer_source_id)
-      if (!shouldSuppressCustomerFromQueue(latestAction, todayDateIso)) continue
-
-      postponedCustomerCount += 1
-      if (
-        latestAction?.nextActionDate &&
-        (nextReturnDate === null || latestAction.nextActionDate < nextReturnDate)
-      ) {
-        nextReturnDate = latestAction.nextActionDate
-      }
-    }
-    const actionedTodayCount = filteredRows.filter(
-      (row) => actionsTakenByCustomerId[row.customer_source_id]
-    ).length
-    const remainingCustomerCount = filteredRows.length - actionedTodayCount
     const mappedRecordCount =
       sourceCounts.customers + sourceCounts.invoices + sourceCounts.payments
-    let queueStatus: CollectionQueueStatus = 'ready'
-
-    if (mappedRecordCount === 0) {
-      queueStatus = 'no_mapped_data'
-    } else if (scopeRows.length === 0) {
-      queueStatus = overdueOnly && invoiceScopeRows.length === 0
-        ? 'no_overdue_customers' : 'no_eligible_customers'
-    } else if (remainingCustomerCount === 0) {
-      queueStatus = 'complete_today'
-    }
-    if (currencyHealth.status === 'degraded') {
-      queueStatus = 'currency_data_degraded'
-    }
 
     const analysedOverdueRows = scopeRows.filter(hasMonetaryOverdue)
     const relativeLatenessContext = buildRelativeLatenessContext(
@@ -471,7 +408,7 @@ export async function GET(request: NextRequest) {
       0
     )
 
-    const prioritizedRows = filteredRows
+    const scoredRows = filteredRows
       .map((row) => ({
         ...prioritiseCustomer(
           {
@@ -548,9 +485,76 @@ export async function GET(request: NextRequest) {
           sensitivity: 'base',
         })
       })
+    const decisionByCustomerSourceId = new Map(
+      scoredRows.map((row) => {
+        const legacy = latestLegacyActionByCustomerSourceId.get(row.customer_source_id)
+        return [row.customer_source_id, resolveQueueEligibility({
+          v1NextActionDate: latestV1ByCustomerSourceId.get(row.customer_source_id)?.next_action_date,
+          legacyActionType: legacy?.type,
+          legacyNextActionDate: legacy?.nextActionDate,
+          legacyActionedToday: Boolean(actionsTakenByCustomerId[row.customer_source_id]),
+          organisationToday: organisationTodayDateIso,
+          legacyToday: legacyTodayDateIso,
+          overrideLevel: row.override_level,
+          hasActionableOverdueBalance: row.has_actionable_overdue_balance,
+          recommendedAction: row.recommended_action,
+        })] as const
+      })
+    )
+    const decisions = [...decisionByCustomerSourceId.values()]
+    const suppressedCustomerCount = decisions.filter((decision) =>
+      decision.reason === 'v1_deferred' || decision.reason === 'legacy_postponed'
+    ).length
+    const postponedCustomerCount = decisions.filter((decision) =>
+      decision.reason === 'legacy_postponed'
+    ).length
+    const actionedTodayCount = decisions.filter((decision) =>
+      decision.reason === 'legacy_actioned_today'
+    ).length
+    const remainingCustomerCount = decisions.filter((decision) => decision.eligible).length
+    const nextReturnDate = decisions.reduce<string | null>((earliest, decision) =>
+      decision.nextReturnDate && (!earliest || decision.nextReturnDate < earliest)
+        ? decision.nextReturnDate : earliest, null)
+    let queueStatus: CollectionQueueStatus = 'ready'
+    if (mappedRecordCount === 0) {
+      queueStatus = 'no_mapped_data'
+    } else if (scopeRows.length === 0) {
+      queueStatus = overdueOnly && invoiceScopeRows.length === 0
+        ? 'no_overdue_customers' : 'no_eligible_customers'
+    } else if (remainingCustomerCount === 0) {
+      queueStatus = actionedTodayCount + suppressedCustomerCount > 0
+        ? 'complete_today' : 'no_eligible_customers'
+    }
+    if (currencyHealth.status === 'degraded') queueStatus = 'currency_data_degraded'
+
+    const prioritizedRows = scoredRows
+      .filter((row) => {
+        const reason = decisionByCustomerSourceId.get(row.customer_source_id)?.reason
+        return reason !== 'v1_deferred' && reason !== 'legacy_postponed'
+      })
       .slice(0, limit)
       .map((row) => {
-        const latestAction = latestActionByCustomerSourceId.get(row.customer_source_id)
+        const latestAction = latestLegacyActionByCustomerSourceId.get(row.customer_source_id)
+        const latestV1 = latestV1ByCustomerSourceId.get(row.customer_source_id)
+        const recentActivity = latestV1 && (!latestAction ||
+          latestV1.action_timestamp > latestAction.takenAtIso ||
+          (latestV1.action_timestamp === latestAction.takenAtIso && latestV1.id > latestAction.actionId))
+          ? {
+              format: 'v1' as const,
+              outcome: latestV1.outcome,
+              note: latestV1.note,
+              actionType: null,
+              actionTimestamp: latestV1.action_timestamp,
+              nextActionDate: latestV1.next_action_date,
+            }
+          : latestAction ? {
+              format: 'legacy' as const,
+              outcome: latestAction.outcome,
+              note: null,
+              actionType: latestAction.type,
+              actionTimestamp: latestAction.takenAtIso,
+              nextActionDate: latestAction.nextActionDate,
+            } : null
 
         return {
           customer_source_id: row.customer_source_id,
@@ -609,10 +613,12 @@ export async function GET(request: NextRequest) {
           final_score: row.final_score,
           priority_score: row.priority_score,
           recommended_action: row.recommended_action,
+          recent_activity: recentActivity,
+          queue_eligibility_reason: decisionByCustomerSourceId.get(row.customer_source_id)!.reason,
           reason: row.reason,
           score_breakdown_lines: row.score_breakdown_lines,
           first_value_reasons: buildFirstValueReasons(row, {
-            eligibleCustomerCount: filteredRows.length,
+            eligibleCustomerCount: remainingCustomerCount,
           }),
           organisation_base_currency_code: organisationBaseCurrency,
           currency_code: organisationBaseCurrency,
@@ -653,6 +659,7 @@ export async function GET(request: NextRequest) {
       currencyHealth,
       reviewRequiredCustomers,
       snapshot,
+      followUpSchedule,
       experience: { hasPriorCollectionActivity },
       rows: prioritizedRows,
       actionsTakenByCustomerId,

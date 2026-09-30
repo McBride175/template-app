@@ -334,7 +334,7 @@
         "final_score": 0,
         "priority_score": 0,
         "recommended_action": "No action",
-        "reason": "No chase is suggested because you set this customer to Do not chase. The accounting signals remain visible in the score breakdown, but the adjustment sets the final score to 0.",
+        "reason": "No chase is suggested because you set this customer to Never chase. The accounting signals remain visible in the score breakdown, but the adjustment sets the final score to 0.",
         "score_breakdown_lines": [
           "Exposure inputs: customer overdue AR = 5000.00; total overdue AR = 24000.00; share of total = 20.8%; largest customer overdue AR = 12000.00",
           "Exposure: (5000.00 / 12000.00 = 41.7%) -> 41.7/100 × 0.50 = 20.8",
@@ -345,7 +345,7 @@
           "Payment recency input: last payment = no payment history",
           "Payment recency: 100/100 × 0.10 = 10.0",
           "Total: 20.8 + 25.0 + 0.0 + 10.0 = 55.8 (rounded to 1 dp: 55.8)",
-          "Override: Do not chase",
+          "Override: Never chase",
           "Multiplier: x0.00",
           "Base score: 55.8",
           "Final score: 0.0"

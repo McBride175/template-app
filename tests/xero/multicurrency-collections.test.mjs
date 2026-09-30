@@ -269,6 +269,9 @@ async function requestActionsApi(summary, overrides = []) {
         async loadCustomerCollectionsSummaryWithMetadata() { return summary },
       },
       '@/lib/collections/currency-health': { logCollectionsCurrencyHealth() {} },
+      '@/lib/collections/action-history-queue-server': {
+        async loadLatestQueueActions() { return { rows: [], hasPriorActionActivity: false } },
+      },
     },
   })
   const response = await GET({ nextUrl: new URL(`http://localhost/api/collections/actions?tenantId=${TENANT_ID}&limit=200`) })

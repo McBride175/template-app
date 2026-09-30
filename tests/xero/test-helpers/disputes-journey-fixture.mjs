@@ -88,7 +88,21 @@ export function createDisputesJourney({ invoices = [
       then(resolve, reject) { return Promise.resolve(run()).then(resolve, reject) },
     }
     return query
-  }, async rpc(name, { p_user_id, p_tenant_id, p_source_system, p_rows }) {
+  }, async rpc(name, { p_user_id, p_tenant_id, p_source_system, p_rows, p_customer_source_ids }) {
+    if (name === 'latest_collection_queue_actions') {
+      const owned = tables.collection_actions.filter((row) => row.user_id === p_user_id &&
+        row.tenant_id === p_tenant_id && row.source_system === p_source_system)
+      const rows = p_customer_source_ids.flatMap((customerId) => {
+        const history = owned.filter((row) => row.customer_source_id === customerId)
+          .sort((a, b) => b.action_timestamp.localeCompare(a.action_timestamp) || b.id.localeCompare(a.id))
+        return ['outcome', 'legacy'].flatMap((format) => {
+          const action = history.find((row) => format === 'outcome' ? row.action_type === 'outcome'
+            : ['called', 'emailed', 'postponed'].includes(row.action_type))
+          return action ? [{ ...action, action_format: format === 'outcome' ? 'v1' : 'legacy' }] : []
+        })
+      })
+      return { data: rows, error: null }
+    }
     if (name !== 'apply_invoice_disputes_bulk_full') throw new Error(`Unexpected RPC: ${name}`)
     const find = (entry) => tables.invoice_disputes.find((row) => row.user_id === p_user_id &&
       row.tenant_id === p_tenant_id && row.source_system === p_source_system && row.invoice_source_id === entry.invoice_source_id)

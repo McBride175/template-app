@@ -260,7 +260,7 @@ test('primary reasons distinguish score denominators and user adjustments', () =
   assert.match(normal.reason, /33\.3% of total overdue AR/i)
   assert.match(safe.reason, /Safe adjustment.*reduces the accounting score/i)
   assert.match(priority.reason, /Priority adjustment.*increases the accounting score/i)
-  assert.match(doNotChase.reason, /^No chase is suggested because you set this customer to Do not chase\./)
+  assert.match(doNotChase.reason, /^No chase is suggested because you set this customer to Never chase\./)
   assert.doesNotMatch(doNotChase.reason, /Prioritised because/i)
 })
 

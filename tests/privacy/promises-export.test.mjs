@@ -16,6 +16,11 @@ function exporter({ failTable } = {}) {
       before_terms: { version: 1, promised_amount_native: '4000', promised_date: '2026-09-30', note: 'Before', status: 'active' },
       after_terms: { version: 1, promised_amount_native: '3000', promised_date: '2026-10-02', note: 'After', status: 'active' },
       command_fingerprint: 'private-fingerprint', command_id: 'private-command', evidence: { secret: 'resolver-private' } })),
+    collection_actions: Array.from({ length: 1001 }, (_, index) => ({ id: String(index).padStart(4, '0'), user_id: 'owner',
+      tenant_id: 'tenant-a', source_system: 'xero', customer_source_id: 'customer-a',
+      action_type: index === 0 ? 'postponed' : 'outcome', outcome: index === 0 ? 'promised_to_pay' : 'message_sent',
+      action_timestamp: '2026-09-30T12:00:00Z', created_at: '2026-09-30T12:00:00Z',
+      note: `Action note ${index}`, next_action_date: '2026-10-01' })),
   }
   for (const rows of Object.values(records)) rows.push({ id: 'other-owner', user_id: 'other', note: 'Other user private note' })
   const calls = []
@@ -47,21 +52,25 @@ test('privacy export includes all owned commitments, notes, terminal states and 
   const app = exporter(), bundle = await app.buildUserExportBundle('owner')
   assert.equal(bundle.data.invoice_promises.length, 1001)
   assert.equal(bundle.data.invoice_promise_events.length, 1002)
+  assert.equal(bundle.data.collection_actions.length, 1001)
+  assert.equal(bundle.data.collection_actions[0].outcome, 'promised_to_pay')
+  assert.equal(bundle.data.collection_actions[1].note, 'Action note 1')
   assert.equal(bundle.data.invoice_promises[0].promised_amount_native, '4000.00000001')
   assert.equal(bundle.data.invoice_promises[0].note, 'User note 0')
   assert.equal(bundle.data.invoice_promises[0].status, 'missed')
   assert.equal(bundle.data.invoice_promise_events[0].before_terms.note, 'Before')
   assert.equal(bundle.data.invoice_promise_events[0].after_terms.note, 'After')
   assert.deepEqual(app.calls.map(call => [call.table, call.owner, call.from]), [
-    ['invoice_promises', 'owner', 0], ['invoice_promise_events', 'owner', 0],
-    ['invoice_promises', 'owner', 1000], ['invoice_promise_events', 'owner', 1000],
+    ['invoice_promises', 'owner', 0], ['invoice_promise_events', 'owner', 0], ['collection_actions', 'owner', 0],
+    ['invoice_promises', 'owner', 1000], ['invoice_promise_events', 'owner', 1000], ['collection_actions', 'owner', 1000],
   ])
   const text = JSON.stringify(bundle)
   for (const internal of ['private-payment-id', 'private-fingerprint', 'private-command', 'resolver-private', 'internal-reason', 'Other user private note']) assert.equal(text.includes(internal), false)
   assert.ok(bundle.metadata.includes.includes('invoice_promises'))
   assert.ok(bundle.metadata.includes.includes('invoice_promise_events'))
+  assert.ok(bundle.metadata.includes.includes('collection_actions'))
 })
 
-for (const failTable of ['invoice_promises', 'invoice_promise_events']) test(`${failTable} failure is not silently exported as absence`, async () => {
+for (const failTable of ['invoice_promises', 'invoice_promise_events', 'collection_actions']) test(`${failTable} failure is not silently exported as absence`, async () => {
   await assert.rejects(exporter({ failTable }).buildUserExportBundle('owner'), /Resource unavailable/)
 })

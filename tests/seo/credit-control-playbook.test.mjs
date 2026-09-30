@@ -446,7 +446,7 @@ test('page copy accurately distinguishes pre-set profiles from computed baseline
   assert.match(source, /actual recent settled-invoice history/i)
 
   // Must mention do_not_chase once
-  assert.match(source, /Do not chase/i)
+  assert.match(source, /Never chase/i)
   assert.match(source, /removes a customer from active\s+chasing/i)
 
   // Must NOT expose internal scoring machinery

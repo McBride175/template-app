@@ -301,6 +301,7 @@ test('customer parent keeps save outcome visible while stale balances and action
     has_active_dispute: false, collectible_overdue_base: 10000, override_level: 'normal' }]
   h.states[6] = false // initial summary load completed
   const current = h.render(Parent, { tenantId: 'tenant-a', initialCustomerSourceId: 'customer-a' })
+  assert.ok(nodes(current, (node) => node.props?.href === '/customers/customer-a/history?tenantId=tenant-a').length)
   const control = nodes(current, (node) => node.type === InvoiceControl)[0]
   assert.ok(control)
   control.props.onMutationPending('Dispute saved. Refreshing current balances…')

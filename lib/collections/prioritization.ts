@@ -115,7 +115,7 @@ function normalizeOverrideLevel(overrideLevel: string | null | undefined): Custo
 function getOverrideLabel(overrideLevel: CustomerOverrideLevel) {
   if (overrideLevel === 'safe') return 'Safe'
   if (overrideLevel === 'priority') return 'Priority'
-  if (overrideLevel === 'do_not_chase') return 'Do not chase'
+  if (overrideLevel === 'do_not_chase') return 'Never chase'
   return 'Normal'
 }
 
@@ -439,7 +439,7 @@ export function buildReason(
   const action = recommendAction(row, finalScore)
 
   if (overrideLevel === 'do_not_chase') {
-    return 'No chase is suggested because you set this customer to Do not chase. The accounting signals remain visible in the score breakdown, but the adjustment sets the final score to 0.'
+    return 'No chase is suggested because you set this customer to Never chase. The accounting signals remain visible in the score breakdown, but the adjustment sets the final score to 0.'
   }
 
   const rankedDrivers: Array<{ contribution: number; text: string }> = []

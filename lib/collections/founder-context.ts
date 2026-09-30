@@ -1,4 +1,5 @@
 import type { CustomerOverrideLevel } from '@/lib/collections/prioritization'
+import { isEligibleActiveQueueRow, type QueueEligibilityReason } from '@/lib/collections/queue-eligibility'
 
 export type FounderContextLevel = CustomerOverrideLevel
 
@@ -26,8 +27,8 @@ export const FOUNDER_CONTEXT_OPTIONS: ReadonlyArray<{
   },
   {
     value: 'do_not_chase',
-    label: 'Do not chase',
-    description: 'Keep this customer out of the chase queue until you change this setting.',
+    label: 'Never chase',
+    description: 'Keep this customer out of the chase queue until you change this persistent setting.',
   },
 ] as const
 
@@ -36,18 +37,14 @@ export interface FounderContextQueueRow {
   customer_name: string
   override_level: FounderContextLevel
   recommended_action: 'Review now' | 'Follow up' | 'Monitor' | 'No action'
+  queue_eligibility_reason?: QueueEligibilityReason
 }
 
 export function selectActionableFounderContextRows<T extends FounderContextQueueRow>(
   rows: T[],
   actionsTakenByCustomerId: Record<string, unknown>
 ) {
-  return rows.filter(
-    (row) =>
-      !actionsTakenByCustomerId[row.customer_source_id] &&
-      row.override_level !== 'do_not_chase' &&
-      row.recommended_action !== 'No action'
-  )
+  return rows.filter((row) => isEligibleActiveQueueRow(row, actionsTakenByCustomerId))
 }
 
 export function resolveFounderContextQueueIndex({
@@ -86,7 +83,7 @@ export function buildFounderContextConsequence({
   nextPosition: number | null
 }) {
   if (level === 'do_not_chase') {
-    return `Marked Do not chase — ${customerName} has been removed from the chase queue until you change this setting.`
+    return `Marked Never chase — ${customerName} has been removed from the chase queue until you change this setting.`
   }
 
   if (level === 'normal') {

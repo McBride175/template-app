@@ -220,7 +220,7 @@ export default function CreditControlPrioritisationPlaybookPage() {
               meaningful deterioration. For the fictional customers here, their normal payment patterns
               are pre-set as part of the example; the connected product calculates those baselines
               automatically from each customer&apos;s actual recent settled-invoice history. The connected
-              product also supports a fourth adjustment — Do not chase — that removes a customer from active
+              product also supports a fourth adjustment — Never chase — that removes a customer from active
               chasing entirely. This is an educational comparison, not a default prediction; it
               deliberately shows reasons instead of numerical scores.
             </p>

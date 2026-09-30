@@ -77,7 +77,7 @@ test('operational UI stays contextual and avoids a dedicated onboarding checklis
   const nav = fs.readFileSync(path.join(repoRoot, 'app/components/Nav.tsx'), 'utf8')
 
   assert.match(client, /Work the priority, then record what happened/)
-  assert.match(client, /Postponed customers and\s+payment promises return on the date you choose/)
+  assert.match(client, /Recording an outcome sets the next follow-up date/)
   assert.match(client, /You&apos;re done for today/)
   assert.match(client, /Browse customers/)
   assert.match(client, /setExperience\(\{ hasPriorCollectionActivity: true \}\)/)

@@ -88,15 +88,15 @@ export default function FounderContextControl({
       <p className="mt-2 min-h-5 text-xs leading-relaxed text-gray-600">
         {selectedOption?.description}
         {value === 'do_not_chase'
-          ? ' Use Postpone or a payment promise when the timing is only temporary.'
+          ? ' Use Do not follow up until for a temporary follow-up date; invoice promises remain separate.'
           : ''}
       </p>
 
       {confirmingDoNotChase && (
         <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
           <p>
-            Do not chase removes {customerName} from the chase queue until you change this setting.
-            For a temporary delay, use Postpone or record a payment promise instead.
+            Never chase removes {customerName} from the chase queue until you change this setting.
+            For a temporary delay, choose a date under Do not follow up until when recording an outcome.
           </p>
           <div className="mt-3 flex flex-wrap justify-end gap-2">
             <button
@@ -116,7 +116,7 @@ export default function FounderContextControl({
               disabled={saving}
               className="inline-flex min-h-11 items-center justify-center rounded-md bg-amber-900 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-800 disabled:opacity-60"
             >
-              Confirm Do not chase
+              Confirm Never chase
             </button>
           </div>
         </div>

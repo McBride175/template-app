@@ -155,7 +155,8 @@ test('equal scores use To-chase overdue money, then the existing customer-name t
 
 test('legacy promise contact history never suppresses; explicit postponement still does', async () => {
   const app = createDisputesJourney()
-  const base = { user_id: USER_ID, tenant_id: TENANT_ID, taken_at: daysAgo(2) + 'T10:00:00Z', next_action_date: daysAgo(-7) }
+  const base = { user_id: USER_ID, tenant_id: TENANT_ID, source_system: 'xero',
+    action_timestamp: daysAgo(2) + 'T10:00:00Z', next_action_date: daysAgo(-7) }
   app.tables.collection_actions.push({ ...base, id: 'legacy', customer_source_id: 'acme', action_type: 'called', outcome: 'promised_to_pay' },
     { ...base, id: 'snooze', customer_source_id: 'baker', action_type: 'postponed', outcome: 'promised_to_pay' })
   let queue = (await app.actions()).body

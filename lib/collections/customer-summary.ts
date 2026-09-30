@@ -32,6 +32,7 @@ import {
 } from '@/lib/collections/customer-credit-actionability'
 import { loadActiveInvoicePromises, assertInvoicePromiseSnapshotCurrent } from '@/lib/collections/invoice-promises-loading'
 import { loadInvoiceDisputesForSnapshot } from '@/lib/collections/invoice-disputes-server'
+import { normalizeXeroOrganisationTimezone } from '@/lib/xero/organisation-timezone'
 import {
   compareDecimalValues,
   decimalValueToFiniteNumber,
@@ -160,6 +161,7 @@ export interface CustomerCollectionsSummaryResult {
   rows: CustomerCollectionsSummaryRow[]
   reviewRequiredCustomers: CurrencyReviewRequiredCustomer[]
   organisationBaseCurrency: string | null
+  organisationTimezone: string | null
   currencyHealth: CollectionsCurrencyHealth
   currencyEvaluation: CollectionsCurrencyEvaluation
   currencyContext: CollectionsCurrencyContext
@@ -173,6 +175,8 @@ export interface CustomerCollectionsSummaryResult {
 
 interface CanonicalOrganisationRow {
   base_currency_code: string | null
+  source_timezone: string | null
+  country_code: string | null
 }
 
 interface CanonicalCustomerRow {
@@ -593,10 +597,11 @@ async function fetchCanonicalOrganisations(
 ) {
   const query = supabase
     .from('canonical_organisations')
-    .select('base_currency_code')
+    .select('base_currency_code, source_timezone, country_code')
     .eq('user_id', snapshot.userId)
     .eq('tenant_id', snapshot.tenantId)
   const { data, error } = await applyXeroAuthoritativeSnapshot(query, snapshot)
+    .order('source_retrieved_at', { ascending: false })
 
   if (error) {
     throw new Error(`Failed to load canonical organisation currency: ${error.message}`)
@@ -830,6 +835,10 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
     affectedCustomerSourceIds,
     currencyIssues,
   } = currencyEvaluation
+  const organisationTimezone = normalizeXeroOrganisationTimezone(
+    organisations[0]?.source_timezone ?? null,
+    organisations[0]?.country_code ?? null
+  )
   const sourceCounts = {
     customers: customers.length,
     invoices: invoices.length,
@@ -867,6 +876,7 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
       rows: [],
       reviewRequiredCustomers: [],
       organisationBaseCurrency,
+      organisationTimezone,
       currencyHealth,
       currencyEvaluation,
       currencyContext,
@@ -1306,6 +1316,7 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
     rows,
     reviewRequiredCustomers,
     organisationBaseCurrency,
+    organisationTimezone,
     currencyHealth,
     currencyEvaluation,
     currencyContext,

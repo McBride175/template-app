@@ -19,6 +19,10 @@ import MultiCurrencyPlanGate from '@/app/collections/MultiCurrencyPlanGate'
 import DashboardXeroConnectionCard from '@/app/dashboard/DashboardXeroConnectionCard'
 import FounderContextControl from '@/app/collections/FounderContextControl'
 import { buildLoginPath } from '@/lib/auth-flow'
+import { createActionBody, deleteActionBody, recordingAttempt, restoredCustomerIndex,
+  type RecordingAttempt } from '@/lib/collections/action-recording'
+import type { ActionHistoryOutcome } from '@/lib/collections/action-history'
+import { customerHistoryUrl } from '@/lib/collections/customer-history-url'
 import {
   FOUNDER_CONTEXT_OPTIONS,
   buildFounderContextConsequence,
@@ -80,6 +84,14 @@ interface CollectionActionRow {
   last_action_type: 'called' | 'emailed' | 'postponed' | null
   last_action_outcome: 'no_response' | 'spoke_to_customer' | 'promised_to_pay' | 'disputed' | null
   last_action_timestamp: string | null
+  recent_activity?: {
+    format: 'v1' | 'legacy'
+    outcome: string | null
+    note: string | null
+    actionType: 'called' | 'emailed' | 'postponed' | null
+    actionTimestamp: string
+    nextActionDate: string | null
+  } | null
 }
 
 interface CollectionActionsApiResponse {
@@ -95,6 +107,8 @@ interface CollectionActionsApiResponse {
   currencyHealth?: CollectionsCurrencyHealth
   reviewRequiredCustomers?: CurrencyReviewRequiredCustomer[]
   experience?: CollectionExperienceState
+  tenantId?: string
+  followUpSchedule?: FollowUpSchedule
   error?: string
 }
 
@@ -190,14 +204,25 @@ interface CollectionOverrideApiResponse {
   error?: string
 }
 
-interface CollectionActionMutationApiResponse {
+interface ActionHistoryMutationApiResponse {
   ok?: boolean
-  action_id?: string
+  action?: {
+    id: string
+    outcome: ActionHistoryOutcome
+    nextActionDate: string
+    actionTimestamp: string
+  }
   code?: string
-  entitlement?: ActionsEntitlement
-  currencyContext?: CollectionsCurrencyContext
-  currencyAccess?: CollectionsCurrencyAccess
   error?: string
+}
+
+interface FollowUpSchedule {
+  today: string
+  tomorrow: string
+  inTwoDays: string
+  inThreeDays: string
+  nextWeek: string
+  timezone: string
 }
 
 interface CollectionActionsClientProps {
@@ -210,15 +235,15 @@ interface CollectionActionsClientProps {
   tenantId?: string | null
 }
 
-type ActionType = 'called' | 'emailed' | 'postponed'
-type ActionOutcome = 'no_response' | 'spoke_to_customer' | 'promised_to_pay' | 'disputed'
-type DetailPanel = 'none' | 'call_outcome' | 'detail_postpone'
+type LegacyActionType = 'called' | 'emailed' | 'postponed'
+type LegacyActionOutcome = 'no_response' | 'spoke_to_customer' | 'promised_to_pay' | 'disputed'
+type FollowUpChoice = 'tomorrow' | 'two_days' | 'three_days' | 'next_week' | 'custom'
 type OverrideLevel = FounderContextLevel
 
 interface ActionTakenLog {
-  type: ActionType
+  type: LegacyActionType
   takenAtIso: string
-  outcome: ActionOutcome | null
+  outcome: LegacyActionOutcome | null
   nextActionDate: string | null
   actionId: string
 }
@@ -226,15 +251,9 @@ interface ActionTakenLog {
 interface LastActionState {
   actionId: string
   customerSourceId: string
-}
-
-interface QuickDatePickerProps {
-  selectedDate: string | null
-  customDateValue: string
-  onCustomDateChange: (value: string) => void
-  onSelectDate: (dateIso: string) => void
-  disabled?: boolean
-  customButtonLabel?: string
+  customerName: string
+  tenantId: string
+  outcome: ActionHistoryOutcome
 }
 
 function formatCurrencyFailureReason(reason: string) {
@@ -363,13 +382,13 @@ function ReviewRequiredCustomers({
 }
 
 const OUTCOME_OPTIONS: Array<{
-  value: ActionOutcome
+  value: ActionHistoryOutcome
   label: string
 }> = [
   { value: 'no_response', label: 'No response' },
-  { value: 'spoke_to_customer', label: 'Spoke to customer' },
-  { value: 'promised_to_pay', label: 'Promised to pay' },
-  { value: 'disputed', label: 'Disputed' },
+  { value: 'message_sent', label: 'Message sent' },
+  { value: 'responded_no_commitment', label: 'Responded — no commitment' },
+  { value: 'reviewed_no_chase', label: 'Reviewed — no chase needed' },
 ]
 
 function formatMoney(amount: number, currencyCode: string | null) {
@@ -445,96 +464,31 @@ function getRecommendedActionClasses(action: CollectionActionRow['recommended_ac
   return 'bg-gray-100 text-gray-700'
 }
 
-function getActionLabel(actionType: ActionType) {
+function getLegacyActionLabel(actionType: LegacyActionType) {
   if (actionType === 'called') return 'Called'
   if (actionType === 'emailed') return 'Emailed'
   return 'Postponed'
 }
 
-function getOutcomeLabel(outcome: ActionOutcome) {
+function getLegacyOutcomeLabel(outcome: LegacyActionOutcome) {
   if (outcome === 'no_response') return 'No response'
   if (outcome === 'spoke_to_customer') return 'Spoke to customer'
   if (outcome === 'promised_to_pay') return 'Promised to pay'
   return 'Disputed'
 }
 
-function formatLocalDateIso(date: Date) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+function getOutcomeLabel(outcome: ActionHistoryOutcome) {
+  return OUTCOME_OPTIONS.find((option) => option.value === outcome)?.label ?? outcome
 }
 
-function getDateOffsetIso(days: number) {
-  const date = new Date()
-  date.setDate(date.getDate() + days)
-  return formatLocalDateIso(date)
-}
-
-function getQuickDateButtonClasses(selected: boolean) {
-  if (selected) {
-    return 'rounded-md border border-gray-900 bg-gray-100 px-2 py-1 text-xs font-medium text-gray-900'
-  }
-
-  return 'rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50'
-}
-
-function QuickDatePicker({
-  selectedDate,
-  customDateValue,
-  onCustomDateChange,
-  onSelectDate,
-  disabled = false,
-  customButtonLabel = 'Use custom date',
-}: QuickDatePickerProps) {
-  const tomorrowIso = getDateOffsetIso(1)
-  const nextWeekIso = getDateOffsetIso(7)
-  const todayIso = getDateOffsetIso(0)
-
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          className={getQuickDateButtonClasses(selectedDate === tomorrowIso)}
-          onClick={() => onSelectDate(tomorrowIso)}
-          disabled={disabled}
-        >
-          Tomorrow
-        </button>
-        <button
-          type="button"
-          className={getQuickDateButtonClasses(selectedDate === nextWeekIso)}
-          onClick={() => onSelectDate(nextWeekIso)}
-          disabled={disabled}
-        >
-          Next week
-        </button>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          type="date"
-          min={todayIso}
-          value={customDateValue}
-          onChange={(event) => onCustomDateChange(event.target.value)}
-          disabled={disabled}
-          className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
-        />
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => {
-            if (!customDateValue) return
-            onSelectDate(customDateValue)
-          }}
-          disabled={disabled || !customDateValue}
-        >
-          {customButtonLabel}
-        </Button>
-      </div>
-    </div>
-  )
+function followUpDateForChoice(choice: FollowUpChoice, schedule: FollowUpSchedule | null,
+  customDate: string) {
+  if (choice === 'tomorrow') return null // Omit: the server calculates its own tomorrow.
+  if (!schedule) return null
+  if (choice === 'two_days') return schedule.inTwoDays
+  if (choice === 'three_days') return schedule.inThreeDays
+  if (choice === 'next_week') return schedule.nextWeek
+  return customDate || null
 }
 
 export default function CollectionActionsClient({
@@ -558,12 +512,16 @@ export default function CollectionActionsClient({
   const [queueCardIndex, setQueueCardIndex] = useState(0)
   const [queueFeedback, setQueueFeedback] = useState<string | null>(null)
   const [touchStartX, setTouchStartX] = useState<number | null>(null)
-  const [detailPanel, setDetailPanel] = useState<DetailPanel>('none')
-  const [selectedOutcome, setSelectedOutcome] = useState<ActionOutcome | null>(null)
-  const [selectedOutcomeDate, setSelectedOutcomeDate] = useState<string | null>(null)
-  const [customDateValue, setCustomDateValue] = useState<string>(() => getDateOffsetIso(1))
+  const [followUpChoice, setFollowUpChoice] = useState<FollowUpChoice>('tomorrow')
+  const [showFollowUpChoices, setShowFollowUpChoices] = useState(false)
+  const [customDateValue, setCustomDateValue] = useState('')
+  const [showNote, setShowNote] = useState(false)
+  const [actionNote, setActionNote] = useState('')
   const [submittingAction, setSubmittingAction] = useState(false)
   const [undoingAction, setUndoingAction] = useState(false)
+  const [uncertainAttempt, setUncertainAttempt] = useState(false)
+  const actionRequestInFlight = useRef(false)
+  const pendingAttempt = useRef<RecordingAttempt | null>(null)
   const [lastAction, setLastAction] = useState<LastActionState | null>(null)
   const [restoreCustomerSourceId, setRestoreCustomerSourceId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -573,6 +531,8 @@ export default function CollectionActionsClient({
   const [usageLimitReached, setUsageLimitReached] = useState(false)
   const [xeroConnectionMissing, setXeroConnectionMissing] = useState(false)
   const [queueInfo, setQueueInfo] = useState<CollectionQueueInfo | null>(null)
+  const [resolvedTenantId, setResolvedTenantId] = useState<string | null>(tenantId)
+  const [followUpSchedule, setFollowUpSchedule] = useState<FollowUpSchedule | null>(null)
   const [experience, setExperience] = useState<CollectionExperienceState | null>(null)
   const [organisationBaseCurrency, setOrganisationBaseCurrency] = useState<string | null>(null)
   const [currencyContext, setCurrencyContext] = useState<CollectionsCurrencyContext | null>(null)
@@ -599,10 +559,11 @@ export default function CollectionActionsClient({
   )
 
   const resetActionPanel = useCallback(() => {
-    setDetailPanel('none')
-    setSelectedOutcome(null)
-    setSelectedOutcomeDate(null)
-    setCustomDateValue(getDateOffsetIso(1))
+    setFollowUpChoice('tomorrow')
+    setShowFollowUpChoices(false)
+    setCustomDateValue('')
+    setShowNote(false)
+    setActionNote('')
   }, [])
 
   const loadRows = useCallback(
@@ -694,6 +655,8 @@ export default function CollectionActionsClient({
         setCurrencyHealth(payload.currencyHealth ?? null)
         setReviewRequiredCustomers(payload.reviewRequiredCustomers ?? [])
         setExperience(payload.experience ?? null)
+        setResolvedTenantId(payload.tenantId ?? tenantId)
+        setFollowUpSchedule(payload.followUpSchedule ?? null)
         const nextRows = payload.rows ?? []
         const visibleRows = effectiveOverdueOnly
           ? nextRows.filter(
@@ -731,30 +694,18 @@ export default function CollectionActionsClient({
     () => selectActionableFounderContextRows(rows, actionsTakenByCustomerId),
     [actionsTakenByCustomerId, rows]
   )
-  const todayActionSummary = useMemo(() => {
-    const summary: Record<ActionType, number> = {
-      called: 0,
-      emailed: 0,
-      postponed: 0,
-    }
-
-    for (const action of Object.values(actionsTakenByCustomerId)) {
-      summary[action.type] += 1
-    }
-
-    return {
-      called: summary.called,
-      emailed: summary.emailed,
-      postponed: summary.postponed,
-      total: summary.called + summary.emailed + summary.postponed,
-    }
-  }, [actionsTakenByCustomerId])
-
   const currentQueueRow = queueRows[queueCardIndex] ?? null
   const queuePosition = currentQueueRow ? queueCardIndex + 1 : 0
-  const currentQueueRowLastActionRelativeTime = formatRelativeTimeFromNow(
-    currentQueueRow?.last_action_timestamp ?? null
-  )
+  const selectedFollowUpDate = followUpDateForChoice(followUpChoice, followUpSchedule, customDateValue)
+  const recentActivity = currentQueueRow?.recent_activity ??
+    (currentQueueRow?.last_action_type && currentQueueRow.last_action_timestamp ? {
+      format: 'legacy' as const,
+      actionType: currentQueueRow.last_action_type,
+      outcome: currentQueueRow.last_action_outcome,
+      note: null,
+      actionTimestamp: currentQueueRow.last_action_timestamp,
+      nextActionDate: null,
+    } : null)
 
   useEffect(() => {
     setQueueCardIndex((prev) => {
@@ -859,349 +810,157 @@ export default function CollectionActionsClient({
     [moveQueueCard, touchStartX]
   )
 
-  const logAction = useCallback(
-    async ({
-      customerSourceId,
-      actionType,
-      outcome,
-      nextActionDate,
-      useOutcomeRoute,
-    }: {
-      customerSourceId: string
-      actionType: ActionType
-      outcome: ActionOutcome | null
-      nextActionDate: string | null
-      useOutcomeRoute: boolean
-    }) => {
-      const requestBody: Record<string, unknown> = {
-        customer_source_id: customerSourceId,
-        action_type: actionType,
-      }
-
-      if (tenantId) {
-        requestBody.tenant_id = tenantId
-      }
-
-      if (useOutcomeRoute && outcome) {
-        requestBody.outcome = outcome
-      }
-
-      if (nextActionDate) {
-        requestBody.next_action_date = nextActionDate
-      }
-
-      const response = await fetch(
-        useOutcomeRoute ? '/api/collections/action-with-outcome' : '/api/collections/action',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify(requestBody),
-        }
-      )
-
-      if (response.status === 401) {
-        router.replace(buildLoginPath(effectiveLoginNextPath, 'session_expired'))
-        throw new Error('Unauthorized')
-      }
-
-      const payload =
-        (await response.json().catch(() => null)) as CollectionActionMutationApiResponse | null
-
-      if (response.status === 402 && payload?.code === 'ACTION_USAGE_LIMIT_REACHED') {
-        if (payload.entitlement) setEntitlement(payload.entitlement)
-        setRows([])
-        setUsageLimitReached(true)
-        throw new Error('Free usage allowance exhausted')
-      }
-
-      if (response.status === 402 && payload?.code === 'MULTI_CURRENCY_REQUIRES_PRO') {
-        if (payload.entitlement) setEntitlement(payload.entitlement)
-        setRows([])
-        setCurrencyContext(payload.currencyContext ?? null)
-        setCurrencyAccess(payload.currencyAccess ?? null)
-        setUsageLimitReached(false)
-        return null
-      }
-
-      if (!response.ok || !payload?.ok) {
-        throw new Error(payload?.error || 'Failed to log action.')
-      }
-
-      if (typeof payload.action_id !== 'string') {
-        throw new Error('Action logged without an action id.')
-      }
-
-      return payload.action_id
-    },
-    [effectiveLoginNextPath, router, tenantId]
-  )
-
-  const applyLoggedAction = useCallback(
-    ({
-      customerSourceId,
-      customerName,
-      actionType,
-      outcome,
-      nextActionDate,
-      actionId,
-    }: {
-      customerSourceId: string
-      customerName: string
-      actionType: ActionType
-      outcome: ActionOutcome | null
-      nextActionDate: string | null
-      actionId: string
-    }) => {
-      setActionsTakenByCustomerId((prev) => ({
-        ...prev,
-        [customerSourceId]: {
-          type: actionType,
-          takenAtIso: new Date().toISOString(),
-          outcome,
-          nextActionDate,
-          actionId,
-        },
-      }))
-      setQueueInfo((prev) => {
-        if (!prev) return prev
-
-        const remainingCustomerCount = Math.max(0, prev.remainingCustomerCount - 1)
-        return {
-          ...prev,
-          status:
-            prev.eligibleCustomerCount > 0 && remainingCustomerCount === 0
-              ? 'complete_today'
-              : prev.status,
-          actionedTodayCount: prev.actionedTodayCount + 1,
-          remainingCustomerCount,
-        }
-      })
-
-      setLastAction({
-        actionId,
-        customerSourceId,
-      })
-      setExperience({ hasPriorCollectionActivity: true })
-
-      const baseLabel = getActionLabel(actionType)
-      const outcomeSuffix = outcome ? ` (${getOutcomeLabel(outcome)})` : ''
-      const dateSuffix = nextActionDate ? ` Next action ${formatDate(nextActionDate)}.` : ''
-      setQueueFeedback(`Logged ${baseLabel}${outcomeSuffix} for ${customerName}.${dateSuffix}`)
-
-      setExpandedReasonId((prev) => (prev === customerSourceId ? null : prev))
-      setQueueCardIndex((prev) => Math.max(0, Math.min(prev, queueRows.length - 2)))
-      setRestoreCustomerSourceId(null)
-      resetActionPanel()
-    },
-    [queueRows.length, resetActionPanel]
-  )
-
-  const handleFastAction = useCallback(
-    async (actionType: 'called' | 'emailed') => {
-      if (!currentQueueRow || submittingAction || undoingAction) return
-
-      setSubmittingAction(true)
-      setError(null)
-
-      try {
-        const actionId = await logAction({
-          customerSourceId: currentQueueRow.customer_source_id,
-          actionType,
-          outcome: null,
-          nextActionDate: null,
-          useOutcomeRoute: false,
-        })
-        if (!actionId) return
-
-        applyLoggedAction({
-          customerSourceId: currentQueueRow.customer_source_id,
-          customerName: currentQueueRow.customer_name,
-          actionType,
-          outcome: null,
-          nextActionDate: null,
-          actionId,
-        })
-      } catch (createError) {
-        setError(createError instanceof Error ? createError.message : 'Failed to log action.')
-      } finally {
-        setSubmittingAction(false)
-      }
-    },
-    [applyLoggedAction, currentQueueRow, logAction, submittingAction, undoingAction]
-  )
-
-  const handlePostponeWithDate = useCallback(
-    async (nextActionDate: string) => {
-      if (!currentQueueRow || submittingAction || undoingAction) return
-
-      setSubmittingAction(true)
-      setError(null)
-
-      try {
-        const actionId = await logAction({
-          customerSourceId: currentQueueRow.customer_source_id,
-          actionType: 'postponed',
-          outcome: null,
-          nextActionDate,
-          useOutcomeRoute: false,
-        })
-        if (!actionId) return
-
-        applyLoggedAction({
-          customerSourceId: currentQueueRow.customer_source_id,
-          customerName: currentQueueRow.customer_name,
-          actionType: 'postponed',
-          outcome: null,
-          nextActionDate,
-          actionId,
-        })
-      } catch (createError) {
-        setError(createError instanceof Error ? createError.message : 'Failed to log action.')
-      } finally {
-        setSubmittingAction(false)
-      }
-    },
-    [applyLoggedAction, currentQueueRow, logAction, submittingAction, undoingAction]
-  )
-
-  const selectedOutcomeActionType: 'called' | null =
-    detailPanel === 'call_outcome' ? 'called' : null
-
-  const handleSubmitActionWithOutcome = useCallback(async () => {
-    if (
-      !currentQueueRow ||
-      !selectedOutcomeActionType ||
-      !selectedOutcome ||
-      submittingAction ||
-      undoingAction
-    ) {
+  const handleRecordOutcome = useCallback(async (
+    outcome: ActionHistoryOutcome | null,
+    retry = false
+  ) => {
+    if (actionRequestInFlight.current || undoingAction) return
+    if (uncertainAttempt && !retry) return
+    if (!retry && (!currentQueueRow || !outcome)) return
+    if (!retry && followUpChoice === 'custom' && !selectedFollowUpDate) {
+      setError('Choose a future follow-up date before recording the outcome.')
+      return
+    }
+    if (!retry && followUpChoice !== 'tomorrow' && !selectedFollowUpDate) {
+      setError('Refresh priorities to load the organisation follow-up dates.')
       return
     }
 
-    if (selectedOutcome === 'promised_to_pay' && !selectedOutcomeDate) {
-      setError('Select a promised to pay date before continuing.')
+    const tenant = retry ? pendingAttempt.current?.tenantId : resolvedTenantId
+    if (!tenant) {
+      setError('The Xero organisation is unavailable. Refresh priorities and try again.')
       return
     }
-
+    const attempt = retry ? pendingAttempt.current : recordingAttempt(
+      pendingAttempt.current,
+      {
+        tenantId: tenant,
+        customerSourceId: currentQueueRow!.customer_source_id,
+        outcome: outcome!,
+        nextActionDate: selectedFollowUpDate,
+        note: actionNote.trim() || null,
+      },
+      () => crypto.randomUUID()
+    )
+    if (!attempt) return
+    pendingAttempt.current = attempt
+    actionRequestInFlight.current = true
     setSubmittingAction(true)
     setError(null)
 
+    const customerName = currentQueueRow?.customer_source_id === attempt.customerSourceId
+      ? currentQueueRow.customer_name : attempt.customerSourceId
+    const preferredNextId = queueRows[queueCardIndex + 1]?.customer_source_id ??
+      queueRows[queueCardIndex - 1]?.customer_source_id ?? null
+    let definitiveFailure = false
+    let savedAction = false
     try {
-      const nextActionDate = selectedOutcome === 'promised_to_pay' ? selectedOutcomeDate : null
-      const actionId = await logAction({
-        customerSourceId: currentQueueRow.customer_source_id,
-        actionType: selectedOutcomeActionType,
-        outcome: selectedOutcome,
-        nextActionDate,
-        useOutcomeRoute: true,
-      })
-      if (!actionId) return
-
-      applyLoggedAction({
-        customerSourceId: currentQueueRow.customer_source_id,
-        customerName: currentQueueRow.customer_name,
-        actionType: selectedOutcomeActionType,
-        outcome: selectedOutcome,
-        nextActionDate,
-        actionId,
-      })
-    } catch (createError) {
-      setError(createError instanceof Error ? createError.message : 'Failed to log action.')
-    } finally {
-      setSubmittingAction(false)
-    }
-  }, [
-    applyLoggedAction,
-    currentQueueRow,
-    logAction,
-    selectedOutcome,
-    selectedOutcomeActionType,
-    selectedOutcomeDate,
-    submittingAction,
-    undoingAction,
-  ])
-
-  const handleUndoLastAction = useCallback(async () => {
-    if (!lastAction || submittingAction || undoingAction) return
-
-    setUndoingAction(true)
-    setError(null)
-
-    try {
-      const response = await fetch('/api/collections/action', {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      const response = await fetch('/api/collections/action-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          action_id: lastAction.actionId,
-        }),
+        body: JSON.stringify(createActionBody(attempt)),
       })
-
       if (response.status === 401) {
         router.replace(buildLoginPath(effectiveLoginNextPath, 'session_expired'))
         return
       }
-
-      const payload = (await response.json().catch(() => null)) as CollectionActionMutationApiResponse | null
-
-      if (response.status === 402 && payload?.code === 'ACTION_USAGE_LIMIT_REACHED') {
-        if (payload.entitlement) setEntitlement(payload.entitlement)
-        setRows([])
-        setUsageLimitReached(true)
-        return
-      }
-      if (response.status === 402 && payload?.code === 'MULTI_CURRENCY_REQUIRES_PRO') {
-        if (payload.entitlement) setEntitlement(payload.entitlement)
-        setRows([])
-        setCurrencyContext(payload.currencyContext ?? null)
-        setCurrencyAccess(payload.currencyAccess ?? null)
-        setUsageLimitReached(false)
-        return
-      }
-
+      const payload = (await response.json().catch(() => null)) as ActionHistoryMutationApiResponse | null
       if (!response.ok || !payload?.ok) {
-        throw new Error(payload?.error || 'Failed to undo action.')
+        definitiveFailure = response.status >= 400 && response.status < 500 &&
+          response.status !== 408 && response.status !== 429
+        throw new Error(payload?.error || 'Could not record the outcome.')
+      }
+      if (payload.action?.id !== attempt.actionId) {
+        throw new Error('The action response could not be verified.')
       }
 
-      const restoredCustomerName =
-        rows.find((row) => row.customer_source_id === lastAction.customerSourceId)?.customer_name ??
-        null
-
-      setActionsTakenByCustomerId((prev) => {
-        const next = { ...prev }
-        delete next[lastAction.customerSourceId]
-        return next
-      })
-      setQueueInfo((prev) =>
-        prev
-          ? {
-              ...prev,
-              status: 'ready',
-              actionedTodayCount: Math.max(0, prev.actionedTodayCount - 1),
-              remainingCustomerCount: prev.remainingCustomerCount + 1,
-            }
-          : prev
-      )
-
-      setRestoreCustomerSourceId(lastAction.customerSourceId)
-      setQueueFeedback(
-        restoredCustomerName
-          ? `Undid last action for ${restoredCustomerName}.`
-          : 'Undid last action.'
-      )
-      setLastAction(null)
+      savedAction = true
+      pendingAttempt.current = null
+      setUncertainAttempt(false)
+      setLastAction({ actionId: attempt.actionId, tenantId: attempt.tenantId,
+        customerSourceId: attempt.customerSourceId, customerName, outcome: attempt.outcome })
+      setExperience({ hasPriorCollectionActivity: true })
+      setQueueFeedback(`${getOutcomeLabel(attempt.outcome)} recorded for ${customerName}.`)
+      setRows((previous) => previous.filter((row) => row.customer_source_id !== attempt.customerSourceId))
+      setExpandedReasonId((previous) => previous === attempt.customerSourceId ? null : previous)
       resetActionPanel()
-    } catch (undoError) {
-      setError(undoError instanceof Error ? undoError.message : 'Failed to undo action.')
+
+      // One authoritative reload fills the slot and supplies counts and eligibility.
+      const refreshed = await loadRows(true)
+      if (!refreshed) {
+        setQueueFeedback(`${getOutcomeLabel(attempt.outcome)} recorded for ${customerName}. Refresh priorities to confirm the queue.`)
+        return
+      }
+      const nextQueueRows = selectActionableFounderContextRows(
+        refreshed.rows, refreshed.actionsTakenByCustomerId
+      )
+      const preferredIndex = preferredNextId
+        ? restoredCustomerIndex(nextQueueRows, preferredNextId) : -1
+      setQueueCardIndex(preferredIndex >= 0 ? preferredIndex :
+        Math.min(queueCardIndex, Math.max(0, nextQueueRows.length - 1)))
+    } catch (createError) {
+      if (savedAction) {
+        setQueueFeedback(`${getOutcomeLabel(attempt.outcome)} recorded for ${customerName}. Refresh priorities to confirm the queue.`)
+        setError('The outcome was saved, but priorities could not refresh. Refresh priorities to confirm the queue.')
+      } else if (definitiveFailure) {
+        pendingAttempt.current = null
+        setUncertainAttempt(false)
+        setError(createError instanceof Error ? createError.message : 'Could not record the outcome.')
+      } else {
+        setUncertainAttempt(true)
+        setError('Could not confirm this outcome. Retry save to reuse the same action ID.')
+      }
     } finally {
+      actionRequestInFlight.current = false
+      setSubmittingAction(false)
+    }
+  }, [actionNote, currentQueueRow, effectiveLoginNextPath, followUpChoice, loadRows,
+    queueCardIndex, queueRows, resetActionPanel, resolvedTenantId, router,
+    selectedFollowUpDate, uncertainAttempt, undoingAction])
+
+  const handleUndoLastAction = useCallback(async () => {
+    if (!lastAction || actionRequestInFlight.current || undoingAction) return
+    actionRequestInFlight.current = true
+    setUndoingAction(true)
+    setError(null)
+    try {
+      const response = await fetch('/api/collections/action-history', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(deleteActionBody(lastAction)),
+      })
+      if (response.status === 401) {
+        router.replace(buildLoginPath(effectiveLoginNextPath, 'session_expired'))
+        return
+      }
+      const payload = (await response.json().catch(() => null)) as ActionHistoryMutationApiResponse | null
+      if (!response.ok || !payload?.ok) {
+        throw new Error(payload?.error || 'Could not confirm Undo. Try again.')
+      }
+
+      const refreshed = await loadRows(true)
+      if (!refreshed) {
+        throw new Error('Action deleted, but priorities could not refresh. Retry Undo to check the queue.')
+      }
+      const nextQueueRows = selectActionableFounderContextRows(
+        refreshed.rows, refreshed.actionsTakenByCustomerId
+      )
+      const restoredIndex = restoredCustomerIndex(nextQueueRows, lastAction.customerSourceId)
+      if (restoredIndex >= 0) setQueueCardIndex(restoredIndex)
+      setQueueFeedback(restoredIndex >= 0
+        ? `Undid ${getOutcomeLabel(lastAction.outcome)} for ${lastAction.customerName}. Customer returned to the queue.`
+        : `Undid ${getOutcomeLabel(lastAction.outcome)} for ${lastAction.customerName}. Customer is not in the current priority view.`)
+      setLastAction(null)
+    } catch (undoError) {
+      setError(undoError instanceof Error && undoError.message.startsWith('Action deleted,')
+        ? undoError.message : 'Could not confirm Undo. Retry to check the authoritative queue.')
+    } finally {
+      actionRequestInFlight.current = false
       setUndoingAction(false)
     }
-  }, [effectiveLoginNextPath, lastAction, resetActionPanel, router, rows, submittingAction, undoingAction])
+  }, [effectiveLoginNextPath, lastAction, loadRows, router, undoingAction])
 
   const handleOverrideChange = useCallback(
     async (
@@ -1219,7 +978,7 @@ export default function CollectionActionsClient({
         !persistentExclusionConfirmed
       ) {
         const confirmed = window.confirm(
-          'Do not chase removes this customer from the chase queue until you change the setting. Use Postpone or a payment promise for a temporary delay. Continue?'
+          'Never chase removes this customer from the chase queue until you change the setting. Do not follow up until is a temporary date on a recorded outcome. Continue?'
         )
         if (!confirmed) return
       }
@@ -1498,16 +1257,6 @@ export default function CollectionActionsClient({
                       Card {queuePosition} of {queueRows.length}
                     </p>
                   )}
-                  {!loading && lastAction && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => void handleUndoLastAction()}
-                      disabled={disableQueueActions}
-                    >
-                      {undoingAction ? 'Undoing…' : 'Undo'}
-                    </Button>
-                  )}
                   {!loading && currentQueueRow && (
                     <>
                       <Button
@@ -1589,7 +1338,7 @@ export default function CollectionActionsClient({
                   No customers need chasing from this queue
                 </h3>
                 <p className="text-sm text-gray-600">
-                  Customers marked Do not chase remain excluded until you change their customer
+                  Customers marked Never chase remain excluded until you change their customer
                   context.
                 </p>
                 <Link
@@ -1614,25 +1363,13 @@ export default function CollectionActionsClient({
 
             {!loading && !currentQueueRow && queueInfo?.status === 'complete_today' && (
               <div className="space-y-3 rounded-md border border-green-200 bg-green-50 px-3 py-3 text-sm text-green-900">
-                <div className="rounded-md border border-green-200 bg-white/80 px-2.5 py-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-green-700">
-                    Today&apos;s action summary
-                  </p>
-                  <p className="mt-1 text-xs text-green-900">
-                    Called <span className="font-semibold">{todayActionSummary.called}</span> · Emailed{' '}
-                    <span className="font-semibold">{todayActionSummary.emailed}</span> · Postponed{' '}
-                    <span className="font-semibold">{todayActionSummary.postponed}</span> · Total{' '}
-                    <span className="font-semibold">{todayActionSummary.total}</span>
-                  </p>
-                </div>
-
                 <div className="space-y-2 rounded-md border border-green-300 bg-white px-3 py-3">
                   <p className="text-base font-semibold text-green-900">
                     You&apos;re done for today
                   </p>
                   <p className="text-sm text-green-800">
-                    When you return, Yuohme will show the current actionable queue. Postponed
-                    customers and payment promises remain out until their chosen date.
+                    When you return, Yuohme will show the current actionable queue. Follow-up dates,
+                    invoice promises and disputes remain governed by their own records.
                   </p>
                   <Link
                     href={customersHref}
@@ -1655,27 +1392,41 @@ export default function CollectionActionsClient({
                   <div className="space-y-0.5">
                     <p className="text-lg font-semibold text-gray-900">{currentQueueRow.customer_name}</p>
                     <p className="text-xs text-gray-500">{currentQueueRow.customer_email || 'No email on file'}</p>
-                    {currentQueueRow.last_action_type && (
+                    {recentActivity && (
                       <div className="pt-1 text-xs text-gray-500">
                         <p>
-                          Last action:{' '}
+                          Last activity:{' '}
                           <span className="font-medium text-gray-700">
-                            {getActionLabel(currentQueueRow.last_action_type)}
+                            {recentActivity.format === 'v1'
+                              ? getOutcomeLabel(recentActivity.outcome as ActionHistoryOutcome)
+                              : recentActivity.actionType
+                                ? getLegacyActionLabel(recentActivity.actionType)
+                                : 'Recorded action'}
                           </span>
-                          {currentQueueRowLastActionRelativeTime
-                            ? ` (${currentQueueRowLastActionRelativeTime})`
+                          {formatRelativeTimeFromNow(recentActivity.actionTimestamp)
+                            ? ` · ${formatRelativeTimeFromNow(recentActivity.actionTimestamp)}`
                             : ''}
                         </p>
-                        {currentQueueRow.last_action_outcome && (
+                        {recentActivity.format === 'legacy' && recentActivity.outcome && (
                           <p>
-                            Outcome:{' '}
-                            <span className="font-medium text-gray-700">
-                              {getOutcomeLabel(currentQueueRow.last_action_outcome)}
-                            </span>
+                            Legacy outcome: {getLegacyOutcomeLabel(recentActivity.outcome as LegacyActionOutcome)}
+                          </p>
+                        )}
+                        {recentActivity.nextActionDate && (
+                          <p>Follow up: {formatDate(recentActivity.nextActionDate)}</p>
+                        )}
+                        {recentActivity.format === 'v1' && recentActivity.note && (
+                          <p className="max-w-md truncate" title={recentActivity.note}>
+                            Note: {recentActivity.note}
                           </p>
                         )}
                       </div>
                     )}
+                    {resolvedTenantId && <Link
+                      href={customerHistoryUrl(currentQueueRow.customer_source_id, resolvedTenantId)}
+                      className="mt-1 inline-flex min-h-11 items-center text-xs font-medium text-gray-700 underline underline-offset-2">
+                      View full history
+                    </Link>}
                   </div>
                   <div className="text-right">
                     <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-500">
@@ -1749,225 +1500,133 @@ export default function CollectionActionsClient({
                   <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-3 text-sm text-sky-950">
                     <p className="font-semibold">Work the priority, then record what happened.</p>
                     <p className="mt-1 text-sky-900">
-                      Yuohme moves recorded work out of today&apos;s queue. Postponed customers and
-                      payment promises return on the date you choose.
+                      Recording an outcome sets the next follow-up date and updates the active queue.
+                      Invoice promises and disputes are managed with their invoices.
                     </p>
                   </div>
                 )}
 
-                <div className="grid gap-3 pt-2 sm:grid-cols-2">
-                  <div className="space-y-2 rounded-md border border-gray-200 bg-gray-50 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Fast actions</p>
-                    <Button
-                      onClick={() => void handleFastAction('called')}
-                      variant="primary"
-                      size="md"
-                      className="w-full"
-                      disabled={disableQueueActions}
-                    >
-                      {submittingAction ? 'Saving…' : 'Called'}
-                    </Button>
-                    <Button
-                      onClick={() => void handleFastAction('emailed')}
-                      variant="primary"
-                      size="md"
-                      className="w-full"
-                      disabled={disableQueueActions}
-                    >
-                      {submittingAction ? 'Saving…' : 'Emailed'}
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        void handlePostponeWithDate(getDateOffsetIso(1))
-                      }}
-                      variant="ghost"
-                      size="sm"
-                      className="w-full justify-center"
-                      disabled={disableQueueActions}
-                    >
-                      Postpone 1 day
-                    </Button>
-                  </div>
-
-                  <div className="space-y-2 rounded-md border border-gray-200 bg-gray-50 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">With detail</p>
-                    <Button
-                      onClick={() => {
-                        if (disableQueueActions) return
-                        setDetailPanel((prev) =>
-                          prev === 'call_outcome' ? 'none' : 'call_outcome'
-                        )
-                        setSelectedOutcome(null)
-                        setSelectedOutcomeDate(null)
-                        setCustomDateValue(getDateOffsetIso(1))
-                      }}
-                      variant="secondary"
-                      size="md"
-                      className="w-full"
-                      disabled={disableQueueActions}
-                    >
-                      Call + outcome
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        if (disableQueueActions) return
-                        setDetailPanel((prev) =>
-                          prev === 'detail_postpone' ? 'none' : 'detail_postpone'
-                        )
-                        setSelectedOutcome(null)
-                        setSelectedOutcomeDate(null)
-                        setCustomDateValue(getDateOffsetIso(1))
-                      }}
-                      variant="secondary"
-                      size="sm"
-                      className="w-full justify-center"
-                      disabled={disableQueueActions}
-                    >
-                      Postpone + date
-                    </Button>
-                  </div>
-                </div>
-
-                {detailPanel === 'detail_postpone' && (
-                  <div className="space-y-3 rounded-md border border-gray-200 bg-gray-50 p-3">
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">Postpone + date</p>
-                      <p className="text-xs text-gray-600">
-                        Choose when this customer should return to the queue.
-                      </p>
-                    </div>
-                    <QuickDatePicker
-                      selectedDate={null}
-                      customDateValue={customDateValue}
-                      onCustomDateChange={setCustomDateValue}
-                      onSelectDate={(dateIso) => {
-                        void handlePostponeWithDate(dateIso)
-                      }}
-                      disabled={disableQueueActions}
-                      customButtonLabel="Postpone to date"
-                    />
-                    <div className="flex justify-end">
+                <div className="space-y-3 border-t border-gray-200 pt-4">
+                  <p className="text-sm font-semibold text-gray-900">What happened?</p>
+                  <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label="Record outcome">
+                    {OUTCOME_OPTIONS.map((option) => (
                       <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={resetActionPanel}
-                        disabled={disableQueueActions}
+                        key={option.value}
+                        variant="primary"
+                        size="md"
+                        className="min-h-11 w-full justify-center text-center"
+                        onClick={() => void handleRecordOutcome(option.value)}
+                        disabled={disableQueueActions || uncertainAttempt ||
+                          (followUpChoice === 'custom' && !customDateValue)}
                       >
-                        Cancel
+                        {submittingAction ? 'Saving…' : option.label}
                       </Button>
-                    </div>
+                    ))}
                   </div>
-                )}
 
-                {detailPanel === 'call_outcome' && (
-                  <div className="space-y-3 rounded-md border border-gray-200 bg-gray-50 p-3">
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">Call + outcome</p>
-                      <p className="text-xs text-gray-600">
-                        Optional structured detail. Choose an outcome and continue.
-                      </p>
-                    </div>
-
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {OUTCOME_OPTIONS.map((option) => {
-                        const selected = selectedOutcome === option.value
-
-                        return (
-                          <button
-                            key={option.value}
-                            type="button"
-                            onClick={() => {
-                              setSelectedOutcome(option.value)
-                              if (option.value !== 'promised_to_pay') {
-                                setSelectedOutcomeDate(null)
-                              } else {
-                                setSelectedOutcomeDate(getDateOffsetIso(1))
-                              }
-                            }}
-                            disabled={disableQueueActions}
-                            className={`rounded-md border px-3 py-2 text-left text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                              selected
-                                ? 'border-gray-900 bg-white text-gray-900'
-                                : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                  <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                    <button type="button"
+                      className="inline-flex min-h-11 w-full items-center justify-between gap-2 text-left text-sm text-gray-800 underline-offset-2 hover:underline disabled:opacity-60"
+                      onClick={() => setShowFollowUpChoices((previous) => !previous)}
+                      disabled={disableQueueActions || uncertainAttempt}
+                      aria-expanded={showFollowUpChoices}
+                    >
+                      <span>Do not follow up until: <strong>{followUpChoice === 'tomorrow' ? 'Tomorrow' :
+                        followUpChoice === 'two_days' ? 'In 2 days' :
+                        followUpChoice === 'three_days' ? 'In 3 days' :
+                        followUpChoice === 'next_week' ? 'Next week' :
+                        customDateValue ? formatDate(customDateValue) : 'Choose date'}</strong></span>
+                      <span className="text-xs font-medium">{showFollowUpChoices ? 'Close' : 'Change'}</span>
+                    </button>
+                    {showFollowUpChoices && (
+                      <div className="flex flex-wrap gap-2 border-t border-gray-200 pt-2" role="group" aria-label="Follow-up timing">
+                        {([
+                          ['tomorrow', 'Tomorrow'], ['two_days', 'In 2 days'],
+                          ['three_days', 'In 3 days'], ['next_week', 'Next week'],
+                          ['custom', 'Choose date'],
+                        ] as const).map(([choice, label]) => (
+                          <button key={choice} type="button" aria-pressed={followUpChoice === choice}
+                            onClick={() => setFollowUpChoice(choice)}
+                            disabled={disableQueueActions || uncertainAttempt || !followUpSchedule}
+                            className={`min-h-11 rounded-md border px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 disabled:opacity-60 ${
+                              followUpChoice === choice ? 'border-gray-900 bg-gray-900 text-white' :
+                                'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
                             }`}
-                          >
-                            {option.label}
-                          </button>
-                        )
-                      })}
-                    </div>
-
-                    {selectedOutcome === 'promised_to_pay' && (
-                      <div className="space-y-2 rounded-md border border-gray-200 bg-white p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                          Promised to pay date (required)
-                        </p>
-                        <QuickDatePicker
-                          selectedDate={selectedOutcomeDate}
-                          customDateValue={customDateValue}
-                          onCustomDateChange={setCustomDateValue}
-                          onSelectDate={(dateIso) => {
-                            setSelectedOutcomeDate(dateIso)
-                          }}
-                          disabled={disableQueueActions}
-                        />
-                        {selectedOutcomeDate && (
-                          <p className="text-xs text-gray-600">
-                            Contact-history date: {formatDate(selectedOutcomeDate)}. This outcome does not postpone collection.
-                          </p>
+                          >{label}</button>
+                        ))}
+                        {followUpChoice === 'custom' && (
+                          <label className="flex min-h-11 items-center gap-2 text-sm text-gray-700">
+                            Date
+                            <input type="date" min={followUpSchedule?.tomorrow}
+                              value={customDateValue}
+                              onChange={(event) => setCustomDateValue(event.target.value)}
+                              disabled={disableQueueActions || uncertainAttempt}
+                              className="min-h-11 rounded-md border border-gray-300 bg-white px-2 text-sm text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900"
+                            />
+                          </label>
                         )}
                       </div>
                     )}
-
-                    <div className="flex items-center justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={resetActionPanel}
-                        disabled={disableQueueActions}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        onClick={() => void handleSubmitActionWithOutcome()}
-                        disabled={
-                          disableQueueActions ||
-                          !selectedOutcome ||
-                          (selectedOutcome === 'promised_to_pay' && !selectedOutcomeDate)
-                        }
-                      >
-                        {submittingAction ? 'Saving…' : 'Log action'}
-                      </Button>
-                    </div>
                   </div>
-                )}
 
-                <FounderContextControl
-                  customerName={currentQueueRow.customer_name}
-                  value={currentQueueRow.override_level}
-                  saving={Boolean(
-                    updatingOverrideByCustomerId[currentQueueRow.customer_source_id]
+                  {!showNote ? (
+                    <button type="button" className="min-h-11 text-sm font-medium text-gray-700 underline underline-offset-2"
+                      onClick={() => setShowNote(true)} disabled={disableQueueActions || uncertainAttempt}>
+                      Add note
+                    </button>
+                  ) : (
+                    <label className="block space-y-1 text-sm font-medium text-gray-700">
+                      Note (optional)
+                      <textarea value={actionNote} onChange={(event) => setActionNote(event.target.value)}
+                        maxLength={2000} rows={3} disabled={disableQueueActions || uncertainAttempt}
+                        className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-normal text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900"
+                        placeholder="What should you remember next time?" />
+                      <span className="block text-xs font-normal text-gray-500">{actionNote.length}/2,000 characters</span>
+                    </label>
                   )}
-                  disabled={submittingAction || undoingAction}
-                  manageHref={founderContextHref}
-                  onChange={(level, persistentExclusionConfirmed) =>
-                    void handleOverrideChange(
-                      currentQueueRow.customer_source_id,
-                      level,
-                      currentQueueRow.override_level,
-                      persistentExclusionConfirmed
-                    )
-                  }
-                />
+                  {uncertainAttempt && (
+                    <Button variant="secondary" size="md" onClick={() => void handleRecordOutcome(null, true)}
+                      disabled={disableQueueActions}>Retry save</Button>
+                  )}
+                </div>
+
+                <details className="rounded-md border border-gray-200 bg-white px-3 py-2">
+                  <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900">
+                    Customer context
+                  </summary>
+                  <div className="pt-2">
+                    <FounderContextControl
+                      customerName={currentQueueRow.customer_name}
+                      value={currentQueueRow.override_level}
+                      saving={Boolean(
+                        updatingOverrideByCustomerId[currentQueueRow.customer_source_id]
+                      )}
+                      disabled={submittingAction || undoingAction}
+                      manageHref={founderContextHref}
+                      onChange={(level, persistentExclusionConfirmed) =>
+                        void handleOverrideChange(
+                          currentQueueRow.customer_source_id,
+                          level,
+                          currentQueueRow.override_level,
+                          persistentExclusionConfirmed
+                        )
+                      }
+                    />
+                  </div>
+                </details>
               </div>
             )}
 
             {queueFeedback && (
-              <p className="text-sm text-green-700" role="status" aria-live="polite">
-                {queueFeedback}
-              </p>
+              <div className="flex flex-wrap items-center gap-2 text-sm text-green-700" role="status" aria-live="polite">
+                <span>{queueFeedback}</span>
+                {lastAction && (
+                  <Button variant="ghost" size="sm" onClick={() => void handleUndoLastAction()}
+                    disabled={disableQueueActions}>
+                    {undoingAction ? 'Undoing…' : 'Undo'}
+                  </Button>
+                )}
+              </div>
             )}
           </div>
         </Card>

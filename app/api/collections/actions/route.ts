@@ -618,7 +618,7 @@ export async function GET(request: NextRequest) {
           reason: row.reason,
           score_breakdown_lines: row.score_breakdown_lines,
           first_value_reasons: buildFirstValueReasons(row, {
-            eligibleCustomerCount: remainingCustomerCount,
+            eligibleCustomerCount: filteredRows.length,
           }),
           organisation_base_currency_code: organisationBaseCurrency,
           currency_code: organisationBaseCurrency,

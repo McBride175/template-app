@@ -323,7 +323,7 @@ export function InvoiceDisputeList({
                     {invoice.isActive && invoice.disputeId && (
                       <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => void mutate('resolve', {
                         disputeId: invoice.disputeId, expected_revision: invoice.revision,
-                      }, 'Dispute resolved. Remaining debt is collectible again.')}>Resolve dispute</button>
+                      }, 'Dispute resolved.')}>Resolve dispute</button>
                     )}
                     {invoice.needsReview && invoice.disputeId && (
                       <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => void mutate('confirm', {

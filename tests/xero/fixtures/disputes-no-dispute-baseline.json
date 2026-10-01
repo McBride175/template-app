@@ -1,6 +1,6 @@
 {
   "baselineCommit": "b63de215141318f07ca30912500920b0c38d2318",
-  "description": "Synthetic portfolio output captured from the pre-dispute-scoring customer summary and routes; only original contract fields, no calendar dates.",
+  "description": "Synthetic portfolio output captured from the pre-dispute-scoring customer summary and routes; only original contract fields, no calendar dates. Phase 4 updates explanation text only; all frozen accounting, component, score and ordering values are unchanged.",
   "expected": {
     "customers": [
       {
@@ -149,17 +149,18 @@
         "final_score": 80.3,
         "priority_score": 80.3,
         "recommended_action": "Review now",
-        "reason": "Ranked for review now because this customer has £12,000 overdue, equal to 100.0% of the largest eligible overdue balance (50.0% of total overdue AR) and the current overdue position is 40 days later than this customer's recent normal payment timing.",
+        "reason": "Ranked for review now because this customer has £12,000 overdue to chase, equal to 100.0% of the largest overdue To chase in the portfolio (50.0% of total overdue To chase) and the current overdue position is 40 days later than this customer's recent normal payment timing.",
         "score_breakdown_lines": [
-          "Exposure inputs: customer overdue AR = 12000.00; total overdue AR = 24000.00; share of total = 50.0%; largest customer overdue AR = 12000.00",
-          "Exposure: (12000.00 / 12000.00 = 100.0%) -> 100.0/100 × 0.50 = 50.0",
+          "Display values are rounded; calculations use unrounded components before rounding the base score and applying the override.",
+          "Exposure inputs: customer overdue To chase = 12000.00; total overdue To chase = 24000.00; share of total = 50.0%; largest customer overdue To chase = 12000.00",
+          "Exposure: (12000.00 / 12000.00 ≈ 100.0%) -> 100.0 × 0.50 ≈ 50.0 points",
           "Urgency inputs: customer weighted avg overdue days = 60.0; portfolio weighted avg overdue days = 58.8; portfolio max weighted avg overdue days = 90.0",
-          "Urgency: (52 + invoice bonus 5 = 57)/100 × 0.25 = 14.3",
+          "Urgency: (52.0 + invoice bonus 5, cap 100 -> 57.0) × 0.25 ≈ 14.3 points",
           "Customer-relative deterioration input: 40.0 days versus recent normal",
-          "Customer-relative deterioration: 100.0/100 × 0.15 = 15.0",
+          "Customer-relative deterioration: 100.0 × 0.15 ≈ 15.0 points",
           "Payment recency input: last payment = 7 days ago",
-          "Payment recency: 10/100 × 0.10 = 1.0",
-          "Total: 50.0 + 14.3 + 15.0 + 1.0 = 80.3 (rounded to 1 dp: 80.3)",
+          "Payment recency: 10 × 0.10 = 1.0 points",
+          "Total: 50.0 + 14.3 + 15.0 + 1.0 ≈ 80.3 (rounded to 1 dp: 80.3)",
           "Override: Normal",
           "Multiplier: x1.00",
           "Base score: 80.3",
@@ -168,7 +169,7 @@
         "first_value_reasons": [
           {
             "kind": "exposure",
-            "text": "£12,000 overdue — the largest eligible overdue balance in the current queue."
+            "text": "£12,000 overdue to chase — the largest overdue To chase in the portfolio."
           },
           {
             "kind": "deterioration",
@@ -208,17 +209,18 @@
         "final_score": 57.9,
         "priority_score": 57.9,
         "recommended_action": "Follow up",
-        "reason": "Ranked for prompt follow-up because this customer has £4,000 overdue, equal to 33.3% of the largest eligible overdue balance (16.7% of total overdue AR) and no payment history is available, so payment recency adds maximum priority. Your Priority adjustment then increases the accounting score.",
+        "reason": "Ranked for prompt follow-up because this customer has £4,000 overdue to chase, equal to 33.3% of the largest overdue To chase in the portfolio (16.7% of total overdue To chase) and no payment history is available, so payment recency adds maximum priority. Your Priority adjustment then increases the accounting score.",
         "score_breakdown_lines": [
-          "Exposure inputs: customer overdue AR = 4000.00; total overdue AR = 24000.00; share of total = 16.7%; largest customer overdue AR = 12000.00",
-          "Exposure: (4000.00 / 12000.00 = 33.3%) -> 33.3/100 × 0.50 = 16.7",
+          "Display values are rounded; calculations use unrounded components before rounding the base score and applying the override.",
+          "Exposure inputs: customer overdue To chase = 4000.00; total overdue To chase = 24000.00; share of total = 16.7%; largest customer overdue To chase = 12000.00",
+          "Exposure: (4000.00 / 12000.00 ≈ 33.3%) -> 33.3 × 0.50 ≈ 16.7 points",
           "Urgency inputs: customer weighted avg overdue days = 45.0; portfolio weighted avg overdue days = 58.8; portfolio max weighted avg overdue days = 90.0",
-          "Urgency: (38 + invoice bonus 0 = 38)/100 × 0.25 = 9.6",
+          "Urgency: (38.3 + invoice bonus 0, cap 100 -> 38.3) × 0.25 ≈ 9.6 points",
           "Customer-relative deterioration input: not enough recent payment history to assess deterioration",
-          "Customer-relative deterioration: 0.0/100 × 0.15 = 0.0",
+          "Customer-relative deterioration: 0.0 × 0.15 ≈ 0.0 points",
           "Payment recency input: last payment = no payment history",
-          "Payment recency: 100/100 × 0.10 = 10.0",
-          "Total: 16.7 + 9.6 + 0.0 + 10.0 = 36.2 (rounded to 1 dp: 36.2)",
+          "Payment recency: 100 × 0.10 = 10.0 points",
+          "Total: 16.7 + 9.6 + 0.0 + 10.0 ≈ 36.2 (rounded to 1 dp: 36.2)",
           "Override: Priority",
           "Multiplier: x1.60",
           "Base score: 36.2",
@@ -227,7 +229,7 @@
         "first_value_reasons": [
           {
             "kind": "exposure",
-            "text": "£4,000 overdue — 17% of the eligible overdue balance."
+            "text": "£4,000 overdue to chase — 17% of the portfolio's overdue To chase."
           },
           {
             "kind": "payment_recency",
@@ -271,17 +273,18 @@
         "final_score": 10.7,
         "priority_score": 10.7,
         "recommended_action": "Monitor",
-        "reason": "Ranked for monitoring because this customer has £3,000 overdue, equal to 25.0% of the largest eligible overdue balance (12.5% of total overdue AR) and no payment history is available, so payment recency adds maximum priority. Your Safe adjustment then reduces the accounting score.",
+        "reason": "Ranked for monitoring because this customer has £3,000 overdue to chase, equal to 25.0% of the largest overdue To chase in the portfolio (12.5% of total overdue To chase) and no payment history is available, so payment recency adds maximum priority. Your Safe adjustment then reduces the accounting score.",
         "score_breakdown_lines": [
-          "Exposure inputs: customer overdue AR = 3000.00; total overdue AR = 24000.00; share of total = 12.5%; largest customer overdue AR = 12000.00",
-          "Exposure: (3000.00 / 12000.00 = 25.0%) -> 25.0/100 × 0.50 = 12.5",
+          "Display values are rounded; calculations use unrounded components before rounding the base score and applying the override.",
+          "Exposure inputs: customer overdue To chase = 3000.00; total overdue To chase = 24000.00; share of total = 12.5%; largest customer overdue To chase = 12000.00",
+          "Exposure: (3000.00 / 12000.00 ≈ 25.0%) -> 25.0 × 0.50 ≈ 12.5 points",
           "Urgency inputs: customer weighted avg overdue days = 20.0; portfolio weighted avg overdue days = 58.8; portfolio max weighted avg overdue days = 90.0",
-          "Urgency: (17 + invoice bonus 0 = 17)/100 × 0.25 = 4.3",
+          "Urgency: (17.0 + invoice bonus 0, cap 100 -> 17.0) × 0.25 ≈ 4.3 points",
           "Customer-relative deterioration input: not enough recent payment history to assess deterioration",
-          "Customer-relative deterioration: 0.0/100 × 0.15 = 0.0",
+          "Customer-relative deterioration: 0.0 × 0.15 ≈ 0.0 points",
           "Payment recency input: last payment = no payment history",
-          "Payment recency: 100/100 × 0.10 = 10.0",
-          "Total: 12.5 + 4.3 + 0.0 + 10.0 = 26.8 (rounded to 1 dp: 26.8)",
+          "Payment recency: 100 × 0.10 = 10.0 points",
+          "Total: 12.5 + 4.3 + 0.0 + 10.0 ≈ 26.8 (rounded to 1 dp: 26.8)",
           "Override: Safe",
           "Multiplier: x0.40",
           "Base score: 26.8",
@@ -290,7 +293,7 @@
         "first_value_reasons": [
           {
             "kind": "exposure",
-            "text": "£3,000 overdue — 13% of the eligible overdue balance."
+            "text": "£3,000 overdue to chase — 13% of the portfolio's overdue To chase."
           },
           {
             "kind": "payment_recency",
@@ -336,15 +339,16 @@
         "recommended_action": "No action",
         "reason": "No chase is suggested because you set this customer to Never chase. The accounting signals remain visible in the score breakdown, but the adjustment sets the final score to 0.",
         "score_breakdown_lines": [
-          "Exposure inputs: customer overdue AR = 5000.00; total overdue AR = 24000.00; share of total = 20.8%; largest customer overdue AR = 12000.00",
-          "Exposure: (5000.00 / 12000.00 = 41.7%) -> 41.7/100 × 0.50 = 20.8",
+          "Display values are rounded; calculations use unrounded components before rounding the base score and applying the override.",
+          "Exposure inputs: customer overdue To chase = 5000.00; total overdue To chase = 24000.00; share of total = 20.8%; largest customer overdue To chase = 12000.00",
+          "Exposure: (5000.00 / 12000.00 ≈ 41.7%) -> 41.7 × 0.50 ≈ 20.8 points",
           "Urgency inputs: customer weighted avg overdue days = 90.0; portfolio weighted avg overdue days = 58.8; portfolio max weighted avg overdue days = 90.0",
-          "Urgency: (100 + invoice bonus 0 = 100)/100 × 0.25 = 25.0",
+          "Urgency: (100.0 + invoice bonus 0, cap 100 -> 100.0) × 0.25 ≈ 25.0 points",
           "Customer-relative deterioration input: not enough recent payment history to assess deterioration",
-          "Customer-relative deterioration: 0.0/100 × 0.15 = 0.0",
+          "Customer-relative deterioration: 0.0 × 0.15 ≈ 0.0 points",
           "Payment recency input: last payment = no payment history",
-          "Payment recency: 100/100 × 0.10 = 10.0",
-          "Total: 20.8 + 25.0 + 0.0 + 10.0 = 55.8 (rounded to 1 dp: 55.8)",
+          "Payment recency: 100 × 0.10 = 10.0 points",
+          "Total: 20.8 + 25.0 + 0.0 + 10.0 ≈ 55.8 (rounded to 1 dp: 55.8)",
           "Override: Never chase",
           "Multiplier: x0.00",
           "Base score: 55.8",
@@ -357,7 +361,7 @@
           },
           {
             "kind": "exposure",
-            "text": "£5,000 overdue — 21% of the eligible overdue balance."
+            "text": "£5,000 overdue to chase — 21% of the portfolio's overdue To chase."
           }
         ]
       }

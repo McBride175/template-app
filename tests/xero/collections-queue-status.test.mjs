@@ -1053,7 +1053,7 @@ test('queue UI renders degraded review and unavailable states without hiding saf
   assert.match(source, /invoiced/)
   assert.doesNotMatch(source, /CurrencyRate/)
   assert.match(source, /queueInfo\?\.status === 'no_overdue_customers'/)
-  assert.match(source, /No overdue customers/)
+  assert.match(source, /No overdue amount to chase/)
   assert.match(source, /queueInfo\?\.status === 'complete_today'/)
   assert.match(
     source,

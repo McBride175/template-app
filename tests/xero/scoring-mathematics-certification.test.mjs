@@ -174,10 +174,10 @@ test('founder multiplication follows base rounding, precedes final rounding/rank
 test('display-rounded components never feed the weighted composite', () => {
   const input = customer({ overdue_invoices_count: 3, relative_lateness_days: null })
   const scored = prioritiseCustomer(input, context)
-  // Urgency is 72.5, but its narrative rounds to 73. Using that display value
+  // Urgency is 72.5. Rounding the component to an integer before weighting
   // would produce 47.25 -> 47.3, instead of the correct 47.125 -> 47.1.
   assert.equal(scored.urgency_score, 72.5); assert.equal(scored.base_score, 47.1)
-  assert.match(scored.score_breakdown_lines.join('\n'), /invoice bonus 10 = 73/)
+  assert.match(scored.score_breakdown_lines.join('\n'), /invoice bonus 10, cap 100 -> 72\.5/)
   const again = prioritiseCustomer({ ...input, ...scored, base_score: 999, priority_score: 999,
     score_breakdown_lines: ['999'] }, context)
   assert.equal(again.base_score, 47.1)

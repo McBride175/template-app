@@ -566,8 +566,10 @@ export default function CollectionActionsClient({
     setActionNote('')
   }, [])
 
+  const loadRequestId = useRef(0)
   const loadRows = useCallback(
     async (manualRefresh: boolean) => {
+      const requestId = ++loadRequestId.current
       if (manualRefresh) {
         setRefreshing(true)
       } else {
@@ -591,12 +593,14 @@ export default function CollectionActionsClient({
           credentials: 'include',
         })
 
+        if (requestId !== loadRequestId.current) return null
         if (response.status === 401) {
           router.replace(buildLoginPath(effectiveLoginNextPath, 'session_expired'))
           return null
         }
 
         const payload = (await response.json().catch(() => null)) as CollectionActionsApiResponse | null
+        if (requestId !== loadRequestId.current) return null
         if (payload?.entitlement) {
           setEntitlement(payload.entitlement)
         }
@@ -672,20 +676,25 @@ export default function CollectionActionsClient({
           actionsTakenByCustomerId: nextActionsTakenByCustomerId,
         } satisfies LoadedCollectionActions
       } catch (fetchError) {
+        if (requestId !== loadRequestId.current) return null
         setError(
           fetchError instanceof Error ? fetchError.message : 'Failed to load collection actions.'
         )
         return null
       } finally {
-        setLoading(false)
-        setRefreshing(false)
+        if (requestId === loadRequestId.current) {
+          setLoading(false)
+          setRefreshing(false)
+        }
       }
     },
     [effectiveLoginNextPath, effectiveOverdueOnly, router, tenantId]
   )
 
   useEffect(() => {
+    const requests = loadRequestId
     void loadRows(false)
+    return () => { requests.current++ }
   }, [loadRows])
 
   useEffect(() => subscribePromiseActionability(tenantId, () => { void loadRows(true) }), [tenantId, loadRows])
@@ -1320,9 +1329,9 @@ export default function CollectionActionsClient({
               </div>
             ) : !loading && queueInfo?.status === 'no_overdue_customers' ? (
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">No overdue customers</h3>
+                <h3 className="text-lg font-semibold text-gray-900">No overdue amount to chase</h3>
                 <p className="text-sm text-gray-600">
-                  No mapped customers currently have overdue receivables.
+                  No mapped customers currently have an overdue amount to chase.
                 </p>
               </div>
             ) : !loading && queueInfo?.status === 'no_eligible_customers' ? (
@@ -1480,7 +1489,7 @@ export default function CollectionActionsClient({
                             currentQueueRow.collectible_native_currency_breakdown,
                             'collectible_overdue_native'
                           )}{' '}
-                          collectible in invoice currency
+                          to chase in invoice currency
                         </p>
                       )}
                   </div>
@@ -1687,7 +1696,7 @@ export default function CollectionActionsClient({
                               row.collectible_native_currency_breakdown,
                               'collectible_overdue_native'
                             )}{' '}
-                            collectible in invoice currency
+                            to chase in invoice currency
                           </p>
                         )}
                     </td>

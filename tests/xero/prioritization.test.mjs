@@ -230,7 +230,7 @@ test('missing history and sufficient history with no deterioration both contribu
   assert.equal(materiallyDeteriorated.relative_lateness_score, 100)
   assert.equal(materiallyDeteriorated.base_score, insufficient.base_score + 15)
   assert.match(insufficient.score_breakdown_lines.join('\n'), /not enough recent payment history/i)
-  assert.match(insufficient.score_breakdown_lines.join('\n'), /0\.0\/100 × 0\.15 = 0\.0/)
+  assert.match(insufficient.score_breakdown_lines.join('\n'), /0\.0 × 0\.15 ≈ 0\.0 points/)
 })
 
 test('the existing founder multiplier and rounding order remain unchanged', () => {
@@ -256,8 +256,8 @@ test('primary reasons distinguish score denominators and user adjustments', () =
   const priority = prioritiseCustomer(buildCustomer(), context, 'priority')
   const doNotChase = prioritiseCustomer(buildCustomer(), context, 'do_not_chase')
 
-  assert.match(normal.reason, /50\.0% of the largest eligible overdue balance/i)
-  assert.match(normal.reason, /33\.3% of total overdue AR/i)
+  assert.match(normal.reason, /50\.0% of the largest overdue To chase in the portfolio/i)
+  assert.match(normal.reason, /33\.3% of total overdue To chase/i)
   assert.match(safe.reason, /Safe adjustment.*reduces the accounting score/i)
   assert.match(priority.reason, /Priority adjustment.*increases the accounting score/i)
   assert.match(doNotChase.reason, /^No chase is suggested because you set this customer to Never chase\./)

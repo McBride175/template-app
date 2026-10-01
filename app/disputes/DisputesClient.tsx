@@ -64,7 +64,7 @@ export default function DisputesClient({ tenantId, query }: {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">Disputes</h1>
-          <p className="mt-1 text-sm text-gray-600">Review disputed invoices and the debt that remains collectible.</p>
+          <p className="mt-1 text-sm text-gray-600">Review disputed invoices and the debt that remains to chase.</p>
         </div>
         <button type="button" className="min-h-11 rounded-md border px-4 text-sm" disabled={loading || mutating}
           onClick={() => void reload(true)}>{loading ? 'Refreshing…' : 'Refresh disputes'}</button>

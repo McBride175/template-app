@@ -69,12 +69,12 @@ export function buildFirstValueReasons(
 
   if (row.exposure_score > 0) {
     const isLargestComparison =
-      options.eligibleCustomerCount > 1 && row.exposure_relative_to_largest_percent >= 99.95
+      options.eligibleCustomerCount > 1 && row.exposure_relative_to_largest_percent >= 100
     const exposureText = isLargestComparison
-      ? `${amount} overdue — the largest eligible overdue balance in the current queue.`
+      ? `${amount} overdue to chase — the largest overdue To chase in the portfolio.`
       : options.eligibleCustomerCount > 1 && row.exposure_share_percent > 0
-        ? `${amount} overdue — ${Math.round(row.exposure_share_percent)}% of the eligible overdue balance.`
-        : `${amount} overdue across ${row.overdue_invoices_count} invoice${row.overdue_invoices_count === 1 ? '' : 's'}.`
+        ? `${amount} overdue to chase — ${Math.round(row.exposure_share_percent)}% of the portfolio's overdue To chase.`
+        : `${amount} overdue to chase across ${row.overdue_invoices_count} invoice${row.overdue_invoices_count === 1 ? '' : 's'}.`
 
     candidates.push({
       kind: 'exposure',
@@ -138,7 +138,7 @@ export function buildFirstValueReasons(
   if (reasons.length === 0) {
     reasons.push({
       kind: 'exposure',
-      text: `${amount} is currently overdue.`,
+      text: `${amount} is currently overdue to chase.`,
     })
   }
 

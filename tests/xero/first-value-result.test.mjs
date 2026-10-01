@@ -37,7 +37,7 @@ test('first-value reasons use the strongest implemented scoring facts', () => {
 
   assert.deepEqual(reasons.map((reason) => reason.kind), ['exposure', 'urgency'])
   assert.match(reasons[0].text, /£18,400 overdue/)
-  assert.match(reasons[0].text, /largest eligible overdue balance/i)
+  assert.match(reasons[0].text, /largest overdue To chase in the portfolio/i)
   assert.match(reasons[1].text, /47 days overdue on average/i)
   assert.match(reasons[1].text, /3 invoices/i)
 })
@@ -168,8 +168,8 @@ test('first-value action headline renders the canonical customer amount', () => 
       currencyHealth: { status: 'healthy', affectedInvoiceCount: 0, affectedCustomerCount: 0 },
     }, tenantId: 'tenant-a', organisationName: 'Example', lastSyncedAt: null,
   }))
-  assert.match(html, /£700 overdue to collect/)
-  assert.doesNotMatch(html, /£1,000 overdue to collect/)
+  assert.match(html, /£700 overdue to chase/)
+  assert.doesNotMatch(html, /£1,000 overdue to chase/)
 })
 
 test('successful empty outcomes distinguish no overdue debt from no current action', () => {

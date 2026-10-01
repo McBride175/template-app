@@ -150,7 +150,7 @@ function describeExposureDriver(
   const shareOfTotal = `${exposureSharePercent.toFixed(1)}%`
 
   if (exposureSharePercent > 0) {
-    return `this customer has ${amount} overdue, equal to ${relativeToLargest} of the largest eligible overdue balance (${shareOfTotal} of total overdue AR)`
+    return `this customer has ${amount} overdue to chase, equal to ${relativeToLargest} of the largest overdue To chase in the portfolio (${shareOfTotal} of total overdue To chase)`
   }
 
   return 'there is no overdue receivable exposure for this customer'
@@ -421,7 +421,7 @@ export function buildReason(
   overrideLevel: CustomerOverrideLevel = DEFAULT_OVERRIDE_LEVEL
 ) {
   if (!row.has_actionable_overdue_balance) {
-    return 'No chase needed: there are no overdue receivables.'
+    return 'No chase needed: there is no overdue amount to chase.'
   }
 
   const { exposureSharePercent, exposureRelativeToLargestPercent, exposureScore } = computeExposureComponents(
@@ -570,8 +570,6 @@ export function prioritiseCustomer(
   const finalScore = Number(
     (baseScore * overrideMultiplier).toFixed(PRIORITIZATION_CONFIG.scoreDecimalPlaces)
   )
-  const roundedUrgencyBaseScore = Math.round(urgencyBaseScore)
-  const roundedUrgencyScore = Math.round(urgencyScore)
 
   const recommendedAction = recommendAction(row, finalScore)
   const reason = buildReason(
@@ -589,15 +587,16 @@ export function prioritiseCustomer(
       ? 'not enough recent payment history to assess deterioration'
       : `${row.relative_lateness_days.toFixed(1)} days versus recent normal`
   const scoreBreakdownLines = [
-    `Exposure inputs: customer overdue AR = ${customerOverdueOutstanding.toFixed(2)}; total overdue AR = ${normalizedTotalOverdue.toFixed(2)}; share of total = ${exposureSharePercent.toFixed(1)}%; largest customer overdue AR = ${normalizedMaxOverdue.toFixed(2)}`,
-    `Exposure: (${customerOverdueOutstanding.toFixed(2)} / ${normalizedMaxOverdue.toFixed(2)} = ${exposureRelativeToLargestPercent.toFixed(1)}%) -> ${exposureScore.toFixed(1)}/100 × ${PRIORITIZATION_CONFIG.weights.exposure.toFixed(2)} = ${weightedExposure.toFixed(1)}`,
+    'Display values are rounded; calculations use unrounded components before rounding the base score and applying the override.',
+    `Exposure inputs: customer overdue To chase = ${customerOverdueOutstanding.toFixed(2)}; total overdue To chase = ${normalizedTotalOverdue.toFixed(2)}; share of total = ${exposureSharePercent.toFixed(1)}%; largest customer overdue To chase = ${normalizedMaxOverdue.toFixed(2)}`,
+    `Exposure: ${normalizedMaxOverdue > 0 && normalizedTotalOverdue > 0 ? `(${customerOverdueOutstanding.toFixed(2)} / ${normalizedMaxOverdue.toFixed(2)} ≈ ${exposureRelativeToLargestPercent.toFixed(1)}%)` : '(no positive portfolio benchmark; score 0)'} -> ${exposureScore.toFixed(1)} × ${PRIORITIZATION_CONFIG.weights.exposure.toFixed(2)} ≈ ${weightedExposure.toFixed(1)} points`,
     `Urgency inputs: customer weighted avg overdue days = ${urgencyWeightedAvgDays.toFixed(1)}; portfolio weighted avg overdue days = ${portfolioAvgWeightedDays.toFixed(1)}; portfolio max weighted avg overdue days = ${portfolioMaxWeightedDays.toFixed(1)}`,
-    `Urgency: (${roundedUrgencyBaseScore} + invoice bonus ${invoiceCountBonus} = ${roundedUrgencyScore})/100 × ${PRIORITIZATION_CONFIG.weights.urgency.toFixed(2)} = ${weightedUrgency.toFixed(1)}`,
+    `Urgency: (${urgencyBaseScore.toFixed(1)} + invoice bonus ${invoiceCountBonus}, cap 100 -> ${urgencyScore.toFixed(1)}) × ${PRIORITIZATION_CONFIG.weights.urgency.toFixed(2)} ≈ ${weightedUrgency.toFixed(1)} points`,
     `Customer-relative deterioration input: ${relativeLatenessInput}`,
-    `Customer-relative deterioration: ${relativeLatenessScore.toFixed(1)}/100 × ${PRIORITIZATION_CONFIG.weights.relativeDeterioration.toFixed(2)} = ${weightedRelativeDeterioration.toFixed(1)}`,
+    `Customer-relative deterioration: ${relativeLatenessScore.toFixed(1)} × ${PRIORITIZATION_CONFIG.weights.relativeDeterioration.toFixed(2)} ≈ ${weightedRelativeDeterioration.toFixed(1)} points`,
     `Payment recency input: last payment = ${behaviourDaysInput}`,
-    `Payment recency: ${behaviourBaseScore}/100 × ${PRIORITIZATION_CONFIG.weights.behaviour.toFixed(2)} = ${weightedPaymentRecency.toFixed(1)}`,
-    `Total: ${weightedExposure.toFixed(1)} + ${weightedUrgency.toFixed(1)} + ${weightedRelativeDeterioration.toFixed(1)} + ${weightedPaymentRecency.toFixed(1)} = ${rawScore.toFixed(1)} (rounded to ${PRIORITIZATION_CONFIG.scoreDecimalPlaces} dp: ${baseScore.toFixed(1)})`,
+    `Payment recency: ${behaviourBaseScore} × ${PRIORITIZATION_CONFIG.weights.behaviour.toFixed(2)} = ${weightedPaymentRecency.toFixed(1)} points`,
+    `Total: ${weightedExposure.toFixed(1)} + ${weightedUrgency.toFixed(1)} + ${weightedRelativeDeterioration.toFixed(1)} + ${weightedPaymentRecency.toFixed(1)} ≈ ${rawScore.toFixed(1)} (rounded to ${PRIORITIZATION_CONFIG.scoreDecimalPlaces} dp: ${baseScore.toFixed(1)})`,
     `Override: ${getOverrideLabel(normalizedOverrideLevel)}`,
     `Multiplier: x${overrideMultiplier.toFixed(2)}`,
     `Base score: ${baseScore.toFixed(1)}`,

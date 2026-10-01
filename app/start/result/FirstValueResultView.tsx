@@ -262,7 +262,7 @@ export default function FirstValueResultView({
           </h1>
           <p className="mt-4 text-lg leading-relaxed text-gray-700">
             Yuohme analysed {data.queue.mappedCustomerCount} customer
-            {data.queue.mappedCustomerCount === 1 ? '' : 's'} and found no overdue receivables.
+            {data.queue.mappedCustomerCount === 1 ? '' : 's'} and found no overdue amount to chase.
           </p>
           <div className="mt-5">
             <AnalysisStamp
@@ -376,7 +376,7 @@ export default function FirstValueResultView({
                   {first.customer_name}
                 </h2>
                 <p className="mt-2 text-xl font-semibold text-gray-900">
-                  {formatMoney(first.customer_to_chase_overdue_base, data.organisationBaseCurrency)} overdue to collect
+                  {formatMoney(first.customer_to_chase_overdue_base, data.organisationBaseCurrency)} overdue to chase
                 </p>
                 {first.overdue_outstanding_base !== null &&
                   first.overdue_outstanding_base > first.collectible_overdue_base && (
@@ -437,7 +437,7 @@ export default function FirstValueResultView({
                   </p>
                   <h3 className="mt-2 text-lg font-semibold text-gray-950">{row.customer_name}</h3>
                   <p className="mt-1 text-sm font-medium text-gray-800">
-                    {formatMoney(row.customer_to_chase_overdue_base, data.organisationBaseCurrency)} overdue to collect
+                    {formatMoney(row.customer_to_chase_overdue_base, data.organisationBaseCurrency)} overdue to chase
                   </p>
                   <p className="mt-3 text-sm leading-relaxed text-gray-600">
                     {row.first_value_reasons[0]?.text ?? 'Current accounting signals place this customer next.'}

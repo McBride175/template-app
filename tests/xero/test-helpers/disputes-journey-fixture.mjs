@@ -28,7 +28,7 @@ export function journeyInvoice(id, customerId, amount, extra = {}) {
 export function createDisputesJourney({ invoices = [
   journeyInvoice('a', 'acme', 10000), journeyInvoice('b', 'baker', 8000),
   journeyInvoice('c', 'cedar', 2000),
-], paths = {} } = {}) {
+], paths = {}, observeScoring } = {}) {
   let userId = USER_ID
   let generation = 1
   let sequence = 0
@@ -52,11 +52,12 @@ export function createDisputesJourney({ invoices = [
     let page = null, limit = null, changes = null, insert = null, head = false
     const run = () => {
       if (insert) {
-        const keys = ['user_id', 'tenant_id', 'source_system', 'invoice_source_id']
+        const keys = table === 'collection_actions' ? ['id'] : ['user_id', 'tenant_id', 'source_system', 'invoice_source_id']
         if (tables[table].some((row) => keys.every((key) => row[key] === insert[key]))) {
           return { data: null, error: { code: '23505' } }
         }
         tables[table].push({ id: `dispute-${++sequence}`, revision: 1,
+          ...(table === 'collection_actions' ? { action_timestamp: new Date().toISOString() } : {}),
           created_at: new Date().toISOString(), updated_at: new Date().toISOString(), ...insert })
       }
       let rows = insert ? tables[table].slice(-1) : tables[table].filter((row) => filters.every((filter) => filter(row)))
@@ -139,6 +140,13 @@ export function createDisputesJourney({ invoices = [
     },
   }
   if (paths.summary) mocks['@/lib/collections/customer-summary'] = loadTypeScriptModule(paths.summary, { mocks })
+  if (observeScoring) {
+    const scoring = loadTypeScriptModule('lib/collections/prioritization.ts')
+    mocks['@/lib/collections/prioritization'] = { ...scoring, prioritiseCustomer(...args) {
+      observeScoring(...structuredClone(args))
+      return scoring.prioritiseCustomer(...args)
+    } }
+  }
   const mutation = loadTypeScriptModule('app/api/collections/invoice-disputes/route.ts', { mocks })
   const worklist = loadTypeScriptModule('app/api/collections/disputes/route.ts', { mocks })
   const customers = loadTypeScriptModule(paths.customers ?? 'app/api/collections/customers/route.ts', { mocks })

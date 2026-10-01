@@ -123,12 +123,14 @@ function canonicalRows(syncRunId, prefix, options = {}) {
   const transactionCurrency = options.transactionCurrency ?? baseCurrency
   return {
     organisation: {
+      source_system: 'xero',
       user_id: USER_ID,
       tenant_id: TENANT_ID,
       sync_run_id: syncRunId,
       base_currency_code: baseCurrency,
     },
     customer: {
+      source_system: 'xero',
       user_id: USER_ID,
       tenant_id: TENANT_ID,
       sync_run_id: syncRunId,
@@ -140,6 +142,7 @@ function canonicalRows(syncRunId, prefix, options = {}) {
       status: 'ACTIVE',
     },
     invoice: {
+      source_system: 'xero',
       user_id: USER_ID,
       tenant_id: TENANT_ID,
       sync_run_id: syncRunId,
@@ -162,6 +165,7 @@ function canonicalRows(syncRunId, prefix, options = {}) {
       currency_conversion_failure_reason: null,
     },
     payment: {
+      source_system: 'xero',
       user_id: USER_ID,
       tenant_id: TENANT_ID,
       sync_run_id: syncRunId,

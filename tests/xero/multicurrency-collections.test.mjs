@@ -128,11 +128,11 @@ async function loadSummary({ baseCurrency = 'GBP', customers, invoices, payments
     xero_sync_tenant_state: [],
     xero_sync_runs: [],
     canonical_organisations: baseCurrency
-      ? [{ user_id: USER_ID, tenant_id: TENANT_ID, base_currency_code: baseCurrency }]
+      ? [{ user_id: USER_ID, tenant_id: TENANT_ID, source_system: 'xero', base_currency_code: baseCurrency }]
       : [],
-    canonical_customers: customers,
+    canonical_customers: customers.map(row => ({ source_system: 'xero', ...row })),
     canonical_invoices: invoices,
-    canonical_payments: payments,
+    canonical_payments: payments.map(row => ({ source_system: 'xero', ...row })),
     invoice_disputes: disputes,
     invoice_promises: [],
   }

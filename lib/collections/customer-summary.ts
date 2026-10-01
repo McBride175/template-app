@@ -573,6 +573,7 @@ async function fetchCanonicalCustomers(
       .select('source_id, name, email, is_customer, is_supplier, status')
       .eq('user_id', snapshot.userId)
       .eq('tenant_id', snapshot.tenantId)
+      .eq('source_system', 'xero')
     if (customerSourceId) query = query.eq('source_id', customerSourceId)
     const { data, error } = await applyXeroAuthoritativeSnapshot(query, snapshot)
       .order('source_id', { ascending: true })
@@ -600,6 +601,7 @@ async function fetchCanonicalOrganisations(
     .select('base_currency_code, source_timezone, country_code')
     .eq('user_id', snapshot.userId)
     .eq('tenant_id', snapshot.tenantId)
+    .eq('source_system', 'xero')
   const { data, error } = await applyXeroAuthoritativeSnapshot(query, snapshot)
     .order('source_retrieved_at', { ascending: false })
 
@@ -625,6 +627,7 @@ async function fetchCanonicalInvoices(
       )
       .eq('user_id', snapshot.userId)
       .eq('tenant_id', snapshot.tenantId)
+      .eq('source_system', 'xero')
     if (customerSourceId) query = query.eq('customer_source_id', customerSourceId)
     const { data, error } = await applyXeroAuthoritativeSnapshot(query, snapshot)
       .order('source_id', { ascending: true })
@@ -657,6 +660,7 @@ async function fetchCanonicalPayments(
       .select('invoice_source_id, customer_source_id, payment_date')
       .eq('user_id', snapshot.userId)
       .eq('tenant_id', snapshot.tenantId)
+      .eq('source_system', 'xero')
     if (customerSourceId) query = query.eq('customer_source_id', customerSourceId)
     if (invoiceSourceIds) query = query.in('invoice_source_id', invoiceSourceIds).is('customer_source_id', null)
     const { data, error } = await applyXeroAuthoritativeSnapshot(query, snapshot)
@@ -1119,7 +1123,9 @@ export async function loadCustomerCollectionsSummaryWithMetadata(
     const collectibleOverdueBaseDecimal =
       sumDecimalValues(row.collectible_overdue_base_amounts) ?? '0'
     const weightedDaysNumeratorDecimal =
-      sumDecimalValues(row.overdue_weighted_days_numerator_amounts) ?? '0'
+      // An empty sum is already zero. Preserve a failed exact sum so the range
+      // check below rejects it instead of scoring aged debt as zero days old.
+      sumDecimalValues(row.overdue_weighted_days_numerator_amounts)
     const totalOutstandingBase = decimalValueToFiniteNumber(totalOutstandingBaseDecimal)
     const overdueOutstandingBase = decimalValueToFiniteNumber(overdueOutstandingBaseDecimal)
     const collectibleOutstandingBase = decimalValueToFiniteNumber(collectibleOutstandingBaseDecimal)

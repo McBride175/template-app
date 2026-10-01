@@ -15,9 +15,9 @@ const scoped = async app => app.customers('scopeCustomerSourceId=acme')
 test('customer refresh reads and derives only that customer, preserving recency invoice fallback', async () => {
   const app = createDisputesJourney({ invoices: [journeyInvoice('a', 'acme', 9000), journeyInvoice('b', 'baker', 8000)] })
   commitment(app)
-  app.tables.canonical_payments.push({ user_id: USER_ID, tenant_id: TENANT_ID, sync_run_id: 'generation-1', source_id: 'p-a',
+  app.tables.canonical_payments.push({ user_id: USER_ID, tenant_id: TENANT_ID, source_system: 'xero', sync_run_id: 'generation-1', source_id: 'p-a',
     invoice_source_id: 'a', customer_source_id: null, payment_date: daysAgo(1) },
-  { user_id: USER_ID, tenant_id: TENANT_ID, sync_run_id: 'generation-1', source_id: 'p-b',
+  { user_id: USER_ID, tenant_id: TENANT_ID, source_system: 'xero', sync_run_id: 'generation-1', source_id: 'p-b',
     invoice_source_id: 'b', customer_source_id: 'baker', payment_date: daysAgo(0) })
   const full = await app.customers()
   const before = app.calls.length

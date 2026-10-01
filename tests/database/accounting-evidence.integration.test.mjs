@@ -284,6 +284,49 @@ test('credit-note scope, immutable replay and row security reject unsafe writes'
   select pg_temp.ok(not has_function_privilege('authenticated','public.persist_xero_credit_note_evidence(uuid,uuid,text,uuid,bigint,jsonb,jsonb)','EXECUTE'),'no browser RPC');
 `))
 
+test('combined credit view contains residuals once and excludes ordinary payments, allocations and refunds', {skip:!enabled},()=>check(`
+  ${store('payments', [
+    {...payment, amount_native:'300'},
+    {...payment, source_id:'allocated-payment', amount_native:'200'},
+    {...payment, source_id:'refund', invoice_source_id:null, customer_source_id:null, currency_code:null, payment_type:'ARCREDITPAYMENT', amount_native:'100'},
+  ])}
+  ${store('overpayments', [{...cash,remaining_credit_native:'100',remaining_credit_base:'100'}])}
+  ${store('prepayments', [{...cash,source_kind:'prepayment',provider_type:'RECEIVE-PREPAYMENT',remaining_credit_native:'200',remaining_credit_base:'200'}])}
+  ${storeCredit([{...creditNote,remaining_credit_native:'300',xero_currency_rate:'1'}])}
+  select pg_temp.ok((select count(*)=3 and sum(remaining_credit_native::numeric)=600
+    from public.canonical_customer_credit_evidence_exact),'only three exact residuals');
+  select pg_temp.ok((select count(distinct source_kind)=3 from public.canonical_customer_credit_evidence_exact),'cash source kinds remain distinct even with same source ID');
+  select pg_temp.ok((select count(*)=3 from public.canonical_payment_evidence),'payments retained separately');
+`))
+
+test('canonical invoice uniqueness prevents duplicate aggregation within both generation and legacy scopes', {skip:!enabled},()=>check(`
+  do $$
+  begin
+    begin
+      insert into public.canonical_invoices(sync_run_id,user_id,tenant_id,source_id,customer_source_id,type,
+        transaction_currency_code,organisation_base_currency_code,currency_conversion_status)
+        select run,'${user}','tenant-a','i1','c1','ACCREC','GBP','GBP','identity' from fixture;
+      raise exception 'duplicate generation invoice was accepted';
+    exception when unique_violation then null;
+    end;
+  end $$;
+  insert into public.canonical_invoices(user_id,tenant_id,source_id,customer_source_id,type,
+    transaction_currency_code,organisation_base_currency_code,currency_conversion_status)
+    values('${user}','tenant-a','i1','c1','ACCREC','GBP','GBP','identity');
+  do $$
+  begin
+    begin
+      insert into public.canonical_invoices(user_id,tenant_id,source_id,customer_source_id,type,
+        transaction_currency_code,organisation_base_currency_code,currency_conversion_status)
+        values('${user}','tenant-a','i1','c1','ACCREC','GBP','GBP','identity');
+      raise exception 'duplicate legacy invoice was accepted';
+    exception when unique_violation then null;
+    end;
+  end $$;
+  select pg_temp.ok((select count(*)=1 from public.canonical_invoices where sync_run_id=(select run from fixture)), 'one current invoice');
+  select pg_temp.ok((select count(*)=1 from public.canonical_invoices where sync_run_id is null), 'one legacy invoice');
+`))
+
 test('PostgreSQL invoice and Dispute numerics survive exact text reads',{skip:!enabled},()=>check(`
   update public.canonical_invoices set amount_due_native=${sql(creditNote.remaining_credit_native)}::numeric,
     amount_due_base=${sql(creditNote.remaining_credit_native)}::numeric where source_id='i1';

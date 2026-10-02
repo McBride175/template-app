@@ -11,8 +11,8 @@ export default function Checkbox({ className, ...props }: CheckboxProps) {
       type="checkbox"
       className={cn(
         'h-4 w-4 shrink-0 accent-action-primary cursor-pointer',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page',
-        'disabled:cursor-not-allowed disabled:opacity-50',
+        'focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2',
+        'disabled:cursor-not-allowed disabled:accent-text-disabled disabled:opacity-75',
         className
       )}
     />

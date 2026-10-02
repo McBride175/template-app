@@ -10,7 +10,7 @@ export default function Card({ variant = 'default', className, children, ...prop
   return (
     <div
       className={cn(
-        'border border-border-default text-text-primary font-sans rounded-surface p-4 shadow-sm',
+        'border border-border-default text-text-primary font-sans rounded-surface p-4 shadow-surface',
         variant === 'subtle' ? 'bg-surface-subtle' : 'bg-surface',
         className
       )}

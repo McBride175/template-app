@@ -1,48 +1,45 @@
 /*
- * Yuohme's CSS-first visual source of truth. All values are replaceable defaults
- * pending final brand decisions. Edit foundations here; map UI intent below.
+ * Yuohme Visual Identity v1. Approved foundations live here; UI meaning is
+ * mapped below so future brand changes do not require component edits.
  * Keep domain-state decisions in features. No client theme state is required.
  */
 :root {
-  /*
-   * Foundations use framework colours as an initial preset, not as brand policy.
-   * Replace any value here with a supplied brand value. Standard Tailwind colour
-   * namespaces remain untouched; semantic consumers use the roles below.
-   */
-  --brand-primary-100: var(--color-blue-100);
-  --brand-primary-600: var(--color-blue-600);
-  --brand-primary-700: var(--color-blue-700);
-  --brand-primary-800: var(--color-blue-800);
-  --brand-primary-900: var(--color-blue-900);
+  /* Approved recognition palette. Accent is for supporting emphasis, not text. */
+  --brand-primary: #0F6B5D;
+  --brand-dark: #0A5047;
+  --brand-accent: #45A995;
+  --brand-tint: #DDF2ED;
 
-  /* One neutral family for surfaces, text, borders and controls. */
-  --neutral-0: var(--color-white);
-  --neutral-50: var(--color-neutral-50);
-  --neutral-100: var(--color-neutral-100);
-  --neutral-200: var(--color-neutral-200);
-  --neutral-300: var(--color-neutral-300);
-  --neutral-600: var(--color-neutral-600);
-  --neutral-700: var(--color-neutral-700);
-  --neutral-900: var(--color-neutral-900);
+  /* Operational surfaces stay white; warm background is for brand surfaces. */
+  --neutral-0: #FFFFFF;
+  --neutral-warm: #FAF9F6;
+  --neutral-100: #F4F6F5;
+  --neutral-200: #DDE2E0;
+  /* Strong control edges reach non-text contrast on white; routine dividers stay quiet. */
+  --neutral-300: color-mix(in srgb, var(--neutral-600) 70%, var(--neutral-200));
+  --neutral-600: #5C6468;
+  --neutral-900: #171A1C;
 
-  /* Feedback is independent of brand and of feature-level domain states. */
-  --feedback-success-50: var(--color-green-50);
-  --feedback-success-200: var(--color-green-200);
-  --feedback-success-800: var(--color-green-800);
-  --feedback-warning-50: var(--color-amber-50);
-  --feedback-warning-200: var(--color-amber-200);
-  --feedback-warning-800: var(--color-amber-800);
-  --feedback-error-50: var(--color-red-50);
-  --feedback-error-200: var(--color-red-200);
-  --feedback-error-600: var(--color-red-600);
-  --feedback-error-700: var(--color-red-700);
-  --feedback-error-800: var(--color-red-800);
-  --feedback-info-50: var(--color-sky-50);
-  --feedback-info-200: var(--color-sky-200);
-  --feedback-info-800: var(--color-sky-800);
+  /* Approved status hues; light panels and interactive depths derive from them. */
+  --feedback-success-600: #2E7D4F;
+  --feedback-warning-600: #B76E16;
+  --feedback-error-600: #C43D3D;
+  --feedback-info-600: #3568C0;
+  --feedback-success-50: color-mix(in srgb, var(--feedback-success-600) 8%, var(--neutral-0));
+  --feedback-success-200: color-mix(in srgb, var(--feedback-success-600) 25%, var(--neutral-0));
+  --feedback-warning-50: color-mix(in srgb, var(--feedback-warning-600) 8%, var(--neutral-0));
+  --feedback-warning-200: color-mix(in srgb, var(--feedback-warning-600) 25%, var(--neutral-0));
+  /* Approved warning alone is below 4.5:1 on white; text uses a darker mix. */
+  --feedback-warning-700: color-mix(in srgb, var(--feedback-warning-600) 85%, var(--neutral-900));
+  --feedback-error-50: color-mix(in srgb, var(--feedback-error-600) 8%, var(--neutral-0));
+  --feedback-error-200: color-mix(in srgb, var(--feedback-error-600) 25%, var(--neutral-0));
+  --feedback-error-700: color-mix(in srgb, var(--feedback-error-600) 85%, var(--neutral-900));
+  --feedback-error-800: color-mix(in srgb, var(--feedback-error-600) 70%, var(--neutral-900));
+  --feedback-info-50: color-mix(in srgb, var(--feedback-info-600) 8%, var(--neutral-0));
+  --feedback-info-200: color-mix(in srgb, var(--feedback-info-600) 25%, var(--neutral-0));
 
-  /* One interface family and one code family; no downloaded or display font. */
-  --font-family-interface: system-ui, sans-serif;
+  /* next/font provides the first family and a metric-adjusted local fallback. */
+  --font-family-interface: var(--font-yuohme-interface, system-ui), sans-serif;
   --font-family-code: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
@@ -87,13 +84,13 @@
   --font-weight-bold: 700;
 
   --radius: 0.25rem;
-  --radius-md: 0.375rem;
-  --radius-lg: 0.5rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
   --radius-xl: 0.75rem;
   --radius-2xl: 1rem;
   --radius-3xl: 1.5rem;
-  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-sm: 0 2px 8px rgb(0 0 0 / 0.06);
+  --shadow-md: 0 8px 24px rgb(0 0 0 / 0.12);
   --default-transition-duration: 150ms;
   --default-transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -105,52 +102,63 @@
  * @theme inline makes utilities reference the editable foundations directly.
  */
 @theme inline {
-  --color-page: var(--neutral-50);
+  --color-page: var(--neutral-0);
+  --color-page-marketing: var(--neutral-warm);
   --color-surface: var(--neutral-0);
   --color-surface-subtle: var(--neutral-100);
   --color-surface-inverse: var(--neutral-900);
   --color-text-primary: var(--neutral-900);
-  --color-text-secondary: var(--neutral-700);
+  --color-text-secondary: var(--neutral-600);
   --color-text-muted: var(--neutral-600);
   --color-text-inverse: var(--neutral-0);
   --color-border-default: var(--neutral-200);
   --color-border-strong: var(--neutral-300);
-  --color-link: var(--brand-primary-700);
-  --color-link-hover: var(--brand-primary-800);
-  --color-focus: var(--brand-primary-600);
-  --color-action-primary: var(--brand-primary-600);
-  --color-action-primary-hover: var(--brand-primary-700);
-  --color-action-primary-active: var(--brand-primary-800);
+  --color-action-disabled: var(--neutral-100);
+  --color-field-disabled: var(--neutral-100);
+  --color-text-disabled: var(--neutral-600);
+  --color-link: var(--brand-primary);
+  --color-link-hover: var(--brand-dark);
+  --color-focus: var(--brand-primary);
+  --color-highlight-supporting: var(--brand-accent);
+  --color-action-primary: var(--brand-primary);
+  --color-action-primary-hover: var(--brand-dark);
+  --color-action-primary-active: var(--brand-dark);
   --color-on-action-primary: var(--neutral-0);
   --color-action-secondary: var(--neutral-0);
   --color-action-secondary-hover: var(--neutral-100);
   --color-action-secondary-active: var(--neutral-200);
   --color-on-action-secondary: var(--neutral-900);
+  --color-action-ghost-hover: var(--neutral-100);
+  --color-action-ghost-active: var(--neutral-200);
+  --color-on-action-ghost: var(--neutral-600);
   --color-action-destructive: var(--feedback-error-600);
   --color-action-destructive-hover: var(--feedback-error-700);
   --color-action-destructive-active: var(--feedback-error-800);
   --color-on-action-destructive: var(--neutral-0);
-  --color-feedback-success: var(--feedback-success-800);
+  --color-feedback-success: var(--feedback-success-600);
   --color-feedback-success-surface: var(--feedback-success-50);
   --color-feedback-success-border: var(--feedback-success-200);
-  --color-feedback-warning: var(--feedback-warning-800);
+  --color-feedback-warning: var(--feedback-warning-700);
   --color-feedback-warning-surface: var(--feedback-warning-50);
   --color-feedback-warning-border: var(--feedback-warning-200);
-  --color-feedback-error: var(--feedback-error-800);
+  --color-feedback-error: var(--feedback-error-600);
   --color-feedback-error-surface: var(--feedback-error-50);
   --color-feedback-error-border: var(--feedback-error-200);
-  --color-feedback-info: var(--feedback-info-800);
+  --color-feedback-info: var(--feedback-info-600);
   --color-feedback-info-surface: var(--feedback-info-50);
   --color-feedback-info-border: var(--feedback-info-200);
-  --color-selected: var(--brand-primary-100);
-  --color-on-selected: var(--brand-primary-900);
-  --color-selection: var(--brand-primary-100);
-  --color-on-selection: var(--brand-primary-900);
+  --color-selected: var(--brand-tint);
+  --color-on-selected: var(--neutral-900);
+  --color-selected-accent: var(--brand-primary);
+  --color-selection: var(--brand-tint);
+  --color-on-selection: var(--neutral-900);
 
   --font-sans: var(--font-family-interface);
   --font-mono: var(--font-family-code);
-  --radius-control: var(--radius-xl);
+  --radius-control: var(--radius-lg);
   --radius-surface: var(--radius-md);
-  --radius-surface-large: var(--radius-3xl);
+  --radius-surface-large: var(--radius-xl);
+  --radius-pill: 9999px;
+  --shadow-surface: 0 0 #0000;
 
 }

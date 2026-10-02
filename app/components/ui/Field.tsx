@@ -30,7 +30,7 @@ export default function Field({
 
   return (
     <div className={cn('space-y-1 font-sans', className)} {...props}>
-      <label htmlFor={id} className="block text-sm font-medium text-text-primary">
+      <label htmlFor={id} className="block text-sm font-semibold text-text-primary">
         {label}
         {required && <span className="ml-1 text-text-muted">(required)</span>}
       </label>

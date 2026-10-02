@@ -39,8 +39,19 @@ function declarations(block) {
 }
 
 function rootValues(css) {
-  return Object.assign({}, ...[...css.matchAll(/:root(?:,\s*:host)?\s*\{([^}]+)\}/g)]
-    .map((match) => declarations(match[1])))
+  const values = {}
+  for (const match of css.matchAll(/:root(?:,\s*:host)?\s*\{/g)) {
+    const start = match.index + match[0].length
+    let depth = 1
+    let end = start
+    while (depth > 0 && end < css.length) {
+      if (css[end] === '{') depth++
+      if (css[end] === '}') depth--
+      end++
+    }
+    Object.assign(values, declarations(css.slice(start, end - 1)))
+  }
+  return values
 }
 
 function resolveValue(value, variables, visiting = []) {
@@ -75,6 +86,7 @@ function changeTokens(values) {
 test('Tailwind emits semantic colours, their interaction variants and role radii', async () => {
   const roles = {
     'bg-page': 'background-color',
+    'bg-page-marketing': 'background-color',
     'bg-surface': 'background-color',
     'bg-surface-subtle': 'background-color',
     'bg-surface-inverse': 'background-color',
@@ -93,9 +105,13 @@ test('Tailwind emits semantic colours, their interaction variants and role radii
     'text-on-action-destructive': 'color',
     'bg-selected': 'background-color',
     'text-on-selected': 'color',
+    'border-selected-accent': 'border-color',
+    'bg-highlight-supporting': 'background-color',
     'rounded-control': 'border-radius',
     'rounded-surface': 'border-radius',
     'rounded-surface-large': 'border-radius',
+    'rounded-pill': 'border-radius',
+    'shadow-surface': '--tw-shadow',
   }
 
   for (const role of ['success', 'warning', 'error', 'info']) {
@@ -131,15 +147,15 @@ test('Tailwind emits semantic colours, their interaction variants and role radii
 
 test('foundation edits propagate to semantic utilities and base CSS', async () => {
   const changed = changeTokens({
-    '--brand-primary-600': '#123456',
-    '--brand-primary-700': '#234567',
+    '--brand-primary': '#123456',
+    '--brand-dark': '#234567',
     '--neutral-100': '#abcdef',
-    '--radius-xl': '0.875rem',
+    '--radius-lg': '0.875rem',
   })
   const css = await compileTheme(['text-link', 'bg-surface-subtle', 'bg-action-primary', 'rounded-control'], changed)
 
-  assert.equal(resolvedRuleValue(css, '.text-link', 'color'), '#234567')
-  assert.equal(resolvedRuleValue(css, 'a', 'color'), '#234567')
+  assert.equal(resolvedRuleValue(css, '.text-link', 'color'), '#123456')
+  assert.equal(resolvedRuleValue(css, 'a', 'color'), '#123456')
   assert.equal(resolvedRuleValue(css, '.bg-surface-subtle', 'background-color'), '#abcdef')
   assert.equal(resolvedRuleValue(css, '.bg-action-primary', 'background-color'), '#123456')
   assert.equal(resolvedRuleValue(css, '.rounded-control', 'border-radius'), '0.875rem')
@@ -163,10 +179,10 @@ test('native typography tokens drive utilities and base elements', async () => {
     '--text-3xl': '2rem',
     '--leading-normal': '1.6',
     '--tracking-tight': '-0.02em',
-    '--font-weight-semibold': '650',
+    '--font-weight-bold': '650',
     '--font-family-interface': '"Example Font", sans-serif',
   })
-  const css = await compileTheme(['text-base', 'text-3xl', 'leading-normal', 'tracking-tight', 'font-semibold', 'font-sans'], changed)
+  const css = await compileTheme(['text-base', 'text-3xl', 'leading-normal', 'tracking-tight', 'font-bold', 'font-sans'], changed)
 
   assert.equal(resolvedRuleValue(css, '.text-base', 'font-size'), '1.0625rem')
   assert.equal(resolvedRuleValue(css, 'body', 'font-size'), '1.0625rem')
@@ -176,7 +192,7 @@ test('native typography tokens drive utilities and base elements', async () => {
   assert.equal(resolvedRuleValue(css, 'body', 'line-height'), '1.6')
   assert.equal(resolvedRuleValue(css, '.tracking-tight', 'letter-spacing'), '-0.02em')
   assert.equal(resolvedRuleValue(css, 'h1', 'letter-spacing'), '-0.02em')
-  assert.equal(resolvedRuleValue(css, '.font-semibold', 'font-weight'), '650')
+  assert.equal(resolvedRuleValue(css, '.font-bold', 'font-weight'), '650')
   assert.equal(resolvedRuleValue(css, 'h1', 'font-weight'), '650')
   assert.equal(resolvedRuleValue(css, '.font-sans', 'font-family'), '"Example Font", sans-serif')
   assert.ok(resolvedRuleValue(css, 'body', 'font-family').startsWith('"Example Font", sans-serif'))
@@ -201,10 +217,10 @@ test('standard gray utilities retain framework meanings independently of brand t
   const candidates = ['bg-gray-50', 'border-gray-200', 'text-gray-900', 'hover:bg-gray-50']
   const framework = await compileTheme(candidates, tokens, '@import "tailwindcss";')
   const changed = changeTokens({
-    '--neutral-50': '#abcdef',
+    '--neutral-warm': '#abcdef',
     '--neutral-200': '#123456',
     '--neutral-900': '#234567',
-    '--brand-primary-600': '#345678',
+    '--brand-primary': '#345678',
   })
   const css = await compileTheme(candidates, changed)
 
@@ -240,6 +256,126 @@ test('theme.css owns the theme without legacy aliases or a separate palette for 
   const semanticColours = [...tokens.matchAll(/--color-[\w-]+:\s*([^;]+);/g)]
   assert.ok(semanticColours.length > 0)
   for (const [, value] of semanticColours) {
-    assert.match(value, /^var\(--(?:brand-primary|neutral|feedback)-[\w-]+\)$/)
+    assert.match(value, /^var\(--(?:brand-(?:primary|dark|accent|tint)|neutral-[\w-]+|feedback-[\w-]+)\)$/)
   }
+})
+
+test('approved visual foundations and semantic product/marketing roles remain central', async () => {
+  const approved = {
+    '--brand-primary': '#0F6B5D',
+    '--brand-dark': '#0A5047',
+    '--brand-accent': '#45A995',
+    '--brand-tint': '#DDF2ED',
+    '--neutral-warm': '#FAF9F6',
+    '--neutral-0': '#FFFFFF',
+    '--neutral-900': '#171A1C',
+    '--neutral-600': '#5C6468',
+    '--neutral-200': '#DDE2E0',
+    '--neutral-100': '#F4F6F5',
+    '--feedback-success-600': '#2E7D4F',
+    '--feedback-warning-600': '#B76E16',
+    '--feedback-error-600': '#C43D3D',
+    '--feedback-info-600': '#3568C0',
+  }
+  const source = rootValues(tokens)
+  for (const [name, value] of Object.entries(approved)) {
+    assert.equal(source[name], value, `approved value missing at ${name}`)
+  }
+
+  const css = await compileTheme([
+    'bg-page', 'bg-page-marketing', 'bg-surface', 'bg-surface-subtle',
+    'text-text-primary', 'text-text-secondary', 'border-border-default',
+    'bg-action-primary', 'hover:bg-action-primary-hover', 'active:bg-action-primary-active',
+    'bg-selected', 'text-on-selected', 'border-selected-accent', 'focus-visible:ring-focus',
+    'text-feedback-success', 'text-feedback-error', 'text-feedback-info',
+    'rounded-control', 'rounded-surface', 'rounded-surface-large', 'rounded-pill',
+    'shadow-surface', 'tabular-nums',
+  ])
+  for (const [selector, property, value] of [
+    ['.bg-page', 'background-color', '#FFFFFF'],
+    ['.bg-page-marketing', 'background-color', '#FAF9F6'],
+    ['.bg-surface', 'background-color', '#FFFFFF'],
+    ['.bg-surface-subtle', 'background-color', '#F4F6F5'],
+    ['.text-text-primary', 'color', '#171A1C'],
+    ['.text-text-secondary', 'color', '#5C6468'],
+    ['.border-border-default', 'border-color', '#DDE2E0'],
+    ['.bg-action-primary', 'background-color', '#0F6B5D'],
+    ['.bg-selected', 'background-color', '#DDF2ED'],
+    ['.text-on-selected', 'color', '#171A1C'],
+    ['.border-selected-accent', 'border-color', '#0F6B5D'],
+    ['.text-feedback-success', 'color', '#2E7D4F'],
+    ['.text-feedback-error', 'color', '#C43D3D'],
+    ['.text-feedback-info', 'color', '#3568C0'],
+    ['.rounded-control', 'border-radius', '0.625rem'],
+    ['.rounded-surface', 'border-radius', '0.5rem'],
+    ['.rounded-surface-large', 'border-radius', '0.75rem'],
+    ['.rounded-pill', 'border-radius', '9999px'],
+    ['.shadow-surface', '--tw-shadow', '0 0 var(--tw-shadow-color, #0000)'],
+  ]) {
+    assert.equal(resolvedRuleValue(css, selector, property), value)
+  }
+  for (const selector of ['.hover\\:bg-action-primary-hover', '.active\\:bg-action-primary-active']) {
+    assert.equal(resolvedRuleValue(css, selector, 'background-color'), '#0A5047')
+  }
+  assert.match(css, /\.tabular-nums \{[^}]*--tw-numeric-spacing: tabular-nums;[^}]*font-variant-numeric:/)
+})
+
+test('Plus Jakarta Sans is registered once with approved weights and root scope', async () => {
+  const layout = await readFile(path.join(appDirectory, 'layout.tsx'), 'utf8')
+  assert.match(layout, /import \{ Plus_Jakarta_Sans \} from 'next\/font\/google'/)
+  assert.match(layout, /weight: \['400', '500', '600', '700'\]/)
+  assert.match(layout, /variable: '--font-yuohme-interface'/)
+  assert.match(layout, /<html lang="en" className=\{plusJakartaSans\.variable\}>/)
+  assert.match(tokens, /--font-family-interface: var\(--font-yuohme-interface, system-ui\), sans-serif;/)
+  assert.doesNotMatch(layout, /font-family|@font-face|fonts\.googleapis/)
+})
+
+test('calibrated text, actions, feedback and control edges meet light-theme contrast targets', async () => {
+  const values = rootValues(tokens)
+  const rgb = (hex) => [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16))
+  const mix = (first, second, firstShare) =>
+    rgb(first).map((channel, index) => channel * firstShare + rgb(second)[index] * (1 - firstShare))
+  const luminance = (channels) => {
+    const linear = channels.map((channel) => channel / 255)
+      .map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+    return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722
+  }
+  const contrast = (first, second) => {
+    const [lighter, darker] = [luminance(first), luminance(second)].sort((a, b) => b - a)
+    return (lighter + 0.05) / (darker + 0.05)
+  }
+
+  const focus = rgb(values['--brand-primary'])
+  for (const [foreground, background] of [
+    ['--neutral-900', '--neutral-0'],
+    ['--neutral-600', '--neutral-0'],
+    ['--neutral-900', '--neutral-warm'],
+    ['--neutral-600', '--neutral-warm'],
+    ['--neutral-0', '--brand-primary'],
+    ['--neutral-0', '--brand-dark'],
+    ['--neutral-900', '--brand-tint'],
+    ['--neutral-600', '--neutral-100'],
+  ]) {
+    assert.ok(contrast(rgb(values[foreground]), rgb(values[background])) >= 4.5,
+      `${foreground} against ${background}`)
+  }
+  for (const surface of ['--neutral-0', '--neutral-100', '--neutral-warm']) {
+    assert.ok(contrast(focus, rgb(values[surface])) >= 3, `focus against ${surface}`)
+  }
+  assert.match(values['--neutral-300'], /var\(--neutral-600\) 70%, var\(--neutral-200\)/)
+  const controlEdge = mix(values['--neutral-600'], values['--neutral-200'], 0.7)
+  assert.ok(contrast(controlEdge, rgb(values['--neutral-0'])) >= 3, 'field border against white')
+
+  for (const role of ['success', 'error', 'info']) {
+    const hue = values[`--feedback-${role}-600`]
+    const surface = mix(hue, values['--neutral-0'], 0.08)
+    assert.ok(contrast(rgb(hue), surface) >= 4.5, `${role} text on its panel`)
+  }
+
+  const css = await compileTheme(['text-feedback-warning'])
+  assert.equal(resolvedRuleValue(css, '.text-feedback-warning', 'color'),
+    'color-mix(in srgb, #B76E16 85%, #171A1C)')
+  const warningText = mix(values['--feedback-warning-600'], values['--neutral-900'], 0.85)
+  const warningPanel = mix(values['--feedback-warning-600'], values['--neutral-0'], 0.08)
+  assert.ok(contrast(warningText, warningPanel) >= 4.5)
 })

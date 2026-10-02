@@ -44,7 +44,7 @@
   /* Typographic scale */
   h1 {
     font-size: var(--text-3xl);
-    font-weight: var(--font-weight-semibold);
+    font-weight: var(--font-weight-bold);
     line-height: var(--leading-tight);
     letter-spacing: var(--tracking-tight);
     color: var(--color-text-primary);

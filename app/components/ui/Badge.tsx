@@ -9,7 +9,7 @@ export default function Badge({ variant = 'neutral', className, ...props }: Badg
   return (
     <span
       className={feedbackStyles(variant,
-        `inline-flex items-center rounded-control border px-2 py-0.5 font-sans text-xs font-medium ${className ?? ''}`
+        `inline-flex items-center rounded-pill border px-2 py-0.5 font-sans text-xs font-semibold leading-normal ${className ?? ''}`
       )}
       {...props}
     />

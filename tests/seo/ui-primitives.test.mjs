@@ -26,6 +26,7 @@ const { actionStyles } = await recipe('actionStyles')
 const { fieldStyles } = await recipe('fieldStyles')
 const render = (component, props, children = 'Example') => renderToStaticMarkup(createElement(component, props, children))
 const classes = (html) => html.match(/class="([^"]*)"/)[1].replaceAll('&amp;', '&')
+const controlClasses = (html) => classes(html.slice(html.search(/<(?:input|select|textarea)\b/)))
 
 test('Button preserves native action semantics and shares appearance with real links', () => {
   const onClick = () => {}
@@ -44,7 +45,8 @@ test('Button preserves native action semantics and shares appearance with real l
     assert.match(anchor, /^<a href="\/example"/)
     assert.doesNotMatch(anchor, /role="button"/)
     assert.match(classes(button), /focus-visible:ring-focus/)
-    assert.match(classes(button), /disabled:pointer-events-none/)
+    assert.match(classes(button), /disabled:text-text-disabled/)
+    assert.doesNotMatch(classes(button), /disabled:opacity-50/)
     assert.match(classes(button), /hover:bg-/)
     assert.match(classes(button), /active:bg-/)
   }
@@ -52,6 +54,17 @@ test('Button preserves native action semantics and shares appearance with real l
   assert.doesNotMatch(render(Button, { variant: 'destructive' }), /bg-feedback-error/)
   assert.match(render(XeroConnectButton, {}), /href="\/api\/xero\/connect\?returnTo=%2Fdashboard"/)
   assert.equal(classes(render(XeroConnectButton, {})), actionStyles({ variant: 'secondary' }))
+})
+
+test('product actions remain compact while acquisition CTAs have an explicit size', () => {
+  for (const [size, height] of [['sm', 'min-h-8'], ['md', 'min-h-9'], ['lg', 'min-h-10'], ['cta', 'min-h-12']]) {
+    const button = classes(render(Button, { size }))
+    const link = classes(render('a', { href: '/', className: actionStyles({ size }) }))
+    assert.match(button, new RegExp(`\\b${height}\\b`))
+    assert.equal(button, link)
+    assert.match(button, /font-semibold/)
+  }
+  assert.match(classes(render(Button, { disabled: true })), /disabled:bg-action-disabled/)
 })
 
 test('native fields share focus, invalid and disabled presentation without taking over validation', () => {
@@ -71,26 +84,45 @@ test('native fields share focus, invalid and disabled presentation without takin
   assert.equal(classes(input), fieldStyles())
   for (const control of [Select, Textarea]) {
     const markup = render(control, { disabled: true, required: true, 'aria-invalid': true, 'aria-describedby': 'help' }, null)
-    assert.equal(classes(markup), classes(input))
+    assert.equal(controlClasses(markup), control === Select
+      ? fieldStyles('h-10 appearance-none pr-9') : classes(input))
     assert.match(markup, /aria-invalid="true"/)
     assert.match(markup, /aria-describedby="help"/)
     assert.match(markup, /disabled=""/)
     assert.match(markup, /required=""/)
-    assert.equal(control({ onChange }).props.onChange, onChange)
-    assert.match(classes(render(control, { className: 'px-5' }, null)), /px-5/)
+    const element = control({ onChange })
+    assert.equal((control === Select ? element.props.children[0] : element).props.onChange, onChange)
+    assert.match(controlClasses(render(control, { className: 'px-5' }, null)), /px-5/)
   }
   assert.match(render(Textarea, { rows: 8, maxLength: 4000, defaultValue: 'Message' }, null), /rows="8".*maxLength="4000".*>Message<\/textarea>/)
   assert.match(render(Select, { defaultValue: 'two', name: 'choice' }, [
     createElement('option', { key: 'one', value: 'one' }, 'One'),
     createElement('option', { key: 'two', value: 'two' }, 'Two'),
   ]), /<option value="two" selected="">Two<\/option>/)
-  assert.match(classes(input), /aria-invalid:focus:ring-feedback-error/)
-  assert.match(classes(input), /focus:ring-focus/)
+  assert.match(classes(input), /aria-invalid:focus-visible:ring-feedback-error/)
+  assert.match(classes(input), /focus-visible:ring-focus/)
   assert.match(classes(input), /disabled:cursor-not-allowed/)
+  assert.match(classes(input), /disabled:bg-field-disabled/)
+  assert.doesNotMatch(classes(input), /disabled:opacity-50/)
   assert.doesNotMatch(renderToStaticMarkup(createElement(Input)), /aria-invalid="true"/)
 })
 
+test('Select keeps native selection and listbox semantics with a decorative closed-control arrow', () => {
+  const closed = render(Select, { id: 'period', name: 'period' }, createElement('option', { value: 'month' }, 'This month'))
+  assert.match(closed, /<select[^>]*id="period"[^>]*name="period"/)
+  assert.match(closed, /<svg[^>]*aria-hidden="true"[^>]*focusable="false"/)
+  assert.doesNotMatch(closed, /role="combobox"|tabindex=/)
+  for (const props of [{ multiple: true }, { size: 4 }]) {
+    const list = render(Select, props, createElement('option', null, 'Option'))
+    assert.match(list, /^<select /)
+    assert.doesNotMatch(list, /<svg|appearance-none/)
+    assert.ok(!classes(list).split(' ').includes('h-10'))
+  }
+})
+
 test('surface and feedback primitives preserve content and caller accessibility attributes', () => {
+  assert.match(classes(render(Card, {})), /shadow-surface/)
+  assert.doesNotMatch(classes(render(Card, {})), /shadow-sm|shadow-md/)
   assert.match(render(Card, { variant: 'subtle', 'aria-labelledby': 'heading' }), /bg-surface-subtle/)
   assert.match(render(Card, { 'aria-labelledby': 'heading' }), /aria-labelledby="heading"/)
   assert.match(render(Badge, { variant: 'warning', 'aria-label': 'Requires attention' }), /^<span /)
@@ -147,7 +179,8 @@ test('Checkbox keeps browser semantics, caller state, labels and keyboard focus'
   assert.match(html, /disabled=""/)
   assert.match(html, /aria-label="Consent"/)
   assert.doesNotMatch(html, /tabindex="-1"|role="checkbox"/)
-  assert.match(classes(html), /focus-visible:ring-focus/)
+  assert.match(classes(html), /focus-visible:outline-focus/)
+  assert.match(classes(html), /focus-visible:outline-offset-2/)
   assert.doesNotMatch(renderToStaticMarkup(createElement(Checkbox, { defaultChecked: false })), /checked=""/)
 })
 
@@ -216,6 +249,6 @@ test('Tailwind compiles every shared recipe including focus and invalid states',
     assert.ok(css.includes(`.${escaped} {`), `unrecognised primitive utility: ${candidate}`)
   }
   assert.match(css, /\[aria-invalid="true"\]/)
-  assert.match(css, /var\(--brand-primary-600\)/)
+  assert.match(css, /var\(--brand-primary\)/)
   assert.match(css, /var\(--feedback-error-800\)/)
 })

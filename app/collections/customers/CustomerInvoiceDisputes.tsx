@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
+import type { FinancialMutationReconciliation } from '@/lib/collections/financial-mutation-reconciliation-server'
+import { mountedFinancialQueueWindow } from '@/lib/collections/promise-refresh'
+
 import InvoiceAmounts from './InvoiceAmounts'
 import InvoicePromise from './InvoicePromise'
 import type { InvoiceDisputeView as InvoiceRow } from '@/lib/collections/invoice-dispute-view'
@@ -11,6 +14,7 @@ interface ApiResponse {
   invoices?: InvoiceRow[]
   error?: string
   code?: string
+  reconciliation?: FinancialMutationReconciliation
 }
 
 function amount(value: string | null, currencyCode: string | null) {
@@ -58,10 +62,11 @@ interface InvoiceDisputeListProps {
   customerName: string
   onPromiseChanged?: () => Promise<boolean>
   onChanged: () => Promise<boolean>
-  onMutationStarted: () => void
+  onMutationStarted: () => number | void
   onMutationPending: (message: string) => void
   onMutationResult: (refreshed: boolean, message: string) => void
   onMutationError?: (message: string) => void
+  onReconciled?: (result: FinancialMutationReconciliation, sequence?: number) => Promise<boolean>
 }
 
 export default function CustomerInvoiceDisputes(props: InvoiceDisputeListProps) {
@@ -119,7 +124,7 @@ export default function CustomerInvoiceDisputes(props: InvoiceDisputeListProps) 
 export function InvoiceDisputeList({
   tenantId, customerSourceId, customerName, onChanged, onMutationStarted,
   onMutationPending, onMutationResult, invoices, loading = false, loadError = null,
-  reload, showBulkActions = true, disabled = false, onMutationError, onPromiseRefresh,
+  reload, showBulkActions = true, disabled = false, onMutationError, onPromiseRefresh, onReconciled,
 }: InvoiceDisputeListProps & {
   invoices: InvoiceRow[]
   loading?: boolean
@@ -142,14 +147,15 @@ export function InvoiceDisputeList({
 
   async function mutate(operation: string, fields: Record<string, unknown>, success: string) {
     if (saving || disabled) return
-    onMutationStarted()
+    const sequence = onMutationStarted()
     setSaving(true)
     setError(null)
     try {
       const response = await fetch('/api/collections/invoice-disputes', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ operation, tenantId, ...fields }),
+        body: JSON.stringify({ operation, tenantId, ...fields,
+          ...(onReconciled ? { reconcile: true, queue: mountedFinancialQueueWindow(tenantId) } : {}) }),
       })
       const body = await response.json().catch(() => null) as ApiResponse | null
       const changedAccounting = response.status === 409 &&
@@ -166,6 +172,14 @@ export function InvoiceDisputeList({
         return
       }
       if (!response.ok || !body?.ok) throw new Error(body?.error || 'Could not save the dispute.')
+      setEditingId(null)
+      setNoteEditingId(null)
+      if (onReconciled && body.reconciliation) {
+        const ready = await onReconciled(body.reconciliation, typeof sequence === 'number' ? sequence : undefined).catch(() => false)
+        onMutationResult(ready, ready ? success :
+          'Dispute saved, but current balances are not ready. Refresh the details before making further changes.')
+        return
+      }
       onMutationPending('Dispute saved. Refreshing current balances…')
       setEditingId(null)
       setNoteEditingId(null)
@@ -340,7 +354,7 @@ export function InvoiceDisputeList({
                     )}
                   </div>
                 )}
-                {onPromiseRefresh && <InvoicePromise invoice={invoice} tenantId={tenantId} onRefresh={onPromiseRefresh} disabled={disabled || saving} />}
+                {onPromiseRefresh && <InvoicePromise invoice={invoice} tenantId={tenantId} onRefresh={onPromiseRefresh} onReconciled={onReconciled} onMutationStarted={onMutationStarted} onReconciliationUnavailable={() => onMutationResult(false, 'Promise saved, but current balances are not ready. Refresh the details before making further changes.')} disabled={disabled || saving} />}
               </div>
             ))}
           </div>

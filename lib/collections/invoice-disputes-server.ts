@@ -1,3 +1,4 @@
+import type { FinancialMutationContinuation } from '@/lib/collections/financial-mutation-reconciliation-server'
 import 'server-only'
 
 import { createServerSupabaseClient } from '@/lib/supabase-server'
@@ -24,6 +25,8 @@ import {
 
 import { deriveInvoiceActionability } from '@/lib/collections/invoice-actionability'
 import { loadLatestInvoicePromisePresentation, assertInvoicePromiseSnapshotCurrent } from '@/lib/collections/invoice-promises-loading'
+import type { PromiseView } from '@/lib/collections/promise-presentation'
+import type { InvoiceDisputeView } from '@/lib/collections/invoice-dispute-view'
 
 const SOURCE_SYSTEM = 'xero'
 const PAGE_SIZE = 1000
@@ -134,7 +137,7 @@ export async function authenticateDisputeTenant(tenantIdInput: string | null) {
   if (!resolveCollectionsCurrencyAccess({ entitlement, currencyContext }).allowed) {
     throw new InvoiceDisputeOperationError('forbidden')
   }
-  return { admin, userId: user.id, tenantId, snapshot }
+  return { admin, userId: user.id, tenantId, snapshot, entitlement }
 }
 
 /** Use only after server authentication; the snapshot is held for this lookup. */
@@ -236,16 +239,27 @@ export async function loadCustomerInvoiceDisputes(params: {
     loadLatestInvoicePromisePresentation({ ...context, customerSourceId, invoiceSourceId }),
   ])
   await assertInvoicePromiseSnapshotCurrent(context)
+  return projectCustomerInvoiceDisputes({ userId: context.userId, tenantId: context.tenantId,
+    customerSourceId, invoiceSourceId, invoices, disputes, promises })
+}
+
+/** Pure invoice presentation shared by the legacy loader and consolidated detail bootstrap. */
+export function projectCustomerInvoiceDisputes(params: {
+  userId: string; tenantId: string; customerSourceId: string; invoiceSourceId?: string
+  invoices: readonly CustomerDisputeInvoice[]; disputes: readonly InvoiceDisputeRecord[]
+  promises: ReadonlyMap<string, PromiseView>
+}): InvoiceDisputeView[] {
+  const { invoices, disputes, promises } = params
   const disputeByInvoiceId = new Map(
     disputes.filter((dispute) => dispute.source_system === SOURCE_SYSTEM)
       .map((dispute) => [dispute.invoice_source_id, dispute])
   )
-  const views = invoices.map((invoice) => {
+  const views: InvoiceDisputeView[] = invoices.map((invoice) => {
     const dispute = disputeByInvoiceId.get(invoice.source_id) ?? null
     const latestPromise = promises.get(invoice.source_id) ?? null
     const promise = latestPromise?.status === 'active' ? {
-      id: latestPromise.id, user_id: context.userId, tenant_id: context.tenantId, source_system: SOURCE_SYSTEM,
-      invoice_source_id: invoice.source_id, customer_source_id: customerSourceId,
+      id: latestPromise.id, user_id: params.userId, tenant_id: params.tenantId, source_system: SOURCE_SYSTEM,
+      invoice_source_id: invoice.source_id, customer_source_id: params.customerSourceId,
       currency_code: latestPromise.currencyCode!, status: latestPromise.status,
       promised_amount_native: latestPromise.promisedAmountNative!, qualifying_paid_amount_native: latestPromise.qualifyingPaidAmountNative!,
     } : null
@@ -285,7 +299,7 @@ export async function loadCustomerInvoiceDisputes(params: {
         activeCoverageAmountNative: actionability.activePromisedCoverageAmountNative,
       } : null,
     }
-  }).filter((invoice) => invoice.invoiceState === 'open' || invoice.disputeId !== null || invoice.latestPromise !== null || invoiceSourceId !== undefined)
+  }).filter((invoice) => invoice.invoiceState === 'open' || invoice.disputeId !== null || invoice.latestPromise !== null || params.invoiceSourceId !== undefined)
   // Retained commitments remain reachable even if their provider invoice disappears.
   // This is an unavailable accounting context, never a fabricated zero balance.
   const currentIds = new Set(invoices.map(invoice => invoice.source_id))
@@ -294,8 +308,8 @@ export async function loadCustomerInvoiceDisputes(params: {
     const dispute = disputeByInvoiceId.get(missingId) ?? null
     const active = latestPromise.status === 'active'
     const debt = deriveInvoiceActionability(null, dispute, active ? {
-      id: latestPromise.id, user_id: context.userId, tenant_id: context.tenantId, source_system: SOURCE_SYSTEM,
-      invoice_source_id: missingId, customer_source_id: customerSourceId, currency_code: latestPromise.currencyCode!,
+      id: latestPromise.id, user_id: params.userId, tenant_id: params.tenantId, source_system: SOURCE_SYSTEM,
+      invoice_source_id: missingId, customer_source_id: params.customerSourceId, currency_code: latestPromise.currencyCode!,
       status: 'active', promised_amount_native: latestPromise.promisedAmountNative!, qualifying_paid_amount_native: latestPromise.qualifyingPaidAmountNative!,
     } : null)
     views.push({
@@ -322,6 +336,7 @@ export async function loadCustomerInvoiceDisputes(params: {
 
 /** Validate the full customer selection before one transactional database call. */
 export async function setFullCustomerInvoiceDisputes(params: {
+  afterCommit?: FinancialMutationContinuation
   tenantId: string
   customerSourceId: string
   invoiceSourceIds?: string[]
@@ -370,6 +385,7 @@ export async function setFullCustomerInvoiceDisputes(params: {
     throw new InvoiceDisputeOperationError('conflict')
   }
   if (error) throw error
+  await params.afterCommit?.(context, customerSourceId).catch(() => undefined)
   return data as InvoiceDisputeRecord[]
 }
 
@@ -441,6 +457,7 @@ async function updateOwnedDispute(
 }
 
 async function setDispute(params: {
+  afterCommit?: FinancialMutationContinuation
   tenantId: string
   invoiceSourceId: string
   mode: InvoiceDisputeMode
@@ -450,7 +467,7 @@ async function setDispute(params: {
 }) {
   const context = await authenticateDisputeTenant(params.tenantId)
   const invoiceSourceId = requiredIdentity(params.invoiceSourceId)
-  const { currentDue } = await requireCurrentOpenInvoice(context, invoiceSourceId)
+  const { invoice, currentDue } = await requireCurrentOpenInvoice(context, invoiceSourceId)
   const { data: existing, error: existingError } = await context.admin
     .from('invoice_disputes')
     .select(DISPUTE_COLUMNS)
@@ -472,22 +489,26 @@ async function setDispute(params: {
   if (params.expectedRevision !== undefined) {
     const expectedRevision = requireRevision(params.expectedRevision)
     if (!existing || !existing.is_active) throw new InvoiceDisputeOperationError('conflict')
-    return updateOwnedDispute(context, existing, expectedRevision, {
+    const updated = await updateOwnedDispute(context, existing, expectedRevision, {
       dispute_mode: values.dispute_mode,
       recorded_disputed_amount_native: values.recorded_disputed_amount_native,
       amount_due_at_last_review_native: currentDue,
       ...(params.note === undefined ? {} : { note: values.note }),
     }, true)
+    await params.afterCommit?.(context, invoice.customer_source_id).catch(() => undefined)
+    return updated
   }
   if (existing) throw new InvoiceDisputeOperationError('conflict')
   const { data, error } = await context.admin.from('invoice_disputes').insert(values)
     .select(DISPUTE_COLUMNS).single<InvoiceDisputeRecord>()
   if (isProviderIdentityConflict(error)) throw new InvoiceDisputeOperationError('conflict')
   if (error) throw error
+  await params.afterCommit?.(context, invoice.customer_source_id).catch(() => undefined)
   return data
 }
 
 export function setFullInvoiceDispute(params: {
+  afterCommit?: FinancialMutationContinuation
   tenantId: string
   invoiceSourceId: string
   note?: string | null
@@ -497,6 +518,7 @@ export function setFullInvoiceDispute(params: {
 }
 
 export function setPartialInvoiceDispute(params: {
+  afterCommit?: FinancialMutationContinuation
   tenantId: string
   invoiceSourceId: string
   disputedAmountNative: string
@@ -504,6 +526,7 @@ export function setPartialInvoiceDispute(params: {
   expectedRevision?: string
 }) {
   return setDispute({
+    afterCommit: params.afterCommit,
     tenantId: params.tenantId,
     invoiceSourceId: params.invoiceSourceId,
     mode: 'partial',
@@ -514,6 +537,7 @@ export function setPartialInvoiceDispute(params: {
 }
 
 export async function editInvoiceDisputeNote(params: {
+  afterCommit?: FinancialMutationContinuation
   tenantId: string
   disputeId: string
   note: string | null
@@ -521,28 +545,34 @@ export async function editInvoiceDisputeNote(params: {
 }) {
   const context = await authenticateDisputeTenant(params.tenantId)
   const dispute = await findOwnedDispute(context, params.disputeId)
-  await checkCurrentInvoiceIfPresent(context, dispute)
-  return updateOwnedDispute(context, dispute, requireRevision(params.expectedRevision), {
+  const invoice = await checkCurrentInvoiceIfPresent(context, dispute)
+  const updated = await updateOwnedDispute(context, dispute, requireRevision(params.expectedRevision), {
     note: normaliseNote(params.note),
   })
+  await params.afterCommit?.({ ...context, metadataOnly: true }, invoice?.customer_source_id ?? null).catch(() => undefined)
+  return updated
 }
 
 export async function resolveInvoiceDispute(params: {
+  afterCommit?: FinancialMutationContinuation
   tenantId: string
   disputeId: string
   expectedRevision: string
 }) {
   const context = await authenticateDisputeTenant(params.tenantId)
   const dispute = await findOwnedDispute(context, params.disputeId)
-  await checkCurrentInvoiceIfPresent(context, dispute)
+  const invoice = await checkCurrentInvoiceIfPresent(context, dispute)
   if (!dispute.is_active) throw new InvoiceDisputeOperationError('conflict')
-  return updateOwnedDispute(context, dispute, requireRevision(params.expectedRevision), {
+  const updated = await updateOwnedDispute(context, dispute, requireRevision(params.expectedRevision), {
     is_active: false,
     resolved_at: new Date().toISOString(),
   }, true)
+  await params.afterCommit?.(context, invoice?.customer_source_id ?? null).catch(() => undefined)
+  return updated
 }
 
 export async function reactivateInvoiceDispute(params: {
+  afterCommit?: FinancialMutationContinuation
   tenantId: string
   disputeId: string
   expectedRevision: string
@@ -551,15 +581,18 @@ export async function reactivateInvoiceDispute(params: {
   const dispute = await findOwnedDispute(context, params.disputeId)
   if (dispute.is_active) throw new InvoiceDisputeOperationError('conflict')
   if (dispute.source_system !== SOURCE_SYSTEM) throw new InvoiceDisputeOperationError('invalid_input')
-  const { currentDue } = await requireCurrentOpenInvoice(context, dispute.invoice_source_id)
-  return updateOwnedDispute(context, dispute, requireRevision(params.expectedRevision), {
+  const { invoice, currentDue } = await requireCurrentOpenInvoice(context, dispute.invoice_source_id)
+  const updated = await updateOwnedDispute(context, dispute, requireRevision(params.expectedRevision), {
     is_active: true,
     resolved_at: null,
     amount_due_at_last_review_native: currentDue,
   }, false)
+  await params.afterCommit?.(context, invoice.customer_source_id).catch(() => undefined)
+  return updated
 }
 
 export async function confirmInvoiceDisputeReview(params: {
+  afterCommit?: FinancialMutationContinuation
   tenantId: string
   disputeId: string
   expectedRevision: string
@@ -568,8 +601,10 @@ export async function confirmInvoiceDisputeReview(params: {
   const dispute = await findOwnedDispute(context, params.disputeId)
   if (!dispute.is_active) throw new InvoiceDisputeOperationError('conflict')
   if (dispute.source_system !== SOURCE_SYSTEM) throw new InvoiceDisputeOperationError('invalid_input')
-  const { currentDue } = await requireCurrentOpenInvoice(context, dispute.invoice_source_id)
-  return updateOwnedDispute(context, dispute, requireRevision(params.expectedRevision), {
+  const { invoice, currentDue } = await requireCurrentOpenInvoice(context, dispute.invoice_source_id)
+  const updated = await updateOwnedDispute(context, dispute, requireRevision(params.expectedRevision), {
     amount_due_at_last_review_native: currentDue,
   }, true)
+  await params.afterCommit?.({ ...context, metadataOnly: true }, invoice?.customer_source_id ?? null).catch(() => undefined)
+  return updated
 }

@@ -1,3 +1,4 @@
+import { reconcileCollectionFinancialMutation, type FinancialMutationReconciliation } from '@/lib/collections/financial-mutation-reconciliation-server'
 import { NextRequest, NextResponse } from 'next/server'
 import { InvoicePromiseOperationError, mutateInvoicePromise, readInvoicePromiseContext, readInvoicePromiseHistory } from '@/lib/collections/invoice-promises-server'
 
@@ -11,9 +12,28 @@ function failure(error: unknown) {
   return NextResponse.json({ error: 'Could not complete this Promise request.' }, { status: 500 })
 }
 export async function POST(request: Request) {
+  const started = performance.now()
+  let committedAt: number | null = null
   let body: unknown
   try { body = await request.json() } catch { return NextResponse.json({ error: 'Invalid request.' }, { status: 400 }) }
-  try { return NextResponse.json({ ok: true, ...await mutateInvoicePromise(body) }) } catch (error) { return failure(error) }
+  try {
+    const input = body && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : null
+    const wantsReconciliation = input?.reconcile === true
+    let reconciliation: FinancialMutationReconciliation | { reconciliationReady: false; reason: 'unavailable' } = {
+      reconciliationReady: false, reason: 'unavailable',
+    }
+    const command = wantsReconciliation ? Object.fromEntries(Object.entries(input!).filter(([key]) => key !== 'reconcile' && key !== 'queue')) : body
+    const queue = wantsReconciliation && input?.queue && typeof input.queue === 'object' ? input.queue as Record<string, unknown> : null
+    if (queue && (typeof queue.overdueOnly !== 'boolean' || !Number.isInteger(queue.limit) || Number(queue.limit) < 1 || Number(queue.limit) > 200)) {
+      return NextResponse.json({ error: 'Invalid queue window.' }, { status: 400 })
+    }
+    const result = await mutateInvoicePromise(command, wantsReconciliation ? async (context, customerSourceId) => {
+      committedAt = performance.now()
+      if (customerSourceId) reconciliation = await reconcileCollectionFinancialMutation({ ...context, customerSourceId,
+        ...(queue ? { queue: { overdueOnly: queue.overdueOnly as boolean, limit: queue.limit as number } } : {}) })
+    } : undefined)
+    return NextResponse.json({ ok: true, ...result, ...(wantsReconciliation ? { committed: true, reconciliation, timings: { commandThroughCommitMs: (committedAt ?? performance.now()) - started, reconciliationMs: committedAt === null ? 0 : performance.now() - committedAt, totalMs: performance.now() - started } } : {}) })
+  } catch (error) { return failure(error) }
 }
 export async function GET(request: NextRequest) {
   const tenantId = request.nextUrl.searchParams.get('tenantId')

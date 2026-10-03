@@ -1,0 +1,240 @@
+{
+  "measurement": "Disposable local PostgreSQL, Docker psql adapter, synthetic deterministic tenants; warm projection service and synthetic local mutation writes. No auth, entitlement, browser network, or hosted latency is included.",
+  "date": "2026-10-03",
+  "baselineComparison": {
+    "phase1QueueServerMs": 2180,
+    "phase1RemoteDbWaitMs": 2010,
+    "phase1FreePathDbRequestsApprox": 20,
+    "phase34WarmFeaturePopulationMsAt1000": 499,
+    "phase34WarmFeaturePopulationMsAt10000": 4084,
+    "phase34CompleteCompactScoreMsAt1000": 412,
+    "phase34CompleteCompactScoreMsAt10000": 1664
+  },
+  "scales": [
+    {
+      "customers": 100,
+      "invoices": 500,
+      "scoreRowsStored": 100,
+      "journeys": [
+        {
+          "name": "warm-queue",
+          "totalMs": 210.1,
+          "databaseExecutionMs": 13.9,
+          "databaseWaitMs": 160.5,
+          "projectionCpuAndDecodeMs": 49.5,
+          "rpcCount": 2,
+          "databasePayloadBytes": 150621,
+          "browserRowPayloadBytes": 193051,
+          "rowsReturned": 50,
+          "customersExamined": 100
+        },
+        {
+          "name": "priority",
+          "totalMs": 144.0,
+          "databaseExecutionMs": 9.8,
+          "databaseWaitMs": 139.9,
+          "projectionCpuAndDecodeMs": 4.1,
+          "rpcCount": 2,
+          "databasePayloadBytes": 150688,
+          "browserRowPayloadBytes": 193238,
+          "rowsReturned": 50,
+          "customersExamined": 100,
+          "mutationWriteMs": 61.5,
+          "localWritePlusProjectionMs": 205.5
+        },
+        {
+          "name": "restore-normal",
+          "totalMs": 158.3,
+          "databaseExecutionMs": 9.9,
+          "databaseWaitMs": 152.7,
+          "projectionCpuAndDecodeMs": 5.6,
+          "rpcCount": 2,
+          "databasePayloadBytes": 150621,
+          "browserRowPayloadBytes": 193051,
+          "rowsReturned": 50,
+          "customersExamined": 100,
+          "mutationWriteMs": 63.2,
+          "localWritePlusProjectionMs": 221.5
+        },
+        {
+          "name": "action-create",
+          "totalMs": 153.6,
+          "databaseExecutionMs": 10.2,
+          "databaseWaitMs": 147.7,
+          "projectionCpuAndDecodeMs": 5.9,
+          "rpcCount": 2,
+          "databasePayloadBytes": 150872,
+          "browserRowPayloadBytes": 193051,
+          "rowsReturned": 50,
+          "customersExamined": 100,
+          "mutationWriteMs": 62.9,
+          "localWritePlusProjectionMs": 216.5
+        },
+        {
+          "name": "action-undo",
+          "totalMs": 150.1,
+          "databaseExecutionMs": 15.9,
+          "databaseWaitMs": 145.3,
+          "projectionCpuAndDecodeMs": 4.7,
+          "rpcCount": 2,
+          "databasePayloadBytes": 150621,
+          "browserRowPayloadBytes": 193051,
+          "rowsReturned": 50,
+          "customersExamined": 100,
+          "mutationWriteMs": 65.6,
+          "localWritePlusProjectionMs": 215.6
+        }
+      ]
+    },
+    {
+      "customers": 1000,
+      "invoices": 5000,
+      "scoreRowsStored": 1000,
+      "journeys": [
+        {
+          "name": "warm-queue",
+          "totalMs": 168.7,
+          "databaseExecutionMs": 21.8,
+          "databaseWaitMs": 151.2,
+          "projectionCpuAndDecodeMs": 17.6,
+          "rpcCount": 2,
+          "databasePayloadBytes": 355942,
+          "browserRowPayloadBytes": 193201,
+          "rowsReturned": 50,
+          "customersExamined": 1000
+        },
+        {
+          "name": "priority",
+          "totalMs": 166.5,
+          "databaseExecutionMs": 20.7,
+          "databaseWaitMs": 158.5,
+          "projectionCpuAndDecodeMs": 7.9,
+          "rpcCount": 2,
+          "databasePayloadBytes": 356009,
+          "browserRowPayloadBytes": 193388,
+          "rowsReturned": 50,
+          "customersExamined": 1000,
+          "mutationWriteMs": 70.2,
+          "localWritePlusProjectionMs": 236.7
+        },
+        {
+          "name": "restore-normal",
+          "totalMs": 181.2,
+          "databaseExecutionMs": 20.2,
+          "databaseWaitMs": 172.5,
+          "projectionCpuAndDecodeMs": 8.7,
+          "rpcCount": 2,
+          "databasePayloadBytes": 355942,
+          "browserRowPayloadBytes": 193201,
+          "rowsReturned": 50,
+          "customersExamined": 1000,
+          "mutationWriteMs": 71.6,
+          "localWritePlusProjectionMs": 252.8
+        },
+        {
+          "name": "action-create",
+          "totalMs": 189.2,
+          "databaseExecutionMs": 21.8,
+          "databaseWaitMs": 173.5,
+          "projectionCpuAndDecodeMs": 15.7,
+          "rpcCount": 2,
+          "databasePayloadBytes": 356193,
+          "browserRowPayloadBytes": 193201,
+          "rowsReturned": 50,
+          "customersExamined": 1000,
+          "mutationWriteMs": 79.3,
+          "localWritePlusProjectionMs": 268.5
+        },
+        {
+          "name": "action-undo",
+          "totalMs": 176.8,
+          "databaseExecutionMs": 21.4,
+          "databaseWaitMs": 164.5,
+          "projectionCpuAndDecodeMs": 12.2,
+          "rpcCount": 2,
+          "databasePayloadBytes": 355942,
+          "browserRowPayloadBytes": 193201,
+          "rowsReturned": 50,
+          "customersExamined": 1000,
+          "mutationWriteMs": 69.0,
+          "localWritePlusProjectionMs": 245.7
+        }
+      ]
+    },
+    {
+      "customers": 10000,
+      "invoices": 50000,
+      "scoreRowsStored": 10000,
+      "journeys": [
+        {
+          "name": "warm-queue",
+          "totalMs": 458.6,
+          "databaseExecutionMs": 152.4,
+          "databaseWaitMs": 376.4,
+          "projectionCpuAndDecodeMs": 82.2,
+          "rpcCount": 2,
+          "databasePayloadBytes": 2417013,
+          "browserRowPayloadBytes": 193301,
+          "rowsReturned": 50,
+          "customersExamined": 10000
+        },
+        {
+          "name": "priority",
+          "totalMs": 454.4,
+          "databaseExecutionMs": 160.9,
+          "databaseWaitMs": 392.0,
+          "projectionCpuAndDecodeMs": 62.3,
+          "rpcCount": 2,
+          "databasePayloadBytes": 2417080,
+          "browserRowPayloadBytes": 193488,
+          "rowsReturned": 50,
+          "customersExamined": 10000,
+          "mutationWriteMs": 76.8,
+          "localWritePlusProjectionMs": 531.2
+        },
+        {
+          "name": "restore-normal",
+          "totalMs": 377.0,
+          "databaseExecutionMs": 119.0,
+          "databaseWaitMs": 327.9,
+          "projectionCpuAndDecodeMs": 49.1,
+          "rpcCount": 2,
+          "databasePayloadBytes": 2417013,
+          "browserRowPayloadBytes": 193301,
+          "rowsReturned": 50,
+          "customersExamined": 10000,
+          "mutationWriteMs": 75.5,
+          "localWritePlusProjectionMs": 452.4
+        },
+        {
+          "name": "action-create",
+          "totalMs": 365.3,
+          "databaseExecutionMs": 122.5,
+          "databaseWaitMs": 317.7,
+          "projectionCpuAndDecodeMs": 47.6,
+          "rpcCount": 2,
+          "databasePayloadBytes": 2417264,
+          "browserRowPayloadBytes": 193301,
+          "rowsReturned": 50,
+          "customersExamined": 10000,
+          "mutationWriteMs": 59.0,
+          "localWritePlusProjectionMs": 424.3
+        },
+        {
+          "name": "action-undo",
+          "totalMs": 367.0,
+          "databaseExecutionMs": 117.3,
+          "databaseWaitMs": 310.3,
+          "projectionCpuAndDecodeMs": 56.6,
+          "rpcCount": 2,
+          "databasePayloadBytes": 2417013,
+          "browserRowPayloadBytes": 193301,
+          "rowsReturned": 50,
+          "customersExamined": 10000,
+          "mutationWriteMs": 84.3,
+          "localWritePlusProjectionMs": 451.2
+        }
+      ]
+    }
+  ]
+}

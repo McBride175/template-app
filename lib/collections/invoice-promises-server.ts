@@ -1,3 +1,4 @@
+import type { FinancialMutationContinuation } from '@/lib/collections/financial-mutation-reconciliation-server'
 import 'server-only'
 
 import { createServerSupabaseClient } from '@/lib/supabase-server'
@@ -104,7 +105,7 @@ export async function authenticatePromiseTenant(tenantInput: string) {
   const snapshot = await resolveXeroAuthoritativeSnapshot({ supabaseAdmin: admin, userId: user.id, tenantId })
   const currencyContext = await loadCollectionsCurrencyContext({ supabaseAdmin: admin, userId: user.id, tenantId, snapshot })
   if (!resolveCollectionsCurrencyAccess({ entitlement, currencyContext }).allowed) throw new InvoicePromiseOperationError('forbidden')
-  return { admin, userId: user.id, tenantId, snapshot }
+  return { admin, userId: user.id, tenantId, snapshot, entitlement }
 }
 async function rpc<T>(admin: Admin, name: string, args: Record<string, unknown>): Promise<T> {
   const { data, error } = await admin.rpc(name, args)
@@ -183,7 +184,7 @@ export function planPromiseMutation(held: Held, intent: PromiseRequestIntent, no
   }
   return { steps, evaluation }
 }
-export async function mutateInvoicePromise(body: unknown) {
+export async function mutateInvoicePromise(body: unknown, afterCommit?: FinancialMutationContinuation) {
   const { tenantId, commandId, intent } = parsePromiseRequest(body)
   const context = await authenticatePromiseTenant(tenantId)
   const args = { p_user: context.userId, p_tenant: tenantId, p_command: commandId, p_intent: intent }
@@ -194,6 +195,7 @@ export async function mutateInvoicePromise(body: unknown) {
     const current = await rpc<Held>(context.admin, 'prepare_invoice_promise_request', {
       p_user: context.userId, p_tenant: tenantId, p_invoice: null, p_promise: replay.promise.id, p_financial: false,
     }).catch(() => null)
+    await afterCommit?.(context, replay.promise.customer_source_id).catch(() => undefined)
     return mutationDTO(replay, current?.sync_run_id === context.snapshot.syncRunId ? current : null)
   }
   const held = await rpc<Held>(context.admin, 'prepare_invoice_promise_request', { p_user: context.userId, p_tenant: tenantId,
@@ -204,6 +206,10 @@ export async function mutateInvoicePromise(body: unknown) {
   const plan = planPromiseMutation(held, intent, new Date().toISOString())
   const committed = await rpc<Committed>(context.admin, 'commit_invoice_promise_request', {
     ...args, p_run: held.sync_run_id, p_digest: held.digest, p_steps: plan.steps, p_evaluation: plan.evaluation })
+  const metadataOnly = Boolean(held.promise && held.promise.status === committed.promise.status &&
+    held.promise.promised_amount_native === committed.promise.promised_amount_native &&
+    held.promise.qualifying_paid_amount_native === committed.promise.qualifying_paid_amount_native)
+  await afterCommit?.({ ...context, metadataOnly }, committed.promise.customer_source_id).catch(() => undefined)
   return mutationDTO(committed, held)
 }
 export async function readInvoicePromiseContext(params: { tenantId: string; invoiceSourceId: string; includeHistory?: boolean }) {

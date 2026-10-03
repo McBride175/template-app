@@ -1,0 +1,430 @@
+{
+  "provenance": {
+    "environment": "Disposable local PostgreSQL in Docker; no hosted measurement",
+    "branch": "develop",
+    "sha": "806b5420a87749665d9de28957970275c54924f8",
+    "basisVersion": "customer_basis_v1",
+    "featureVersion": "customer_features_v1",
+    "evaluationDate": "2026-10-01",
+    "rolloverDate": "2026-10-02",
+    "dataset": "Synthetic GBP portfolios, five invoices (two open and three paid) and one canonical payment per customer; zero credit, one subsequent partial dispute; dense dependency revisions; not representative hosted customer data",
+    "iterations": 1,
+    "timingNote": "Total and database-wait include Docker/psql adapter launch, transfer and parsing. PostgreSQL function execution and calculation CPU measured separately. Relation sizes include indexes/TOAST/MVCC update history.",
+    "supersededAnomaly": {
+      "customers": 1000,
+      "warmTotalMs": 48390.908542,
+      "warmDatabaseMs": 48009.237,
+      "rootCause": "Fresh-statistics generic plan joined broad basis/feature populations before applying page keys, causing approximately 250 million feature-row visits. Context/revision batching alone did not resolve it.",
+      "resolution": "Lateral complete-primary-key probes with OFFSET 0 bind each page customer before accessing basis/features. A generic-plan regression test asserts bounded loops and customer identity in index conditions.",
+      "diagnosticBefore": {
+        "executionMs": 60704.174,
+        "scans": [
+          {
+            "Node Type": "Index Only Scan",
+            "Relation Name": "collection_customer_bases",
+            "Index Name": "collection_customer_bases_pkey",
+            "Index Cond": "((user_id = $1) AND (tenant_id = $2) AND (source_system = 'xero'::text) AND (basis_version = 'customer_basis_v1'::text))",
+            "Actual Rows": 1001,
+            "Actual Loops": 1
+          },
+          {
+            "Node Type": "Index Scan",
+            "Relation Name": "collection_customer_bases",
+            "Index Name": "collection_customer_bases_pkey",
+            "Index Cond": "((user_id = $1) AND (tenant_id = $2) AND (source_system = 'xero'::text) AND (generation_id = ((ctx.j ->> 'generationId'::text))::uuid) AND (basis_version = 'customer_basis_v1'::text))",
+            "Actual Rows": 0,
+            "Actual Loops": 0
+          },
+          {
+            "Node Type": "Index Scan",
+            "Relation Name": "collection_customer_bases",
+            "Index Name": "collection_customer_bases_pkey",
+            "Index Cond": "((user_id = $1) AND (tenant_id = $2) AND (source_system = 'xero'::text) AND (generation_id = ((ctx.j ->> 'generationId'::text))::uuid) AND (basis_version = 'customer_basis_v1'::text))",
+            "Actual Rows": 1001,
+            "Actual Loops": 500
+          },
+          {
+            "Node Type": "Index Scan",
+            "Relation Name": "collection_customer_features",
+            "Index Name": "collection_customer_features_pkey",
+            "Index Cond": "((user_id = $1) AND (tenant_id = $2) AND (source_system = 'xero'::text) AND (generation_id = ((ctx.j ->> 'generationId'::text))::uuid) AND (basis_version = 'customer_basis_v1'::text) AND (feature_version = 'customer_features_v1'::text))",
+            "Actual Rows": 501,
+            "Actual Loops": 500500
+          }
+        ]
+      },
+      "diagnosticAfter": {
+        "executionMs": 76.481,
+        "scans": [
+          {
+            "Node Type": "Index Only Scan",
+            "Relation Name": "collection_customer_bases",
+            "Index Name": "collection_customer_bases_pkey",
+            "Index Cond": "((user_id = $1) AND (tenant_id = $2) AND (source_system = 'xero'::text) AND (basis_version = 'customer_basis_v1'::text))",
+            "Actual Rows": 1001,
+            "Actual Loops": 1
+          },
+          {
+            "Node Type": "Index Scan",
+            "Relation Name": "collection_customer_bases",
+            "Index Name": "collection_customer_bases_pkey",
+            "Index Cond": "((user_id = $1) AND (tenant_id = $2) AND (source_system = 'xero'::text) AND (generation_id = ((ctx.j ->> 'generationId'::text))::uuid) AND (basis_version = 'customer_basis_v1'::text))",
+            "Actual Rows": 0,
+            "Actual Loops": 0
+          },
+          {
+            "Node Type": "Index Scan",
+            "Relation Name": "collection_customer_bases",
+            "Index Name": "collection_customer_bases_pkey",
+            "Index Cond": "((user_id = $1) AND (tenant_id = $2) AND (source_system = 'xero'::text) AND (generation_id = ((ctx.j ->> 'generationId'::text))::uuid) AND (customer_source_id = page.k) AND (basis_version = 'customer_basis_v1'::text))",
+            "Actual Rows": 1,
+            "Actual Loops": 500
+          },
+          {
+            "Node Type": "Index Scan",
+            "Relation Name": "collection_customer_features",
+            "Index Name": "collection_customer_features_pkey",
+            "Index Cond": "((user_id = $1) AND (tenant_id = $2) AND (source_system = 'xero'::text) AND (generation_id = ((ctx.j ->> 'generationId'::text))::uuid) AND (customer_source_id = page.k) AND (basis_version = 'customer_basis_v1'::text) AND (feature_version = 'customer_features_v1'::text))",
+            "Actual Rows": 1,
+            "Actual Loops": 500
+          }
+        ]
+      }
+    }
+  },
+  "results": [
+    {
+      "customers": 100,
+      "invoices": 500,
+      "payments": 100,
+      "storage": {
+        "basisRows": 101,
+        "basisBytes": 88714,
+        "featureRows": 101,
+        "featureBytes": 147492,
+        "basisTableBytes": 188416,
+        "featureTableBytes": 491520
+      },
+      "journeys": [
+        {
+          "name": "cold",
+          "metrics": {
+            "roundTrips": 8,
+            "basisBuilds": 1,
+            "basisHits": 0,
+            "basisMisses": 101,
+            "featureHits": 0,
+            "featureMisses": 101,
+            "canonicalBuildRequests": 1,
+            "canonicalInvoiceReads": 2,
+            "canonicalPaymentReads": 2,
+            "canonicalEvidenceReads": 2,
+            "operationalReadRequests": 2,
+            "operationalIntegrityChecks": 1,
+            "featuresRebuilt": 101,
+            "basisBuildMs": 88.47858300000007,
+            "featureCalculationMs": 18.9972899999957,
+            "databaseWaitMs": 810.0112510000017,
+            "totalMs": 833.8544579999998
+          },
+          "databaseExecutionMs": 112.11299999999999,
+          "basisDatabaseMs": 21.666
+        },
+        {
+          "name": "warm",
+          "metrics": {
+            "roundTrips": 1,
+            "basisBuilds": 0,
+            "basisHits": 101,
+            "basisMisses": 0,
+            "featureHits": 101,
+            "featureMisses": 0,
+            "canonicalBuildRequests": 0,
+            "canonicalInvoiceReads": 0,
+            "canonicalPaymentReads": 0,
+            "canonicalEvidenceReads": 0,
+            "operationalReadRequests": 0,
+            "operationalIntegrityChecks": 1,
+            "featuresRebuilt": 0,
+            "basisBuildMs": 0,
+            "featureCalculationMs": 0,
+            "databaseWaitMs": 115.78883399999995,
+            "totalMs": 116.19804199999999
+          },
+          "databaseExecutionMs": 18.833,
+          "basisDatabaseMs": 0
+        },
+        {
+          "name": "financial",
+          "metrics": {
+            "roundTrips": 4,
+            "basisBuilds": 0,
+            "basisHits": 1,
+            "basisMisses": 0,
+            "featureHits": 0,
+            "featureMisses": 1,
+            "canonicalBuildRequests": 0,
+            "canonicalInvoiceReads": 0,
+            "canonicalPaymentReads": 0,
+            "canonicalEvidenceReads": 0,
+            "operationalReadRequests": 1,
+            "operationalIntegrityChecks": 0,
+            "featuresRebuilt": 1,
+            "basisBuildMs": 0,
+            "featureCalculationMs": 1.4142919999994774,
+            "databaseWaitMs": 293.4883749999999,
+            "totalMs": 295.1846660000001
+          },
+          "databaseExecutionMs": 16.796,
+          "basisDatabaseMs": 0
+        },
+        {
+          "name": "rollover",
+          "metrics": {
+            "roundTrips": 6,
+            "basisBuilds": 0,
+            "basisHits": 101,
+            "basisMisses": 0,
+            "featureHits": 0,
+            "featureMisses": 101,
+            "canonicalBuildRequests": 0,
+            "canonicalInvoiceReads": 0,
+            "canonicalPaymentReads": 0,
+            "canonicalEvidenceReads": 0,
+            "operationalReadRequests": 2,
+            "operationalIntegrityChecks": 1,
+            "featuresRebuilt": 101,
+            "basisBuildMs": 0,
+            "featureCalculationMs": 13.426711000002797,
+            "databaseWaitMs": 494.62816699999985,
+            "totalMs": 509.1700000000001
+          },
+          "databaseExecutionMs": 61.456,
+          "basisDatabaseMs": 0
+        }
+      ]
+    },
+    {
+      "customers": 1000,
+      "invoices": 5000,
+      "payments": 1000,
+      "storage": {
+        "basisRows": 1001,
+        "basisBytes": 886900,
+        "featureRows": 1001,
+        "featureBytes": 1466777,
+        "basisTableBytes": 1458176,
+        "featureTableBytes": 4767744
+      },
+      "journeys": [
+        {
+          "name": "cold",
+          "metrics": {
+            "roundTrips": 28,
+            "basisBuilds": 1,
+            "basisHits": 0,
+            "basisMisses": 1001,
+            "featureHits": 0,
+            "featureMisses": 1001,
+            "canonicalBuildRequests": 1,
+            "canonicalInvoiceReads": 2,
+            "canonicalPaymentReads": 2,
+            "canonicalEvidenceReads": 2,
+            "operationalReadRequests": 11,
+            "operationalIntegrityChecks": 1,
+            "featuresRebuilt": 1001,
+            "basisBuildMs": 288.13308400000096,
+            "featureCalculationMs": 112.84934299997985,
+            "databaseWaitMs": 2822.238124999996,
+            "totalMs": 2949.002834000001
+          },
+          "databaseExecutionMs": 643.7299999999999,
+          "basisDatabaseMs": 200.309
+        },
+        {
+          "name": "warm",
+          "metrics": {
+            "roundTrips": 4,
+            "basisBuilds": 0,
+            "basisHits": 1001,
+            "basisMisses": 0,
+            "featureHits": 1001,
+            "featureMisses": 0,
+            "canonicalBuildRequests": 0,
+            "canonicalInvoiceReads": 0,
+            "canonicalPaymentReads": 0,
+            "canonicalEvidenceReads": 0,
+            "operationalReadRequests": 0,
+            "operationalIntegrityChecks": 1,
+            "featuresRebuilt": 0,
+            "basisBuildMs": 0,
+            "featureCalculationMs": 0,
+            "databaseWaitMs": 498.0987499999992,
+            "totalMs": 499.0422500000004
+          },
+          "databaseExecutionMs": 141.74,
+          "basisDatabaseMs": 0
+        },
+        {
+          "name": "financial",
+          "metrics": {
+            "roundTrips": 4,
+            "basisBuilds": 0,
+            "basisHits": 1,
+            "basisMisses": 0,
+            "featureHits": 0,
+            "featureMisses": 1,
+            "canonicalBuildRequests": 0,
+            "canonicalInvoiceReads": 0,
+            "canonicalPaymentReads": 0,
+            "canonicalEvidenceReads": 0,
+            "operationalReadRequests": 1,
+            "operationalIntegrityChecks": 0,
+            "featuresRebuilt": 1,
+            "basisBuildMs": 0,
+            "featureCalculationMs": 0.23225000000093132,
+            "databaseWaitMs": 287.18112499999916,
+            "totalMs": 287.5610830000005
+          },
+          "databaseExecutionMs": 22.791999999999998,
+          "basisDatabaseMs": 0
+        },
+        {
+          "name": "rollover",
+          "metrics": {
+            "roundTrips": 26,
+            "basisBuilds": 0,
+            "basisHits": 1001,
+            "basisMisses": 0,
+            "featureHits": 0,
+            "featureMisses": 1001,
+            "canonicalBuildRequests": 0,
+            "canonicalInvoiceReads": 0,
+            "canonicalPaymentReads": 0,
+            "canonicalEvidenceReads": 0,
+            "operationalReadRequests": 11,
+            "operationalIntegrityChecks": 1,
+            "featuresRebuilt": 1001,
+            "basisBuildMs": 0,
+            "featureCalculationMs": 92.85083399998985,
+            "databaseWaitMs": 2442.805578999996,
+            "totalMs": 2554.7595
+          },
+          "databaseExecutionMs": 441.782,
+          "basisDatabaseMs": 0
+        }
+      ]
+    },
+    {
+      "customers": 10000,
+      "invoices": 50000,
+      "payments": 10000,
+      "storage": {
+        "basisRows": 10001,
+        "basisBytes": 8885444,
+        "featureRows": 10001,
+        "featureBytes": 14659348,
+        "basisTableBytes": 12951552,
+        "featureTableBytes": 43294720
+      },
+      "journeys": [
+        {
+          "name": "cold",
+          "metrics": {
+            "roundTrips": 226,
+            "basisBuilds": 1,
+            "basisHits": 0,
+            "basisMisses": 10001,
+            "featureHits": 0,
+            "featureMisses": 10001,
+            "canonicalBuildRequests": 1,
+            "canonicalInvoiceReads": 2,
+            "canonicalPaymentReads": 2,
+            "canonicalEvidenceReads": 2,
+            "operationalReadRequests": 101,
+            "operationalIntegrityChecks": 1,
+            "featuresRebuilt": 10001,
+            "basisBuildMs": 1677.8917920000022,
+            "featureCalculationMs": 1006.4219549992704,
+            "databaseWaitMs": 30156.88662299986,
+            "totalMs": 32036.468875
+          },
+          "databaseExecutionMs": 11955.499000000002,
+          "basisDatabaseMs": 1596.081
+        },
+        {
+          "name": "warm",
+          "metrics": {
+            "roundTrips": 22,
+            "basisBuilds": 0,
+            "basisHits": 10001,
+            "basisMisses": 0,
+            "featureHits": 10001,
+            "featureMisses": 0,
+            "canonicalBuildRequests": 0,
+            "canonicalInvoiceReads": 0,
+            "canonicalPaymentReads": 0,
+            "canonicalEvidenceReads": 0,
+            "operationalReadRequests": 0,
+            "operationalIntegrityChecks": 1,
+            "featuresRebuilt": 0,
+            "basisBuildMs": 0,
+            "featureCalculationMs": 0,
+            "databaseWaitMs": 4075.6163330000127,
+            "totalMs": 4084.0487500000017
+          },
+          "databaseExecutionMs": 1729.6480000000001,
+          "basisDatabaseMs": 0
+        },
+        {
+          "name": "financial",
+          "metrics": {
+            "roundTrips": 4,
+            "basisBuilds": 0,
+            "basisHits": 1,
+            "basisMisses": 0,
+            "featureHits": 0,
+            "featureMisses": 1,
+            "canonicalBuildRequests": 0,
+            "canonicalInvoiceReads": 0,
+            "canonicalPaymentReads": 0,
+            "canonicalEvidenceReads": 0,
+            "operationalReadRequests": 1,
+            "operationalIntegrityChecks": 0,
+            "featuresRebuilt": 1,
+            "basisBuildMs": 0,
+            "featureCalculationMs": 1.6164589999971213,
+            "databaseWaitMs": 422.81100000001607,
+            "totalMs": 424.8941249999916
+          },
+          "databaseExecutionMs": 81.225,
+          "basisDatabaseMs": 0
+        },
+        {
+          "name": "rollover",
+          "metrics": {
+            "roundTrips": 224,
+            "basisBuilds": 0,
+            "basisHits": 10001,
+            "basisMisses": 0,
+            "featureHits": 0,
+            "featureMisses": 10001,
+            "canonicalBuildRequests": 0,
+            "canonicalInvoiceReads": 0,
+            "canonicalPaymentReads": 0,
+            "canonicalEvidenceReads": 0,
+            "operationalReadRequests": 101,
+            "operationalIntegrityChecks": 1,
+            "featuresRebuilt": 10001,
+            "basisBuildMs": 0,
+            "featureCalculationMs": 790.2705090001691,
+            "databaseWaitMs": 24328.95879200002,
+            "totalMs": 25858.776958000002
+          },
+          "databaseExecutionMs": 5793.811000000001,
+          "basisDatabaseMs": 0
+        }
+      ]
+    }
+  ]
+}

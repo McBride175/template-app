@@ -15,10 +15,7 @@ const CUSTOMER_SUMMARY_CLIENT_PATH = new URL(
   '../../app/collections/customers/CustomerCollectionsClient.tsx',
   import.meta.url
 )
-const CUSTOMER_SUMMARY_PATH = new URL(
-  '../../lib/collections/customer-summary.ts',
-  import.meta.url
-)
+
 
 const EVALUATION_DATE = '2026-09-07'
 
@@ -320,7 +317,7 @@ test('keeps a position matching normal at approximately zero', () => {
 test('customer summary UI exposes the payment behaviour diagnostics', async () => {
   const [clientSource, summarySource] = await Promise.all([
     readFile(CUSTOMER_SUMMARY_CLIENT_PATH, 'utf8'),
-    readFile(CUSTOMER_SUMMARY_PATH, 'utf8'),
+    readFile('lib/collections/customer-features.ts', 'utf8'),
   ])
 
   assert.match(clientSource, /Payment behaviour/)

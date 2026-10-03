@@ -403,7 +403,12 @@ export function computePrioritizationBaseScore(scores: PrioritizationComponentSc
 }
 
 export function recommendAction(row: PrioritizationCustomerRow, finalScore: number) {
-  if (!row.has_actionable_overdue_balance) return 'No action' as const
+  return recommendActionFromSignals(row.has_actionable_overdue_balance, finalScore)
+}
+
+/** Exact downstream action band, usable without hydrating score explanations. */
+export function recommendActionFromSignals(hasActionableOverdueBalance: boolean, finalScore: number) {
+  if (!hasActionableOverdueBalance) return 'No action' as const
   if (finalScore >= PRIORITIZATION_CONFIG.actions.reviewNowMin) return 'Review now' as const
   if (finalScore >= PRIORITIZATION_CONFIG.actions.followUpMin) return 'Follow up' as const
   if (finalScore > PRIORITIZATION_CONFIG.actions.monitorMinExclusive) return 'Monitor' as const
@@ -514,11 +519,11 @@ export function buildReason(
   return reason
 }
 
-export function prioritiseCustomer(
+/** Pure accounting-signal calculation. Priority and contact history are downstream. */
+export function calculateBaseCustomerScore(
   row: PrioritizationCustomerRow,
-  context: PrioritizationContext,
-  overrideLevel: CustomerOverrideLevel | null = DEFAULT_OVERRIDE_LEVEL
-): PrioritizedCustomerRow {
+  context: PrioritizationContext
+) {
   const {
     exposureSharePercent,
     exposureRelativeToLargestPercent,
@@ -565,12 +570,90 @@ export function prioritiseCustomer(
     relativeDeteriorationScore: relativeLatenessScore,
     paymentRecencyScore: behaviourScore,
   })
+  return {
+    row,
+    context,
+    componentScores: {
+      exposureScore,
+      urgencyScore,
+      relativeDeteriorationScore: relativeLatenessScore,
+      paymentRecencyScore: behaviourScore,
+    },
+    baseScore,
+    validity: Number.isFinite(baseScore) ? 'finite' as const : 'non_finite' as const,
+    explanationInputs: {
+      exposureSharePercent,
+      exposureRelativeToLargestPercent,
+      exposureScore,
+      customerOverdueOutstanding,
+      normalizedTotalOverdue,
+      normalizedMaxOverdue,
+      urgencyWeightedAvgDays,
+      portfolioAvgWeightedDays,
+      portfolioMaxWeightedDays,
+      urgencyBaseScore,
+      invoiceCountBonus,
+      urgencyScore,
+      behaviourBaseScore,
+      behaviourScore,
+      relativeLatenessScore,
+      behaviourDaysInput,
+      weightedExposure,
+      weightedUrgency,
+      weightedRelativeDeterioration,
+      weightedPaymentRecency,
+      rawScore,
+      baseScore,
+    },
+  }
+}
+
+export type BaseCustomerScore = ReturnType<typeof calculateBaseCustomerScore>
+
+/** Preserve base rounding before multiplication, then round the adjusted score. */
+export function applyFounderOverride(
+  baseScore: number,
+  overrideLevel: CustomerOverrideLevel | null = DEFAULT_OVERRIDE_LEVEL
+) {
   const normalizedOverrideLevel = normalizeOverrideLevel(overrideLevel)
   const overrideMultiplier = OVERRIDE_MULTIPLIERS[normalizedOverrideLevel]
   const finalScore = Number(
     (baseScore * overrideMultiplier).toFixed(PRIORITIZATION_CONFIG.scoreDecimalPlaces)
   )
+  return { normalizedOverrideLevel, overrideMultiplier, finalScore }
+}
 
+/** Downstream adjustment and presentation of an already calculated base score. */
+export function adjustCustomerPriority(
+  base: BaseCustomerScore,
+  overrideLevel: CustomerOverrideLevel | null = DEFAULT_OVERRIDE_LEVEL
+): PrioritizedCustomerRow {
+  const { row, context } = base
+  const {
+    exposureSharePercent,
+    exposureRelativeToLargestPercent,
+    exposureScore,
+    customerOverdueOutstanding,
+    normalizedTotalOverdue,
+    normalizedMaxOverdue,
+    urgencyWeightedAvgDays,
+    portfolioAvgWeightedDays,
+    portfolioMaxWeightedDays,
+    urgencyBaseScore,
+    invoiceCountBonus,
+    urgencyScore,
+    behaviourBaseScore,
+    behaviourScore,
+    relativeLatenessScore,
+    behaviourDaysInput,
+    weightedExposure,
+    weightedUrgency,
+    weightedRelativeDeterioration,
+    weightedPaymentRecency,
+    rawScore,
+    baseScore,
+  } = base.explanationInputs
+  const { normalizedOverrideLevel, overrideMultiplier, finalScore } = applyFounderOverride(base.baseScore, overrideLevel)
   const recommendedAction = recommendAction(row, finalScore)
   const reason = buildReason(
     row,
@@ -620,4 +703,13 @@ export function prioritiseCustomer(
     reason,
     score_breakdown_lines: scoreBreakdownLines,
   }
+}
+
+/** Compatibility boundary for existing consumers outside the queue. */
+export function prioritiseCustomer(
+  row: PrioritizationCustomerRow,
+  context: PrioritizationContext,
+  overrideLevel: CustomerOverrideLevel | null = DEFAULT_OVERRIDE_LEVEL
+): PrioritizedCustomerRow {
+  return adjustCustomerPriority(calculateBaseCustomerScore(row, context), overrideLevel)
 }

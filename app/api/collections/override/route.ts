@@ -9,6 +9,7 @@ import {
   resolveCollectionsCurrencyAccess,
 } from '@/lib/billing/collections-access'
 import { loadCollectionsCurrencyContext } from '@/lib/collections/currency-context-server'
+import { readCollectionQueueProjection } from '@/lib/collections/fast-queue-projection-server'
 
 const VALID_OVERRIDE_LEVELS: CustomerOverrideLevel[] = [
   'safe',
@@ -53,6 +54,8 @@ export async function POST(request: Request) {
           customer_source_id?: unknown
           override_level?: unknown
           tenant_id?: unknown
+          queue_overdue_only?: unknown
+          queue_limit?: unknown
         }
       | null
 
@@ -106,6 +109,36 @@ export async function POST(request: Request) {
       )
     }
 
+    const queueOverdueOnly = payload?.queue_overdue_only === true
+    const queueLimit = Number.isInteger(payload?.queue_limit)
+      ? Math.max(1, Math.min(200, payload!.queue_limit as number)) : 200
+    const committedResponse = async () => {
+      try {
+        const projection = await readCollectionQueueProjection({
+          admin: supabaseAdmin, userId: user.id, tenantId,
+          evaluationInstant: new Date(), overdueOnly: queueOverdueOnly,
+          requireCurrentDate: true,
+          limit: queueLimit, legacyTodayDateIso: entitlement.usageDate,
+        })
+        return NextResponse.json({ ok: true, committed: true, overrideLevel,
+          projection: { rows: projection.rows, actionsTakenByCustomerId: projection.actionsTakenByCustomerId,
+            queue: projection.queue, portfolio: projection.portfolio, version: projection.version,
+            experience: projection.experience, reviewRequiredCustomers: projection.reviews,
+            organisationBaseCurrency: projection.metadata.organisationBaseCurrency,
+            currencyContext: projection.metadata.currencyContext,
+            currencyHealth: projection.metadata.currencyHealth,
+            currencyAccess, followUpSchedule: projection.followUpSchedule,
+            tenantId, entitlement },
+        })
+      } catch (error) {
+        console.error('[collections.override.post] Override committed; projection unavailable', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+        })
+        return NextResponse.json({ ok: true, committed: true, overrideLevel,
+          projectionUnavailable: true })
+      }
+    }
+
     if (overrideLevel === 'normal') {
       const { error: deleteError } = await supabaseAdmin
         .from('customer_overrides')
@@ -124,7 +157,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Failed to clear customer override' }, { status: 500 })
       }
 
-      return NextResponse.json({ ok: true })
+      return committedResponse()
     }
 
     const { error: upsertError } = await supabaseAdmin.from('customer_overrides').upsert(
@@ -150,7 +183,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Failed to save customer override' }, { status: 500 })
     }
 
-    return NextResponse.json({ ok: true })
+    return committedResponse()
   } catch (error) {
     console.error('[collections.override.post] Failed to upsert customer override', {
       error: error instanceof Error ? error.message : 'Unknown error',

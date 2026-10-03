@@ -19,9 +19,12 @@ import {
   DEFAULT_FOUNDER_CONTEXT_LEVEL,
   type FounderContextLevel,
 } from '@/lib/collections/founder-context'
+import { ensureCustomerFinancialFeaturesForPortfolioWithIdentity,
+  CustomerMaterializationNotReady } from '@/lib/collections/customer-materialization-server'
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 200
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 type SortBy =
   | 'overdue_outstanding'
@@ -162,6 +165,27 @@ export async function GET(request: NextRequest) {
     const heldSnapshot = scopedCustomerSourceId ? await resolveXeroAuthoritativeSnapshot({ supabaseAdmin, userId: user.id, tenantId }) : undefined
     // A scoped refresh must not weaken the tenant-wide gross currency entitlement boundary.
     const grossCurrencyContext = heldSnapshot ? await loadCollectionsCurrencyContext({ supabaseAdmin, userId: user.id, tenantId, snapshot: heldSnapshot }) : null
+    let summaryResult
+    if (!scopedCustomerSourceId) {
+      try {
+        const certified = await ensureCustomerFinancialFeaturesForPortfolioWithIdentity({
+          admin: supabaseAdmin, userId: user.id, tenantId, sourceSystem: 'xero',
+          evaluationInstant: new Date(),
+        })
+        summaryResult = { ...certified.result,
+          snapshot: { mode: 'generation' as const, syncRunId: certified.identity.generationId } }
+      } catch (cause) {
+        const missingSchema = cause instanceof Error &&
+          (cause.message.includes('PGRST202') || cause.message.includes('42883') ||
+            cause.message.includes('Could not find the function'))
+        if (!(cause instanceof CustomerMaterializationNotReady &&
+          (cause.reason === 'legacy' ||
+            (cause.reason === 'scope' && !UUID.test(user.id)))) &&
+          !missingSchema) throw cause
+      }
+    }
+    summaryResult ??= await loadCustomerCollectionsSummaryWithMetadata(supabaseAdmin, user.id, tenantId,
+      scopedCustomerSourceId && heldSnapshot ? { customerSourceId: scopedCustomerSourceId, snapshot: heldSnapshot } : undefined)
     const {
       rows,
       organisationBaseCurrency,
@@ -170,7 +194,7 @@ export async function GET(request: NextRequest) {
       currencyContext: summaryCurrencyContext,
       reviewRequiredCustomers,
       snapshot,
-    } = await loadCustomerCollectionsSummaryWithMetadata(supabaseAdmin, user.id, tenantId, scopedCustomerSourceId && heldSnapshot ? { customerSourceId: scopedCustomerSourceId, snapshot: heldSnapshot } : undefined)
+    } = summaryResult
     const currencyContext = grossCurrencyContext ?? summaryCurrencyContext
     const currencyAccess = resolveCollectionsCurrencyAccess({ entitlement, currencyContext })
 

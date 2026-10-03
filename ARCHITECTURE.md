@@ -525,3 +525,23 @@ resolver/reconciliation decisions and scoring weights remain server/domain owned
 Privacy export now includes owned Promise terms/notes/status/timestamps and meaningful
 immutable events, paginated without command/baseline/resolver internals. No Promise
 worklist or unified timeline is added. See `docs/promise-customer-experience.md`.
+
+### Collection dependency metadata (Phase 3.2)
+
+The additive Phase 3.2 migration defines `collection_dependency_heads` for tenant financial epoch F and projection
+revision P, scoped by owner, provider tenant and source.
+`collection_customer_financial_revisions` stores rCustomer under the same scope
+plus customer source ID. These are disposable-calculation invalidation metadata,
+not accounting or scored state. G remains the existing authoritative active
+accounting generation pointer. Sparse rows read as zero; legacy/null-G accounting
+must not be reused as an immutable generation.
+
+Private database triggers advance versions in the existing domain mutation and
+accounting-publication transactions. Effective financial changes advance rCustomer,
+F and P; priority/Action History and displayed note/review changes advance P only.
+Generation publication advances F/P without mass customer revision changes.
+No current read route calls the new internal dependency reader. No materialization,
+cache, worker, refresh redesign or API/UI change is enabled. See
+[the dependency foundation contract](docs/collection-dependency-foundation.md)
+for classifications, locking, security, date validity and local validation.
+This phase validates the migration locally; it does not imply a hosted rollout.

@@ -1,11 +1,16 @@
 'use client'
 
+import type { FinancialMutationReconciliation } from '@/lib/collections/financial-mutation-reconciliation-server'
+import { shouldApplyCustomerFinancialResponse, type CustomerFinancialStamp } from '@/lib/collections/financial-mutation-response'
+import { notifyPromiseActionabilityChanged } from '@/lib/collections/promise-refresh'
+
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Card from '@/app/components/ui/Card'
 import Button from '@/app/components/ui/Button'
-import CustomerInvoiceDisputes from '@/app/collections/customers/CustomerInvoiceDisputes'
+import { InvoiceDisputeList } from '@/app/collections/customers/CustomerInvoiceDisputes'
+import type { InvoiceDisputeView } from '@/lib/collections/invoice-dispute-view'
 import MultiCurrencyPlanGate from '@/app/collections/MultiCurrencyPlanGate'
 import {
   formatCurrentOverdueAge,
@@ -123,6 +128,15 @@ interface CollectionsApiResponse {
   error?: string
 }
 
+interface CustomerDetailResponse extends CollectionsApiResponse {
+  customerSourceId?: string
+  row?: CustomerCollectionsSummaryRow | null
+  reviewRequiredCustomer?: CurrencyReviewRequiredCustomer | null
+  invoices?: InvoiceDisputeView[]
+  version?: { generationId: string | null; financialEpoch?: string; customerRevision?: string;
+    projectionRevision?: string; evaluationDate?: string }
+}
+
 interface CollectionOverrideApiResponse {
   ok?: boolean
   code?: string
@@ -220,8 +234,21 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
   const [rows, setRows] = useState<CustomerCollectionsSummaryRow[]>([])
   const [resolvedTenantId, setResolvedTenantId] = useState<string | null>(tenantId)
   const [expandedCustomerSourceId, setExpandedCustomerSourceId] = useState<string | null>(initialCustomerSourceId)
+  const [detail, setDetail] = useState<CustomerDetailResponse | null>(null)
+  const [detailLoading, setDetailLoading] = useState(Boolean(initialCustomerSourceId))
+  const [detailError, setDetailError] = useState<string | null>(null)
+  const selectedCustomerRef = useRef(expandedCustomerSourceId)
+  selectedCustomerRef.current = expandedCustomerSourceId
+  const mutationSequence = useRef(0)
+  const latestReadyMutationSequence = useRef(0)
+  const financialStamps = useRef(new Map<string, CustomerFinancialStamp>())
+  const detailRequestId = useRef(0)
+  const detailAbort = useRef<AbortController | null>(null)
+  const listPatches = useRef(new Map<string, { throughRequest: number; row: CustomerCollectionsSummaryRow | null }>())
+  const listRequestId = useRef(0)
+  const listAbort = useRef<AbortController | null>(null)
   const invoiceSectionRef = useRef<HTMLElement | null>(null)
-  const initialInvoiceScrollDone = useRef(false)
+  const pendingDetailScrollId = useRef<string | null>(initialCustomerSourceId)
   const [overdueOnly, setOverdueOnly] = useState(false)
   const [sortOption, setSortOption] =
     useState<`${SortBy}:${SortDir}`>('overdue_outstanding:desc')
@@ -249,6 +276,10 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
 
   const loadRows = useCallback(
     async (manualRefresh: boolean) => {
+      const requestId = ++listRequestId.current
+      listAbort.current?.abort()
+      const controller = new AbortController()
+      listAbort.current = controller
       if (manualRefresh) {
         setRefreshing(true)
       } else {
@@ -267,12 +298,12 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
         if (tenantId) {
           params.set('tenantId', tenantId)
         }
-        if (initialCustomerSourceId) params.set('customerSourceId', initialCustomerSourceId)
-
         const response = await fetch(`/api/collections/customers?${params.toString()}`, {
           cache: 'no-store',
           credentials: 'include',
+          signal: controller.signal,
         })
+        if (requestId !== listRequestId.current) return false
 
         if (response.status === 401) {
           router.replace(buildLoginPath(loginNextPath, 'session_expired'))
@@ -280,6 +311,7 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
         }
 
         const payload = (await response.json().catch(() => null)) as CollectionsApiResponse | null
+        if (requestId !== listRequestId.current) return false
 
         if (response.status === 402 && payload?.code === 'MULTI_CURRENCY_REQUIRES_PRO') {
           setRows([])
@@ -300,7 +332,10 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
           throw new Error(payload?.error || 'Failed to load customer collections summary.')
         }
 
-        setRows(payload.rows ?? [])
+        setRows((payload.rows ?? []).flatMap(row => {
+          const patch = listPatches.current.get(row.customer_source_id)
+          return patch && requestId <= patch.throughRequest ? (patch.row ? [patch.row] : []) : [row]
+        }))
         setResolvedTenantId(payload.tenantId ?? null)
         setOrganisationBaseCurrency(payload.organisationBaseCurrency ?? null)
         setCurrencyContext(payload.currencyContext ?? null)
@@ -309,6 +344,7 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
         setReviewRequiredCustomers(payload.reviewRequiredCustomers ?? [])
         return true
       } catch (fetchError) {
+        if (controller.signal.aborted || requestId !== listRequestId.current) return false
         setError(
           fetchError instanceof Error
             ? fetchError.message
@@ -316,44 +352,156 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
         )
         return false
       } finally {
-        setLoading(false)
-        setRefreshing(false)
+        if (requestId === listRequestId.current) {
+          setLoading(false)
+          setRefreshing(false)
+        }
       }
     },
-    [initialCustomerSourceId, loginNextPath, overdueOnly, router, sortOption, tenantId]
+    [loginNextPath, overdueOnly, router, sortOption, tenantId]
   )
 
-  // Refresh just this customer's canonical summary; never rank or reload the portfolio after a Promise save.
-  const refreshPromiseCustomer = useCallback(async (customerSourceId: string) => {
-    if (!resolvedTenantId) return false
-    const params = new URLSearchParams({ tenantId: resolvedTenantId, scopeCustomerSourceId: customerSourceId })
+  const loadDetail = useCallback(async (customerSourceId: string): Promise<boolean> => {
+    const requestId = ++detailRequestId.current
+    detailAbort.current?.abort()
+    const controller = new AbortController()
+    detailAbort.current = controller
+    setDetailLoading(true)
+    setDetailError(null)
     try {
-      const response = await fetch(`/api/collections/customers?${params}`, { cache: 'no-store', credentials: 'include' })
-      const body = await response.json() as CollectionsApiResponse
-      if (!response.ok || !body.ok || body.tenantId !== resolvedTenantId || body.currencyHealth?.status === 'unavailable') return false
-      const updated = body.rows?.find(row => row.customer_source_id === customerSourceId)
-      const review = body.reviewRequiredCustomers?.find(row => row.customer_source_id === customerSourceId)
-      if (!updated && !review) return false
-      setRows(previous => {
-        const retained = previous.filter(row => row.customer_source_id !== customerSourceId)
-        return updated ? previous.some(row => row.customer_source_id === customerSourceId)
-          ? previous.map(row => row.customer_source_id === customerSourceId ? updated : row) : [...retained, updated] : retained
+      const params = new URLSearchParams({ customerSourceId })
+      if (tenantId) params.set('tenantId', tenantId)
+      const response = await fetch(`/api/collections/customer-detail?${params}`, {
+        credentials: 'include', cache: 'no-store', signal: controller.signal,
       })
-      setReviewRequiredCustomers(previous => [...previous.filter(row => row.customer_source_id !== customerSourceId), ...(review ? [review] : [])])
+      if (requestId !== detailRequestId.current) return false
+      if (response.status === 401) {
+        router.replace(buildLoginPath(loginNextPath, 'session_expired'))
+        return false
+      }
+      const payload = await response.json().catch(() => null) as CustomerDetailResponse | null
+      if (requestId !== detailRequestId.current) return false
+      if (!response.ok || !payload?.ok || payload.tenantId === undefined ||
+        payload.customerSourceId !== customerSourceId) {
+        throw new Error(payload?.error || 'Could not load customer detail.')
+      }
+      if (payload.version?.financialEpoch && payload.version.customerRevision && payload.version.projectionRevision && payload.version.evaluationDate && payload.version.generationId) {
+        const stamp = payload.version as CustomerFinancialStamp
+        if (!shouldApplyCustomerFinancialResponse(financialStamps.current.get(customerSourceId) ?? null, stamp)) return false
+        financialStamps.current.set(customerSourceId, stamp)
+      }
+      setResolvedTenantId(payload.tenantId ?? null)
+      setDetail(payload)
       return true
+    } catch (cause) {
+      if (controller.signal.aborted || requestId !== detailRequestId.current) return false
+      setDetail(null)
+      setDetailError(cause instanceof Error ? cause.message : 'Could not load customer detail.')
+      return false
+    } finally {
+      if (requestId === detailRequestId.current) setDetailLoading(false)
+    }
+  }, [tenantId, router, loginNextPath])
+
+  useEffect(() => {
+    if (!expandedCustomerSourceId) {
+      detailAbort.current?.abort()
+      detailRequestId.current++
+      setDetail(null)
+      setDetailLoading(false)
+      return
+    }
+    void loadDetail(expandedCustomerSourceId)
+    return () => { detailAbort.current?.abort() }
+  }, [expandedCustomerSourceId, loadDetail])
+
+  useEffect(() => {
+    const onHistory = () => {
+      const selected = new URL(window.location.href).searchParams.get('customerSourceId')?.trim() || null
+      pendingDetailScrollId.current = selected
+      setExpandedCustomerSourceId(selected)
+    }
+    window.addEventListener('popstate', onHistory)
+    return () => window.removeEventListener('popstate', onHistory)
+  }, [])
+
+  useEffect(() => {
+    pendingDetailScrollId.current = initialCustomerSourceId
+    setExpandedCustomerSourceId(initialCustomerSourceId)
+  }, [initialCustomerSourceId])
+
+  const selectCustomer = useCallback((customerSourceId: string) => {
+    const next = expandedCustomerSourceId === customerSourceId ? null : customerSourceId
+    const url = new URL(window.location.href)
+    if (next) url.searchParams.set('customerSourceId', next)
+    else url.searchParams.delete('customerSourceId')
+    window.history.pushState({}, '', url)
+    pendingDetailScrollId.current = next
+    setExpandedCustomerSourceId(next)
+    setDetail(null)
+    setDetailLoading(Boolean(next))
+  }, [expandedCustomerSourceId])
+
+  const applyReconciliation = useCallback(async (result: FinancialMutationReconciliation, sequence?: number) => {
+    if (result.tenantId !== resolvedTenantId || result.customerSourceId !== selectedCustomerRef.current) return false
+    if (!result.reconciliationReady) {
+      if (sequence !== undefined && sequence < latestReadyMutationSequence.current) return true
+      setDisputeRefreshState({ stale: true, message: 'The change was saved. Current financial details are not ready; refresh the details before making another change.' })
+      return false
+    }
+    const previous = financialStamps.current.get(result.customerSourceId) ?? null
+    if (!shouldApplyCustomerFinancialResponse(previous, result.version)) return true // A newer result already won.
+    latestReadyMutationSequence.current = Math.max(latestReadyMutationSequence.current, sequence ?? 0)
+    financialStamps.current.set(result.customerSourceId, result.version)
+    detailAbort.current?.abort()
+    detailRequestId.current++
+    listPatches.current.set(result.customerSourceId, { throughRequest: listRequestId.current, row: result.detail.row })
+    setDetailLoading(false)
+    setDetailError(null)
+    setDetail({ ok: true, ...result.detail, tenantId: result.tenantId, customerSourceId: result.customerSourceId })
+    // Financial operational edits do not alter the list's gross balances, ages,
+    // identity search or gross overdue filter. Replace the existing row in place.
+    setRows(previousRows => previousRows.flatMap(row => row.customer_source_id === result.customerSourceId
+      ? result.detail.row ? [result.detail.row] : [] : [row]))
+    setReviewRequiredCustomers(previousReviews => [...previousReviews.filter(row => row.customer_source_id !== result.customerSourceId),
+      ...(result.detail.reviewRequiredCustomer ? [result.detail.reviewRequiredCustomer] : [])])
+    setDisputeRefreshState(null)
+    if (!result.detail.row || result.detail.reviewRequiredCustomer ||
+      (detail?.customerSourceId === result.customerSourceId && Boolean(detail.row) !== Boolean(result.detail.row)) ||
+      (previous && previous.generationId !== result.version.generationId)) void loadRows(true)
+    if (!previous || previous.financialEpoch !== result.version.financialEpoch) {
+      notifyPromiseActionabilityChanged(result.tenantId, result)
+    }
+    return true
+  }, [resolvedTenantId, loadRows, detail])
+
+  const recoverDetail = useCallback(async (customerSourceId: string) => {
+    if (!resolvedTenantId) return false
+    try {
+      const params = new URLSearchParams({ tenantId: resolvedTenantId, customerSourceId })
+      const response = await fetch(`/api/collections/financial-reconciliation?${params}`, { cache: 'no-store', credentials: 'include' })
+      const body = await response.json() as { ok?: boolean; reconciliation?: FinancialMutationReconciliation }
+      if (response.ok && body.ok && body.reconciliation?.reconciliationReady) return applyReconciliation(body.reconciliation)
+      if (body.reconciliation?.reconciliationReady !== false || body.reconciliation.reason !== 'schema') return false
+      // Staged schema absence retains the existing authoritative detail read.
+      // This is explicit recovery only, never a normal successful-save waterfall.
+      const fresh = await loadDetail(customerSourceId)
+      if (fresh) setDisputeRefreshState(null)
+      return fresh
     } catch { return false }
-  }, [resolvedTenantId])
+  }, [resolvedTenantId, applyReconciliation, loadDetail])
 
   useEffect(() => {
     void loadRows(false)
   }, [loadRows])
 
   useEffect(() => {
-    if (!initialCustomerSourceId || initialInvoiceScrollDone.current || loading ||
-      expandedCustomerSourceId !== initialCustomerSourceId || !invoiceSectionRef.current) return
-    initialInvoiceScrollDone.current = true
+    if (!expandedCustomerSourceId || detailLoading ||
+      detail?.customerSourceId !== expandedCustomerSourceId ||
+      pendingDetailScrollId.current !== expandedCustomerSourceId || !invoiceSectionRef.current) return
+    pendingDetailScrollId.current = null
     invoiceSectionRef.current.scrollIntoView({ block: 'start', behavior: 'smooth' })
-  }, [expandedCustomerSourceId, initialCustomerSourceId, loading, rows, reviewRequiredCustomers])
+  }, [expandedCustomerSourceId, detailLoading, detail])
 
   const handleFounderContextChange = useCallback(
     async (
@@ -511,6 +659,53 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
         </div>
       </div>
 
+      {expandedCustomerSourceId && (
+        <section ref={(element) => { invoiceSectionRef.current = element }}
+          aria-label="Selected customer detail" className="scroll-mt-6 space-y-3">
+          <div className="flex justify-end">
+            <Button variant="secondary" size="md" onClick={() => selectCustomer(expandedCustomerSourceId)}>
+              Hide invoices
+            </Button>
+          </div>
+          {detailLoading && <Card><p className="text-sm text-gray-600">Loading selected customer and invoices…</p></Card>}
+          {detailError && !detailLoading && <Card>
+            <p role="alert" className="text-sm text-red-700">{detailError}</p>
+            <Button variant="secondary" size="md" onClick={() => void loadDetail(expandedCustomerSourceId)}>Retry customer detail</Button>
+          </Card>}
+          {detail && detail.customerSourceId === expandedCustomerSourceId && (
+            <Card>
+              <div className="mb-3">
+                <h2 className="text-lg font-semibold text-gray-900">
+                  {detail.row?.customer_name ?? detail.reviewRequiredCustomer?.customer_name ?? 'Customer'}
+                </h2>
+                {detail.row && <p className="text-sm text-gray-700">
+                  {formatMoney(detail.row.total_outstanding_base, detail.organisationBaseCurrency ?? null)} gross outstanding
+                  {' · '}{formatMoney(detail.row.overdue_outstanding_base, detail.organisationBaseCurrency ?? null)} gross overdue
+                  {' · '}{formatMoney(detail.row.customer_to_chase_overdue_base, detail.organisationBaseCurrency ?? null)} to chase
+                </p>}
+                {detail.tenantId && <Link href={customerHistoryUrl(expandedCustomerSourceId, detail.tenantId)}
+                  className="mt-2 inline-flex min-h-11 items-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900">
+                  View history
+                </Link>}
+              </div>
+              {(detail.currencyHealth?.status === 'unavailable' || !detail.organisationBaseCurrency) ?
+                <p className="text-sm text-gray-700">Customer amounts are unavailable until currency data is ready.</p> :
+              <InvoiceDisputeList key={expandedCustomerSourceId} tenantId={detail.tenantId!} customerSourceId={expandedCustomerSourceId}
+                customerName={detail.row?.customer_name ?? detail.reviewRequiredCustomer?.customer_name ?? 'Customer'}
+                invoices={detail.invoices ?? []} loading={false}
+                reload={() => recoverDetail(expandedCustomerSourceId)}
+                onPromiseRefresh={() => recoverDetail(expandedCustomerSourceId)}
+                onReconciled={applyReconciliation}
+                onChanged={async () => true}
+                onMutationStarted={() => { setDisputeRefreshState(null); return ++mutationSequence.current }}
+                onMutationPending={(message) => setDisputeRefreshState({ stale: true, message })}
+                onMutationResult={(refreshed, message) => setDisputeRefreshState({ stale: !refreshed, message })}
+                disabled={detailLoading || Boolean(disputeRefreshState?.stale)} />}
+            </Card>
+          )}
+        </section>
+      )}
+
       {!multiCurrencyPlanRequired && (
         <Card>
           <div id="customer-context" className="scroll-mt-6">
@@ -567,7 +762,7 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
           </label>
 
           <Button onClick={() => disputeRefreshState?.stale
-            ? window.location.reload() : void loadRows(true)} variant="secondary" size="md" disabled={refreshing}>
+            ? expandedCustomerSourceId && void recoverDetail(expandedCustomerSourceId) : void loadRows(true)} variant="secondary" size="md" disabled={refreshing}>
             {refreshing ? 'Refreshing…' : 'Refresh'}
           </Button>
         </div>
@@ -579,7 +774,7 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
           className={disputeRefreshState.stale ? 'text-sm text-amber-900' : 'text-sm text-green-700'}>
           {disputeRefreshState.message}
           {disputeRefreshState.stale && (
-            <button type="button" className="ml-2 underline" onClick={() => window.location.reload()}>
+            <button type="button" className="ml-2 underline" onClick={() => expandedCustomerSourceId && void recoverDetail(expandedCustomerSourceId)}>
               Refresh page
             </button>
           )}
@@ -707,20 +902,9 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
                       </Link>
                       <button type="button" className="min-h-11 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900"
                         aria-expanded={expandedCustomerSourceId === customer.customer_source_id}
-                        onClick={() => setExpandedCustomerSourceId((current) => current === customer.customer_source_id ? null : customer.customer_source_id)}>
+                        onClick={() => selectCustomer(customer.customer_source_id)}>
                         {expandedCustomerSourceId === customer.customer_source_id ? 'Hide invoices' : 'Manage invoices'}
                       </button>
-                      {expandedCustomerSourceId === customer.customer_source_id && (
-                        <div className="mt-2" ref={(element) => { invoiceSectionRef.current = element }}>
-                          <CustomerInvoiceDisputes tenantId={resolvedTenantId}
-                            customerSourceId={customer.customer_source_id} customerName={customer.customer_name}
-                            onPromiseChanged={() => refreshPromiseCustomer(customer.customer_source_id)}
-                            onChanged={() => loadRows(true)}
-                            onMutationStarted={() => setDisputeRefreshState(null)}
-                            onMutationPending={(message) => setDisputeRefreshState({ stale: true, message })}
-                            onMutationResult={(refreshed, message) => setDisputeRefreshState({ stale: !refreshed, message })} />
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>
@@ -924,23 +1108,12 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
                     </Link>}
                     <button type="button" className="min-h-11 whitespace-nowrap rounded-md border border-gray-300 px-3 py-2 text-sm font-medium hover:bg-gray-50"
                       aria-expanded={expandedCustomerSourceId === row.customer_source_id}
-                      onClick={() => setExpandedCustomerSourceId((current) => current === row.customer_source_id ? null : row.customer_source_id)}>
+                      onClick={() => selectCustomer(row.customer_source_id)}>
                       {expandedCustomerSourceId === row.customer_source_id ? 'Hide invoices' : 'Manage invoices'}
                     </button>
                     {row.has_active_dispute && <p className="mt-1 text-xs text-amber-800">Disputed debt</p>}
                   </td>
                 </tr>
-                {expandedCustomerSourceId === row.customer_source_id && resolvedTenantId && (
-                  <tr ref={(element) => { invoiceSectionRef.current = element }}><td colSpan={10} className="p-0">
-                    <CustomerInvoiceDisputes tenantId={resolvedTenantId}
-                      customerSourceId={row.customer_source_id} customerName={row.customer_name}
-                      onPromiseChanged={() => refreshPromiseCustomer(row.customer_source_id)}
-                      onChanged={() => loadRows(true)}
-                      onMutationStarted={() => setDisputeRefreshState(null)}
-                      onMutationPending={(message) => setDisputeRefreshState({ stale: true, message })}
-                      onMutationResult={(refreshed, message) => setDisputeRefreshState({ stale: !refreshed, message })} />
-                  </td></tr>
-                )}
                 </Fragment>
               ))}
             </tbody>

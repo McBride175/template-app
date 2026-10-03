@@ -273,7 +273,7 @@ test('stale accounting rejection reloads the current balance without claiming a 
   } finally { globalThis.fetch = originalFetch }
 })
 
-test('customer parent keeps save outcome visible while stale balances and actions are hidden', () => {
+test('customer parent keeps invoice detail mounted with disabled actions after a committed unready save', () => {
   const h = harness()
   const InvoiceControl = () => null
   const { default: Parent } = loadTypeScriptModule('app/collections/customers/CustomerCollectionsClient.tsx', {
@@ -283,7 +283,7 @@ test('customer parent keeps save outcome visible while stale balances and action
       'next/navigation': { useRouter: () => ({ replace() {}, push() {} }) },
       '@/app/components/ui/Card': () => null,
       '@/app/components/ui/Button': () => null,
-      '@/app/collections/customers/CustomerInvoiceDisputes': InvoiceControl,
+      '@/app/collections/customers/CustomerInvoiceDisputes': { InvoiceDisputeList: InvoiceControl },
       '@/app/collections/MultiCurrencyPlanGate': () => null,
       '@/lib/collections/payment-behavior-copy': {
         formatCurrentOverdueAge: () => '0 days',
@@ -299,24 +299,33 @@ test('customer parent keeps save outcome visible while stale balances and action
     customer_email: null, total_outstanding_base: 10000, overdue_outstanding_base: 10000,
     overdue_invoices_count: 1, oldest_overdue_days: 15, native_currency_breakdown: [],
     has_active_dispute: false, collectible_overdue_base: 10000, override_level: 'normal' }]
-  h.states[6] = false // initial summary load completed
+  h.states[1] = 'tenant-a'
+  h.states[3] = { ok: true, tenantId: 'tenant-a', customerSourceId: 'customer-a',
+    organisationBaseCurrency: 'GBP', currencyHealth: { status: 'healthy' },
+    row: h.states[0][0], invoices: [invoice] }
+  h.states[4] = false // targeted detail load completed
+  h.states[9] = false // independent customer list load completed
   const current = h.render(Parent, { tenantId: 'tenant-a', initialCustomerSourceId: 'customer-a' })
   assert.ok(nodes(current, (node) => node.props?.href === '/customers/customer-a/history?tenantId=tenant-a').length)
   const control = nodes(current, (node) => node.type === InvoiceControl)[0]
   assert.ok(control)
   control.props.onMutationPending('Dispute saved. Refreshing current balances…')
   control.props.onMutationResult(false, 'Dispute saved, but current balances could not be refreshed.')
-  h.states[8] = 'Failed to load customer collections summary'
+  h.states[12] = { stale: true, message: 'Dispute saved, but current balances could not be refreshed.' }
   const failed = h.render(Parent, { tenantId: 'tenant-a', initialCustomerSourceId: 'customer-a' })
-  assert.equal(nodes(failed, (node) => node.type === InvoiceControl).length, 0)
+  assert.equal(nodes(failed, (node) => node.type === InvoiceControl).length, 1)
+  assert.equal(nodes(failed, (node) => node.type === InvoiceControl)[0].props.disabled, true)
   const alerts = nodes(failed, (node) => node.props?.role === 'alert')
   assert.ok(alerts.some((node) => JSON.stringify(node.props.children).includes('Dispute saved')))
   assert.ok(nodes(failed, (node) => node.type === 'button' &&
     JSON.stringify(node.props.children).includes('Refresh page')).length > 0)
-  h.states[8] = null
+  h.states[12] = null
   control.props.onMutationResult(true, 'Dispute saved. Collection amounts have been refreshed.')
   const recovered = h.render(Parent, { tenantId: 'tenant-a', initialCustomerSourceId: 'customer-a' })
   assert.equal(nodes(recovered, (node) => node.type === InvoiceControl).length, 1)
+  h.states[3] = { ...h.states[3], currencyHealth: { status: 'unavailable' } }
+  const unavailable = h.render(Parent, { tenantId: 'tenant-a', initialCustomerSourceId: 'customer-a' })
+  assert.equal(nodes(unavailable, (node) => node.type === InvoiceControl).length, 0)
 })
 
 test('customer summary shows only canonical customer To chase when Xero credit is applied', () => {
@@ -335,7 +344,7 @@ test('customer summary shows only canonical customer To chase when Xero credit i
         'next/navigation': { useRouter: () => ({ replace() {}, push() {} }) },
         '@/app/components/ui/Card': () => null,
         '@/app/components/ui/Button': () => null,
-        '@/app/collections/customers/CustomerInvoiceDisputes': () => null,
+        '@/app/collections/customers/CustomerInvoiceDisputes': { InvoiceDisputeList: () => null },
         '@/app/collections/MultiCurrencyPlanGate': () => null,
         '@/lib/collections/payment-behavior-copy': {
           formatCurrentOverdueAge: () => '0 days',
@@ -354,7 +363,7 @@ test('customer summary shows only canonical customer To chase when Xero credit i
       customer_credit_state: creditState,
       overdue_invoices_count: 1, oldest_overdue_days: 15, native_currency_breakdown: [],
       has_active_dispute: false, override_level: 'normal' }]
-    h.states[6] = false
+    h.states[9] = false
     const tree = h.render(Parent, { tenantId: 'tenant-a' })
     const cells = nodes(tree, node => node.type === 'td')
     const totalCell = JSON.stringify(cells[1]?.props.children)
@@ -367,6 +376,112 @@ test('customer summary shows only canonical customer To chase when Xero credit i
       assert.doesNotMatch(overdueCell, /1,000.00 to chase/)
     } else assert.doesNotMatch(overdueCell, /Xero credit/)
   }
+})
+
+test('known customer detail loads without the list and late customer responses cannot replace selection', async () => {
+  const h = harness()
+  const pending = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (url) => new Promise(resolve => pending.push({ url: String(url), resolve }))
+  try {
+    const { default: Parent } = loadTypeScriptModule('app/collections/customers/CustomerCollectionsClient.tsx', {
+      mocks: {
+        react: h.react, 'react/jsx-runtime': h.jsxRuntime,
+        'next/navigation': { useRouter: () => ({ replace() {}, push() {} }) },
+        '@/app/components/ui/Card': () => null,
+        '@/app/components/ui/Button': () => null,
+        '@/app/collections/customers/CustomerInvoiceDisputes': { InvoiceDisputeList: () => null },
+        '@/app/collections/MultiCurrencyPlanGate': () => null,
+        '@/lib/auth-flow': { buildLoginPath: () => '/login' },
+        '@/lib/collections/founder-context': { FOUNDER_CONTEXT_OPTIONS: [] },
+      },
+    })
+    const props = { tenantId: 'tenant-a', initialCustomerSourceId: 'customer-a' }
+    h.render(Parent, props)
+    h.effects[0]() // selected detail
+    h.effects[3]() // independent list
+    assert.equal(pending.length, 2)
+    assert.match(pending[0].url, /customer-detail.*customer-a/)
+    assert.match(pending[1].url, /\/api\/collections\/customers\?/)
+
+    const detail = (customerSourceId) => ({ ok: true, tenantId: 'tenant-a', customerSourceId,
+      organisationBaseCurrency: 'GBP', currencyHealth: { status: 'healthy' },
+      row: { customer_source_id: customerSourceId, customer_name: customerSourceId,
+        total_outstanding_base: 100, overdue_outstanding_base: 100,
+        customer_to_chase_overdue_base: 100 }, invoices: [] })
+    pending[0].resolve(new Response(JSON.stringify(detail('customer-a'))))
+    for (let i = 0; i < 4; i++) await new Promise(setImmediate)
+    assert.equal(h.states[3]?.customerSourceId, 'customer-a')
+    assert.equal(h.states[9], true, 'customer list may still be loading')
+
+    h.states[2] = 'customer-b'
+    h.render(Parent, props)
+    h.effects[0]()
+    h.states[2] = 'customer-a'
+    h.render(Parent, props)
+    h.effects[0]()
+    h.states[2] = 'customer-b'
+    h.render(Parent, props)
+    h.effects[0]()
+    assert.equal(pending.length, 5, 'selection does not issue another customer-list read')
+    pending[4].resolve(new Response(JSON.stringify(detail('customer-b'))))
+    for (let i = 0; i < 4; i++) await new Promise(setImmediate)
+    pending[3].resolve(new Response(JSON.stringify(detail('customer-a'))))
+    pending[2].resolve(new Response(JSON.stringify(detail('customer-b'))))
+    for (let i = 0; i < 4; i++) await new Promise(setImmediate)
+    assert.equal(h.states[3]?.customerSourceId, 'customer-b')
+    assert.equal(h.states[9], true)
+    assert.ok(nodes(h.render(Parent, props), node => node.props?.['aria-label'] === 'Selected customer detail').length)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('customer selection follows URL back/forward and closing detail preserves list state', () => {
+  const h = harness()
+  const oldWindow = globalThis.window
+  const listeners = new Map()
+  globalThis.window = {
+    location: { href: 'http://localhost/customers?tenantId=tenant-a&customerSourceId=customer-a' },
+    addEventListener: (name, listener) => listeners.set(name, listener),
+    removeEventListener: (name) => listeners.delete(name),
+    history: { pushState(_state, _title, url) { globalThis.window.location.href = String(url) } },
+  }
+  try {
+    const Button = () => null
+    const { default: Parent } = loadTypeScriptModule('app/collections/customers/CustomerCollectionsClient.tsx', {
+      mocks: { react: h.react, 'react/jsx-runtime': h.jsxRuntime,
+        'next/navigation': { useRouter: () => ({ replace() {}, push() {} }) },
+        '@/app/components/ui/Card': () => null,
+        '@/app/components/ui/Button': Button,
+        '@/app/collections/customers/CustomerInvoiceDisputes': { InvoiceDisputeList: () => null },
+        '@/app/collections/MultiCurrencyPlanGate': () => null,
+        '@/lib/auth-flow': { buildLoginPath: () => '/login' },
+        '@/lib/collections/founder-context': { FOUNDER_CONTEXT_OPTIONS: [] },
+      },
+    })
+    const props = { tenantId: 'tenant-a', initialCustomerSourceId: 'customer-a' }
+    h.render(Parent, props)
+    h.states[0] = [{ customer_source_id: 'customer-a', customer_name: 'A',
+      total_outstanding_base: 100, overdue_outstanding_base: 100,
+      overdue_outstanding_base_decimal: '100', total_outstanding_base_decimal: '100',
+      overdue_invoices_count: 1, oldest_overdue_days: 1, native_currency_breakdown: [] }]
+    h.states[9] = false
+    h.render(Parent, props)
+    h.effects[1]()
+    globalThis.window.location.href = 'http://localhost/customers?tenantId=tenant-a&customerSourceId=customer-b'
+    listeners.get('popstate')()
+    assert.equal(h.states[2], 'customer-b')
+    globalThis.window.location.href = 'http://localhost/customers?tenantId=tenant-a&customerSourceId=customer-a'
+    listeners.get('popstate')()
+    assert.equal(h.states[2], 'customer-a')
+    const tree = h.render(Parent, props)
+    const close = nodes(tree, node => node.type === Button &&
+      JSON.stringify(node.props.children).includes('Hide invoices'))[0]
+    assert.ok(close)
+    close.props.onClick()
+    assert.equal(h.states[2], null)
+    assert.equal(h.states[0].length, 1, 'the customer list is retained')
+    assert.equal(new URL(globalThis.window.location.href).searchParams.has('customerSourceId'), false)
+  } finally { globalThis.window = oldWindow }
 })
 
 test('worklist preserves successful-save state when refresh fails and restores controls after retry', async () => {
@@ -491,4 +606,49 @@ test('a late mutation reload cannot replace a newly selected worklist URL with a
     const latest = h.render(Worklist, updatedProps)
     assert.equal(nodes(latest, (node) => node.type === InvoiceControl)[0].props.customerName, 'Baker')
   } finally { globalThis.fetch = originalFetch }
+})
+
+for (const ready of [true,false]) test(`reconciled dispute ${ready?'ready':'committed not ready'} does not issue reloads`,async()=>{
+ const h=harness(),calls=[],originalFetch=globalThis.fetch
+ globalThis.fetch=async(url,options)=>{calls.push(['request',url,JSON.parse(options.body)]);return{ok:true,status:200,json:async()=>({ok:true,committed:true,reconciliation:{reconciliationReady:ready}})}}
+ try{
+  const {InvoiceDisputeList:Component}=loadTypeScriptModule('app/collections/customers/CustomerInvoiceDisputes.tsx',{mocks:{react:h.react,'react/jsx-runtime':h.jsxRuntime}})
+  const props={tenantId:'tenant-a',customerSourceId:'c1',customerName:'Customer',invoices:[invoice],
+   reload:async()=>{calls.push(['unexpected-invoice-reload']);return true},onChanged:async()=>{calls.push(['unexpected-summary-reload']);return true},
+   onMutationStarted(){},onMutationPending(){},onMutationResult:(r,m)=>calls.push(['result',r,m]),onReconciled:async r=>r.reconciliationReady}
+  button(h.render(Component,props),'Mark disputed').props.onClick();button(h.render(Component,props),'Save dispute').props.onClick()
+  for(let i=0;i<10&&h.states[0];i++)await new Promise(setImmediate)
+  assert.equal(calls.filter(c=>c[0]==='request').length,1);assert.equal(calls[0][2].reconcile,true)
+  assert.equal(calls.some(c=>c[0].startsWith('unexpected')),false);assert.equal(calls.at(-1)[1],ready)
+  if(!ready)assert.match(calls.at(-1)[2],/saved, but/)
+ }finally{globalThis.fetch=originalFetch}
+})
+
+test('customer applies verified detail/list row directly and rejects older financial and not-ready responses',async()=>{
+ const h=harness(),InvoiceControl=()=>null
+ const {default:Parent}=loadTypeScriptModule('app/collections/customers/CustomerCollectionsClient.tsx',{mocks:{
+  react:h.react,'react/jsx-runtime':h.jsxRuntime,'next/navigation':{useRouter:()=>({replace(){},push(){}})},
+  '@/app/components/ui/Card':()=>null,'@/app/components/ui/Button':()=>null,
+  '@/app/collections/customers/CustomerInvoiceDisputes':{InvoiceDisputeList:InvoiceControl},
+  '@/app/collections/MultiCurrencyPlanGate':()=>null,'@/lib/collections/promise-refresh':{notifyPromiseActionabilityChanged(){}},
+  '@/lib/auth-flow':{buildLoginPath:()=>'/login'},'@/lib/collections/founder-context':{FOUNDER_CONTEXT_OPTIONS:[]},
+ }})
+ const props={tenantId:'tenant-a',initialCustomerSourceId:'customer-a'};h.render(Parent,props)
+ const row={customer_source_id:'customer-a',customer_name:'Customer A',override_level:'normal',total_outstanding_base:10000,overdue_outstanding_base:10000,
+  collectible_overdue_base:10000,customer_to_chase_overdue_base:10000,native_currency_breakdown:[]}
+ h.states[0]=[row];h.states[1]='tenant-a';h.states[3]={ok:true,tenantId:'tenant-a',customerSourceId:'customer-a',row,invoices:[invoice],organisationBaseCurrency:'GBP',currencyHealth:{status:'healthy'}};h.states[4]=false;h.states[9]=false
+ const controls=nodes(h.render(Parent,props),n=>n.type===InvoiceControl)[0]
+ const result=(revision,value)=>({reconciliationReady:true,tenantId:'tenant-a',customerSourceId:'customer-a',
+  version:{generationId:'g1',financialEpoch:revision,customerRevision:revision,projectionRevision:revision,evaluationDate:'2026-10-03',financialCalculationId:'calc-'+revision},
+  detail:{row:{...row,customer_to_chase_overdue_base:value},invoices:[{...invoice,toChaseAmountNative:String(value)}],organisationBaseCurrency:'GBP',currencyHealth:{status:'healthy'}}})
+ const originalFetch=globalThis.fetch;globalThis.fetch=async()=>{throw Error('Unexpected GET')}
+ try{
+  assert.equal(await controls.props.onReconciled(result('3',7000),2),true)
+  assert.equal(h.states[3].row.customer_to_chase_overdue_base,7000);assert.equal(h.states[0][0].customer_to_chase_overdue_base,7000)
+  assert.equal(await controls.props.onReconciled(result('2',8000),1),true)
+  assert.equal(h.states[3].row.customer_to_chase_overdue_base,7000)
+  assert.equal(await controls.props.onReconciled({reconciliationReady:false,tenantId:'tenant-a',customerSourceId:'customer-a'},1),true)
+  assert.equal(h.states[12],null)
+  assert.equal(nodes(h.render(Parent,props),n=>n.type===InvoiceControl).length,1)
+ }finally{globalThis.fetch=originalFetch}
 })

@@ -35,6 +35,7 @@ function setup(options = {}) {
   let getCount = 0
   let postCount = 0
   let deleteCount = 0
+  let revision = 0
   let releasePost = () => {}
   const heldPost = new Promise((resolve) => { releasePost = resolve })
   const baseRows = options.rows ?? [row('alpha'), row('beta')]
@@ -42,8 +43,11 @@ function setup(options = {}) {
     const rows = baseRows.filter((item) => {
       const latest = stored.filter((action) => action.customer_source_id === item.customer_source_id).at(-1)
       return !latest || latest.next_action_date <= schedule.today
-    })
+    }).sort((a, b) => b.priority_score - a.priority_score)
     return { ok: true, tenantId: 'tenant', rows, actionsTakenByCustomerId: {},
+      ...(options.withProjection ? { version: { accountingGenerationId: 'generation-a',
+        financialEpoch: '1', financialCalculationId: 'calculation-a',
+        projectionRevision: String(revision), evaluationDate: '2026-09-30' } } : {}),
       followUpSchedule: schedule, organisationBaseCurrency: 'GBP',
       currencyHealth: { status: 'healthy', rankingStatus: 'complete', affectedInvoiceCount: 0,
         affectedCustomerCount: 0, failureReasons: {} },
@@ -62,6 +66,15 @@ function setup(options = {}) {
       getCount++
       return new Response(JSON.stringify(queue()), { status: 200 })
     }
+    if (String(url) === '/api/collections/override' && method === 'POST') {
+      const body = JSON.parse(init.body)
+      const target = baseRows.find(item => item.customer_source_id === body.customer_source_id)
+      target.override_level = body.override_level
+      target.priority_score = body.override_level === 'priority' ? 80 : 50
+      revision++
+      return new Response(JSON.stringify({ ok: true, committed: true,
+        ...(options.withProjection ? { projection: queue() } : { projectionUnavailable: true }) }), { status: 200 })
+    }
     assert.equal(String(url), '/api/collections/action-history')
     if (method === 'POST') {
       postCount++
@@ -75,18 +88,22 @@ function setup(options = {}) {
       }
       if (!stored.some((action) => action.action_id === body.action_id)) {
         stored.push({ ...body, next_action_date: body.next_action_date ?? schedule.tomorrow })
+        revision++
       }
       return new Response(JSON.stringify({ ok: true, action: { id: body.action_id,
         outcome: body.outcome, nextActionDate: body.next_action_date ?? schedule.tomorrow,
-        actionTimestamp: '2026-09-30T10:00:00Z' } }), { status: 201 })
+        actionTimestamp: '2026-09-30T10:00:00Z' },
+        ...(options.withProjection ? { projection: queue() } : {}) }), { status: 201 })
     }
     if (method === 'DELETE') {
       deleteCount++
       const body = JSON.parse(init.body)
       const index = stored.findIndex((action) => action.action_id === body.action_id)
       if (index >= 0) stored.splice(index, 1)
+      if (index >= 0) revision++
       if (options.uncertainFirstDelete && deleteCount === 1) throw new Error('connection lost after delete')
-      return new Response(JSON.stringify({ ok: true, deleted: index >= 0, actionId: body.action_id }), { status: 200 })
+      return new Response(JSON.stringify({ ok: true, deleted: index >= 0, actionId: body.action_id,
+        ...(options.withProjection ? { projection: queue() } : {}) }), { status: 200 })
     }
     throw new Error(`Unexpected request ${method}`)
   }
@@ -105,7 +122,11 @@ function setup(options = {}) {
       '@/app/components/ui/Card': Card, '@/app/components/ui/Button': Button,
       '@/app/collections/MultiCurrencyPlanGate': () => null,
       '@/app/dashboard/DashboardXeroConnectionCard': () => null,
-      '@/app/collections/FounderContextControl': () => null,
+      '@/app/collections/FounderContextControl': options.withProjection
+        ? ({ value, onChange }) => React.createElement('div', null,
+          React.createElement('button', { type: 'button', onClick: () => onChange('priority') }, 'Make Priority'),
+          value === 'priority' && React.createElement('button', { type: 'button', onClick: () => onChange('normal') }, 'Restore Normal'))
+        : () => null,
       '@/lib/collections/promise-refresh': { subscribePromiseActionability: () => () => {} },
     },
   })
@@ -183,6 +204,35 @@ test('server-provided custom timing, optional note, and authoritative Undo', asy
     assert.equal(deletion.body.customer_source_id, 'alpha')
     assert.equal(app.getCount(), 3)
     assert.match(app.container.textContent, /alpha Ltd/)
+  } finally { await app.cleanup() }
+})
+
+test('fast Action History create and Undo use the mutation projection without a queue GET', async () => {
+  const app = setup({ withProjection: true })
+  try {
+    await app.render()
+    assert.equal(app.getCount(), 1)
+    await app.click('No response')
+    assert.equal(app.getCount(), 1)
+    assert.match(app.container.textContent, /beta Ltd/)
+    await app.click('Undo')
+    assert.equal(app.getCount(), 1)
+    assert.match(app.container.textContent, /alpha Ltd/)
+  } finally { await app.cleanup() }
+})
+
+test('fast priority and restore-Normal consume authoritative mutation ordering without a queue GET', async () => {
+  const app = setup({ withProjection: true })
+  try {
+    await app.render()
+    await app.click('Next')
+    await app.click('Make Priority')
+    assert.equal(app.getCount(), 1)
+    assert.equal(app.requests.filter(request => request.url === '/api/collections/override').length, 1)
+    assert.match(app.container.textContent, /beta Ltd/)
+    await app.click('Restore Normal')
+    assert.equal(app.getCount(), 1)
+    assert.equal(app.requests.filter(request => request.url === '/api/collections/override').length, 2)
   } finally { await app.cleanup() }
 })
 

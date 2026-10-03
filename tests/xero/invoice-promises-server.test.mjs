@@ -152,3 +152,14 @@ test('edited dates retain original creation window and delegate elapsed deadline
  assert.equal(result.steps[1].payload.status,'missed')
  assert.equal(result.steps[1].payload.evidence.reason_code,'insufficient_payment_no_plausible_cash')
 })
+
+test('receipt replay runs read reconciliation in committed scope without reapplying command; continuation failure is not failed mutation',async()=>{
+ const calls=[],saved={...promise(),id:command,revision:'1',note:null},result={promise:saved,events:[],replayed:true}
+ const loaded=loadTypeScriptModule('lib/collections/invoice-promises-server.ts',{mocks:{...mocks,
+  '@/lib/supabase-admin':{createSupabaseAdminClient:()=>({rpc:async(name)=>{calls.push(name);return{data:result,error:null}}})},
+ }})
+ const seen=[]
+ const returned=await loaded.mutateInvoicePromise(create(),async(ctx,customer)=>{seen.push([ctx.userId,ctx.tenantId,customer]);throw Error('projection failed')})
+ assert.equal(returned.replayed,true);assert.deepEqual(calls,['read_invoice_promise_request','prepare_invoice_promise_request'])
+ assert.deepEqual(seen,[['user-1','tenant-1',saved.customer_source_id]])
+})

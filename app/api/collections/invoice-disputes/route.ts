@@ -1,3 +1,4 @@
+import { reconcileCollectionFinancialMutation, type FinancialMutationContinuation, type FinancialMutationReconciliation } from '@/lib/collections/financial-mutation-reconciliation-server'
 import { NextRequest, NextResponse } from 'next/server'
 import {
   confirmInvoiceDisputeReview,
@@ -85,6 +86,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: Request) {
+  const started = performance.now()
+  let committedAt: number | null = null
   const body = (await request.json().catch(() => null)) as Mutation | null
   const tenantId = requiredString(body?.tenantId)
   if (!tenantId || !body || !optionalNote(body.note)) {
@@ -94,41 +97,56 @@ export async function POST(request: Request) {
   const disputeId = requiredString(body.disputeId)
   const revision = body.expected_revision === undefined ? undefined : expectedRevision(body.expected_revision)
   const note = body.note === undefined ? undefined : body.note as string | null
+  const queue = body.reconcile === true && body.queue && typeof body.queue === 'object' ? body.queue as Record<string, unknown> : null
+  if (queue && (typeof queue.overdueOnly !== 'boolean' || !Number.isInteger(queue.limit) || Number(queue.limit) < 1 || Number(queue.limit) > 200)) {
+    return NextResponse.json({ error: 'Invalid queue window.' }, { status: 400 })
+  }
+  let reconciliation: FinancialMutationReconciliation | { reconciliationReady: false; reason: 'unavailable' } = {
+    reconciliationReady: false, reason: 'unavailable',
+  }
+  const afterCommit: FinancialMutationContinuation | undefined = body.reconcile === true ? async (context, customerSourceId) => {
+    committedAt = performance.now()
+    if (customerSourceId) reconciliation = await reconcileCollectionFinancialMutation({ ...context, customerSourceId,
+      ...(queue ? { queue: { overdueOnly: queue.overdueOnly as boolean, limit: queue.limit as number } } : {}) })
+  } : undefined
+  const continuation = afterCommit ? { afterCommit } : {}
+  const success = (result: Record<string, unknown>) => NextResponse.json({ ok: true, ...result,
+    ...(afterCommit ? { committed: true, reconciliation, timings: { commandThroughCommitMs: (committedAt ?? performance.now()) - started, reconciliationMs: committedAt === null ? 0 : performance.now() - committedAt, totalMs: performance.now() - started } } : {}) })
   try {
     switch (body.operation) {
       case 'full': {
         if (!invoiceSourceId || revision === null) break
-        const dispute = await setFullInvoiceDispute({ tenantId, invoiceSourceId, note, expectedRevision: revision })
-        return NextResponse.json({ ok: true, dispute })
+        const dispute = await setFullInvoiceDispute({ ...continuation, tenantId, invoiceSourceId, note, expectedRevision: revision })
+        return success({ dispute })
       }
       case 'partial': {
         if (!invoiceSourceId || revision === null || typeof body.disputedAmountNative !== 'string' ||
           !/^\d+(?:\.\d{1,8})?$/.test(body.disputedAmountNative.trim())) break
         const dispute = await setPartialInvoiceDispute({
-          tenantId, invoiceSourceId, disputedAmountNative: body.disputedAmountNative, note,
+          ...continuation, tenantId, invoiceSourceId, disputedAmountNative: body.disputedAmountNative, note,
           expectedRevision: revision,
         })
-        return NextResponse.json({ ok: true, dispute })
+        return success({ dispute })
       }
       case 'note': {
         if (!disputeId || !revision || body.note === undefined) break
-        const dispute = await editInvoiceDisputeNote({ tenantId, disputeId, note: note ?? null, expectedRevision: revision })
-        return NextResponse.json({ ok: true, dispute })
+        const dispute = await editInvoiceDisputeNote({ ...continuation, tenantId, disputeId, note: note ?? null, expectedRevision: revision })
+        return success({ dispute })
       }
       case 'resolve': {
         if (!disputeId || !revision) break
-        const dispute = await resolveInvoiceDispute({ tenantId, disputeId, expectedRevision: revision })
-        return NextResponse.json({ ok: true, dispute })
+        const dispute = await resolveInvoiceDispute({ ...continuation, tenantId, disputeId, expectedRevision: revision })
+        return success({ dispute })
       }
       case 'reactivate': {
         if (!disputeId || !revision) break
-        const dispute = await reactivateInvoiceDispute({ tenantId, disputeId, expectedRevision: revision })
-        return NextResponse.json({ ok: true, dispute })
+        const dispute = await reactivateInvoiceDispute({ ...continuation, tenantId, disputeId, expectedRevision: revision })
+        return success({ dispute })
       }
       case 'confirm': {
         if (!disputeId || !revision) break
-        const dispute = await confirmInvoiceDisputeReview({ tenantId, disputeId, expectedRevision: revision })
-        return NextResponse.json({ ok: true, dispute })
+        const dispute = await confirmInvoiceDisputeReview({ ...continuation, tenantId, disputeId, expectedRevision: revision })
+        return success({ dispute })
       }
       case 'bulk_full': {
         const customerSourceId = requiredString(body.customerSourceId)
@@ -138,12 +156,12 @@ export async function POST(request: Request) {
             (!Array.isArray(body.invoiceSourceIds) ||
               body.invoiceSourceIds.some((id: unknown) => !requiredString(id))))) break
         const disputes = await setFullCustomerInvoiceDisputes({
-          tenantId,
+          ...continuation, tenantId,
           customerSourceId,
           invoiceSourceIds: body.invoiceSourceIds as string[] | undefined,
           expectedRevisions: revisions,
         })
-        return NextResponse.json({ ok: true, disputes })
+        return success({ disputes })
       }
     }
     return NextResponse.json({ error: 'Invalid dispute operation or missing fields.' }, { status: 400 })

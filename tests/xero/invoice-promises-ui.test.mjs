@@ -287,3 +287,24 @@ test('unchanged edit is a cheap no-op with no new event, refresh or queue invali
   assert.match(ui.container.textContent, /No changes to save/)
   await ui.close()
 })
+
+for (const changes of [{amount:'3000'},{note:'New note'},{date:'2026-10-02'},{amount:'0'}]) test(`reconciled Promise ${JSON.stringify(changes)} consumes response with zero refresh GET`, async () => {
+ const applied=[]
+ const reconciliation={reconciliationReady:true,tenantId:'tenant-a',customerSourceId:'c1',version:{financialEpoch:'2'},detail:{invoices:[]}}
+ const ui=await render(InvoicePromise,{invoice:invoice(),tenantId:'tenant-a',onReconciled:async r=>{applied.push(r);return true}},async(url,options)=>{
+  assert.equal(url,'/api/collections/invoice-promises');assert.equal(JSON.parse(options.body).reconcile,true)
+  return response({ok:true,committed:true,promise:promise({revision:'4'}),reconciliation})
+ })
+ await ui.click('Edit promise')
+ if('amount'in changes)await ui.set('Promise amount (GBP)',changes.amount)
+ if('date'in changes)await ui.set('Promised date',changes.date)
+ if('note'in changes)await ui.set('Optional promise note',changes.note)
+ await ui.submit();assert.equal(ui.requests.length,1);assert.equal(ui.refreshes.length,0);assert.deepEqual(applied,[reconciliation]);await ui.close()
+})
+test('committed Promise not-ready prevents repeated save and offers read recovery',async()=>{
+ const ui=await render(InvoicePromise,{invoice:invoice(),tenantId:'tenant-a',onReconciled:async()=>false},async()=>response({ok:true,committed:true,promise:promise({revision:'4'}),reconciliation:{reconciliationReady:false}}))
+ await ui.click('Edit promise');await ui.set('Promise amount (GBP)','3000');await ui.submit()
+ assert.equal(ui.requests.length,1);assert.equal(ui.refreshes.length,0);assert.match(ui.container.textContent,/Promise saved, but/)
+ const edit=[...ui.container.querySelectorAll('button')].find(b=>b.textContent==='Edit promise');assert.equal(edit.disabled,true)
+ await ui.click('Refresh invoice details');assert.equal(ui.refreshes.length,1);assert.equal(ui.requests.length,1);await ui.close()
+})

@@ -23,6 +23,7 @@ import { createActionBody, deleteActionBody, recordingAttempt, restoredCustomerI
   type RecordingAttempt } from '@/lib/collections/action-recording'
 import type { ActionHistoryOutcome } from '@/lib/collections/action-history'
 import { customerHistoryUrl } from '@/lib/collections/customer-history-url'
+import { shouldApplyQueueResponse, type QueueResponseStamp } from '@/lib/collections/queue-response-order'
 import {
   FOUNDER_CONTEXT_OPTIONS,
   buildFounderContextConsequence,
@@ -109,6 +110,8 @@ interface CollectionActionsApiResponse {
   experience?: CollectionExperienceState
   tenantId?: string
   followUpSchedule?: FollowUpSchedule
+  version?: { projectionRevision: string; financialEpoch: string; accountingGenerationId: string;
+    financialCalculationId: string; evaluationDate: string }
   error?: string
 }
 
@@ -201,6 +204,8 @@ interface CollectionOverrideApiResponse {
   entitlement?: ActionsEntitlement
   currencyContext?: CollectionsCurrencyContext
   currencyAccess?: CollectionsCurrencyAccess
+  projection?: CollectionActionsApiResponse
+  projectionUnavailable?: boolean
   error?: string
 }
 
@@ -213,6 +218,8 @@ interface ActionHistoryMutationApiResponse {
     actionTimestamp: string
   }
   code?: string
+  projection?: CollectionActionsApiResponse
+  projectionUnavailable?: boolean
   error?: string
 }
 
@@ -567,9 +574,46 @@ export default function CollectionActionsClient({
   }, [])
 
   const loadRequestId = useRef(0)
+  const projectionRequestSequence = useRef(0)
+  const latestAppliedProjection = useRef<QueueResponseStamp | null>(null)
+  const activeOverdueOnly = useRef(effectiveOverdueOnly)
+  activeOverdueOnly.current = effectiveOverdueOnly
+  const applyAuthoritativeProjection = useCallback((payload: CollectionActionsApiResponse,
+    requestedOverdueOnly: boolean, requestSequence: number): LoadedCollectionActions | null => {
+    if (requestedOverdueOnly !== activeOverdueOnly.current) return null
+    const stamp: QueueResponseStamp = {
+      tenantId: payload.tenantId ?? tenantId,
+      projectionRevision: payload.version?.projectionRevision ?? null,
+      financialEpoch: payload.version?.financialEpoch ?? null,
+      accountingGenerationId: payload.version?.accountingGenerationId ?? null,
+      requestSequence,
+    }
+    if (!shouldApplyQueueResponse(latestAppliedProjection.current, stamp)) return null
+    latestAppliedProjection.current = stamp
+    if (payload.entitlement) setEntitlement(payload.entitlement)
+    setUsageLimitReached(false)
+    setOrganisationBaseCurrency(payload.organisationBaseCurrency ?? null)
+    setCurrencyContext(payload.currencyContext ?? null)
+    if (payload.currencyAccess !== undefined) setCurrencyAccess(payload.currencyAccess)
+    setCurrencyHealth(payload.currencyHealth ?? null)
+    setReviewRequiredCustomers(payload.reviewRequiredCustomers ?? [])
+    setExperience(payload.experience ?? null)
+    setResolvedTenantId(payload.tenantId ?? tenantId)
+    setFollowUpSchedule(payload.followUpSchedule ?? null)
+    const nextRows = payload.rows ?? []
+    const visibleRows = requestedOverdueOnly
+      ? nextRows.filter((row) => row.has_actionable_overdue_balance) : nextRows
+    const nextActionsTakenByCustomerId = payload.actionsTakenByCustomerId ?? {}
+    setRows(visibleRows)
+    setActionsTakenByCustomerId(nextActionsTakenByCustomerId)
+    setQueueInfo(payload.queue ?? null)
+    return { rows: visibleRows, actionsTakenByCustomerId: nextActionsTakenByCustomerId }
+  }, [tenantId])
   const loadRows = useCallback(
     async (manualRefresh: boolean) => {
       const requestId = ++loadRequestId.current
+      const requestSequence = ++projectionRequestSequence.current
+      const requestedOverdueOnly = effectiveOverdueOnly
       if (manualRefresh) {
         setRefreshing(true)
       } else {
@@ -652,29 +696,7 @@ export default function CollectionActionsClient({
           throw new Error(payload?.error || 'Failed to load collection actions.')
         }
 
-        setUsageLimitReached(false)
-        setOrganisationBaseCurrency(payload.organisationBaseCurrency ?? null)
-        setCurrencyContext(payload.currencyContext ?? null)
-        setCurrencyAccess(payload.currencyAccess ?? null)
-        setCurrencyHealth(payload.currencyHealth ?? null)
-        setReviewRequiredCustomers(payload.reviewRequiredCustomers ?? [])
-        setExperience(payload.experience ?? null)
-        setResolvedTenantId(payload.tenantId ?? tenantId)
-        setFollowUpSchedule(payload.followUpSchedule ?? null)
-        const nextRows = payload.rows ?? []
-        const visibleRows = effectiveOverdueOnly
-          ? nextRows.filter(
-              (row) => row.has_actionable_overdue_balance
-            )
-          : nextRows
-        const nextActionsTakenByCustomerId = payload.actionsTakenByCustomerId ?? {}
-        setRows(visibleRows)
-        setActionsTakenByCustomerId(nextActionsTakenByCustomerId)
-        setQueueInfo(payload.queue ?? null)
-        return {
-          rows: visibleRows,
-          actionsTakenByCustomerId: nextActionsTakenByCustomerId,
-        } satisfies LoadedCollectionActions
+        return applyAuthoritativeProjection(payload, requestedOverdueOnly, requestSequence)
       } catch (fetchError) {
         if (requestId !== loadRequestId.current) return null
         setError(
@@ -688,7 +710,7 @@ export default function CollectionActionsClient({
         }
       }
     },
-    [effectiveLoginNextPath, effectiveOverdueOnly, router, tenantId]
+    [applyAuthoritativeProjection, effectiveLoginNextPath, effectiveOverdueOnly, router, tenantId]
   )
 
   useEffect(() => {
@@ -697,7 +719,11 @@ export default function CollectionActionsClient({
     return () => { requests.current++ }
   }, [loadRows])
 
-  useEffect(() => subscribePromiseActionability(tenantId, () => { void loadRows(true) }), [tenantId, loadRows])
+  useEffect(() => subscribePromiseActionability(resolvedTenantId ?? tenantId, reconciliation => {
+    if (reconciliation?.projection && reconciliation.projection.overdueOnly === effectiveOverdueOnly) {
+      applyAuthoritativeProjection(reconciliation.projection, effectiveOverdueOnly, ++projectionRequestSequence.current)
+    } else void loadRows(true)
+  }, { overdueOnly: effectiveOverdueOnly, limit: 200 }), [resolvedTenantId, tenantId, loadRows, applyAuthoritativeProjection, effectiveOverdueOnly])
 
   const queueRows = useMemo(
     () => selectActionableFounderContextRows(rows, actionsTakenByCustomerId),
@@ -854,6 +880,7 @@ export default function CollectionActionsClient({
     if (!attempt) return
     pendingAttempt.current = attempt
     actionRequestInFlight.current = true
+    const requestSequence = ++projectionRequestSequence.current
     setSubmittingAction(true)
     setError(null)
 
@@ -868,7 +895,8 @@ export default function CollectionActionsClient({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(createActionBody(attempt)),
+        body: JSON.stringify({ ...createActionBody(attempt),
+          queue_overdue_only: effectiveOverdueOnly, queue_limit: 200 }),
       })
       if (response.status === 401) {
         router.replace(buildLoginPath(effectiveLoginNextPath, 'session_expired'))
@@ -891,13 +919,14 @@ export default function CollectionActionsClient({
         customerSourceId: attempt.customerSourceId, customerName, outcome: attempt.outcome })
       setExperience({ hasPriorCollectionActivity: true })
       setQueueFeedback(`${getOutcomeLabel(attempt.outcome)} recorded for ${customerName}.`)
-      setRows((previous) => previous.filter((row) => row.customer_source_id !== attempt.customerSourceId))
       setExpandedReasonId((previous) => previous === attempt.customerSourceId ? null : previous)
       resetActionPanel()
 
-      // One authoritative reload fills the slot and supplies counts and eligibility.
-      const refreshed = await loadRows(true)
+      const refreshed = payload.projection
+        ? applyAuthoritativeProjection(payload.projection, effectiveOverdueOnly, requestSequence)
+        : await loadRows(true)
       if (!refreshed) {
+        if (payload.projection) return // A newer authoritative revision already won.
         setQueueFeedback(`${getOutcomeLabel(attempt.outcome)} recorded for ${customerName}. Refresh priorities to confirm the queue.`)
         return
       }
@@ -924,13 +953,14 @@ export default function CollectionActionsClient({
       actionRequestInFlight.current = false
       setSubmittingAction(false)
     }
-  }, [actionNote, currentQueueRow, effectiveLoginNextPath, followUpChoice, loadRows,
+  }, [actionNote, applyAuthoritativeProjection, currentQueueRow, effectiveLoginNextPath, effectiveOverdueOnly, followUpChoice, loadRows,
     queueCardIndex, queueRows, resetActionPanel, resolvedTenantId, router,
     selectedFollowUpDate, uncertainAttempt, undoingAction])
 
   const handleUndoLastAction = useCallback(async () => {
     if (!lastAction || actionRequestInFlight.current || undoingAction) return
     actionRequestInFlight.current = true
+    const requestSequence = ++projectionRequestSequence.current
     setUndoingAction(true)
     setError(null)
     try {
@@ -938,7 +968,8 @@ export default function CollectionActionsClient({
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(deleteActionBody(lastAction)),
+        body: JSON.stringify({ ...deleteActionBody(lastAction),
+          queue_overdue_only: effectiveOverdueOnly, queue_limit: 200 }),
       })
       if (response.status === 401) {
         router.replace(buildLoginPath(effectiveLoginNextPath, 'session_expired'))
@@ -949,8 +980,11 @@ export default function CollectionActionsClient({
         throw new Error(payload?.error || 'Could not confirm Undo. Try again.')
       }
 
-      const refreshed = await loadRows(true)
+      const refreshed = payload.projection
+        ? applyAuthoritativeProjection(payload.projection, effectiveOverdueOnly, requestSequence)
+        : await loadRows(true)
       if (!refreshed) {
+        if (payload.projection) { setLastAction(null); return }
         throw new Error('Action deleted, but priorities could not refresh. Retry Undo to check the queue.')
       }
       const nextQueueRows = selectActionableFounderContextRows(
@@ -969,7 +1003,7 @@ export default function CollectionActionsClient({
       actionRequestInFlight.current = false
       setUndoingAction(false)
     }
-  }, [effectiveLoginNextPath, lastAction, loadRows, router, undoingAction])
+  }, [applyAuthoritativeProjection, effectiveLoginNextPath, effectiveOverdueOnly, lastAction, loadRows, router, undoingAction])
 
   const handleOverrideChange = useCallback(
     async (
@@ -1002,6 +1036,7 @@ export default function CollectionActionsClient({
       const previousCardIndex = queueCardIndex
 
       overrideRequestsInFlight.current.add(customerSourceId)
+      const requestSequence = ++projectionRequestSequence.current
 
       setUpdatingOverrideByCustomerId((prev) => ({
         ...prev,
@@ -1021,6 +1056,8 @@ export default function CollectionActionsClient({
             customer_source_id: customerSourceId,
             override_level: overrideLevel,
             tenant_id: tenantId,
+            queue_overdue_only: effectiveOverdueOnly,
+            queue_limit: 200,
           }),
         })
 
@@ -1050,8 +1087,11 @@ export default function CollectionActionsClient({
           throw new Error(payload?.error || 'Failed to update customer override.')
         }
 
-        const refreshed = await loadRows(true)
+        const refreshed = payload.projection
+          ? applyAuthoritativeProjection(payload.projection, effectiveOverdueOnly, requestSequence)
+          : await loadRows(true)
         if (!refreshed) {
+          if (payload.projection) return
           setQueueFeedback(
             `${FOUNDER_CONTEXT_OPTIONS.find((option) => option.value === overrideLevel)?.label ?? 'Customer context'} saved, but Yuohme could not refresh the queue. Try refreshing again.`
           )
@@ -1095,7 +1135,7 @@ export default function CollectionActionsClient({
         })
       }
     },
-    [effectiveLoginNextPath, loadRows, queueCardIndex, queueRows, router, rows, tenantId]
+    [applyAuthoritativeProjection, effectiveLoginNextPath, effectiveOverdueOnly, loadRows, queueCardIndex, queueRows, router, rows, tenantId]
   )
 
   const customersHref = tenantId

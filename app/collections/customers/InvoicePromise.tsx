@@ -4,11 +4,12 @@ import { useId, useRef, useState } from 'react'
 import type { InvoiceDisputeView } from '@/lib/collections/invoice-dispute-view'
 import { compareDecimalValues, normalizeDecimalValue } from '@/lib/money/currency'
 import { promiseDate, promiseEventText, promiseMoney, promiseOutcome, type PromiseView, type PromiseEventView } from '@/lib/collections/promise-presentation'
-import { notifyPromiseActionabilityChanged } from '@/lib/collections/promise-refresh'
+import type { FinancialMutationReconciliation } from '@/lib/collections/financial-mutation-reconciliation-server'
+import { mountedFinancialQueueWindow, notifyPromiseActionabilityChanged } from '@/lib/collections/promise-refresh'
 
 const inputClass = 'min-h-11 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900'
 const buttonClass = 'min-h-11 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50 disabled:opacity-50'
-type Body = { ok?: boolean; code?: string; error?: string; promise?: PromiseView; activePromise?: PromiseView | null; promises?: PromiseView[]; events?: PromiseEventView[] }
+type Body = { ok?: boolean; code?: string; error?: string; promise?: PromiseView; activePromise?: PromiseView | null; promises?: PromiseView[]; events?: PromiseEventView[]; reconciliation?: FinancialMutationReconciliation }
 const errorMessage = (body: Body | null) => body?.code === 'conflict' || body?.code === 'not_found'
   ? 'This invoice or promise changed. The latest details have been loaded; review them before saving again.'
   : body?.code === 'temporarily_unavailable' ? 'Accounting details are not ready. Refresh accounting and try again.'
@@ -17,8 +18,11 @@ const errorMessage = (body: Body | null) => body?.code === 'conflict' || body?.c
   : body?.code === 'forbidden' ? 'This invoice is not available to your account.'
   : 'Could not save the promise. Try again with the same details.'
 
-export default function InvoicePromise({ invoice, tenantId, onRefresh, disabled = false }: {
+export default function InvoicePromise({ invoice, tenantId, onRefresh, onReconciled, onMutationStarted, onReconciliationUnavailable, disabled = false }: {
   invoice: InvoiceDisputeView; tenantId: string; onRefresh: (invoiceId: string) => Promise<boolean>; disabled?: boolean
+  onReconciled?: (result: FinancialMutationReconciliation, sequence?: number) => Promise<boolean>
+  onMutationStarted?: () => number | void
+  onReconciliationUnavailable?: () => void
 }) {
   const id = useId()
   const [overlay, setOverlay] = useState<{ source: InvoiceDisputeView; promise: PromiseView | null } | null>(null)
@@ -95,10 +99,12 @@ export default function InvoicePromise({ invoice, tenantId, onRefresh, disabled 
       : { operation: 'create', invoiceSourceId: invoice.invoiceSourceId, amount: amount.trim(), promisedDate: date, note }
     const intent = JSON.stringify({ tenantId, ...fields })
     if (command.current?.intent !== intent) command.current = { intent, id: crypto.randomUUID() }
+    const sequence = onMutationStarted?.()
     pending.current = true; setSaving(true); setError(null); setMessage(null)
     try {
       const response = await fetch('/api/collections/invoice-promises', { method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...JSON.parse(intent), commandId: command.current.id }) })
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...JSON.parse(intent), commandId: command.current.id,
+          ...(onReconciled ? { reconcile: true, queue: mountedFinancialQueueWindow(tenantId) } : {}) }) })
       const body = await response.json().catch(() => null) as Body | null
       if (!response.ok || !body?.ok || !body.promise) {
         if (body?.code === 'conflict' || body?.code === 'not_found') {
@@ -115,7 +121,13 @@ export default function InvoicePromise({ invoice, tenantId, onRefresh, disabled 
       if (body.promise.status !== 'active') setLastTerminal(body.promise)
       setHistory(previous => [{ promise: body.promise!, events: null }, ...previous.filter(item => item.promise.id !== body.promise!.id)])
       actionRef.current?.focus()
-      if (financial) {
+      if (onReconciled && body.reconciliation) {
+        const ready = await onReconciled(body.reconciliation, typeof sequence === 'number' ? sequence : undefined).catch(() => false)
+        setRefreshNeeded(!ready)
+        if (!ready) onReconciliationUnavailable?.()
+        setMessage(ready ? (body.promise.status === 'active' ? 'Promise saved.' : promiseOutcome[body.promise.status])
+          : 'Promise saved, but current amounts are not ready. Refresh the details before making another change.')
+      } else if (financial) {
         notifyPromiseActionabilityChanged(tenantId)
         const refreshed = await onRefresh(invoice.invoiceSourceId).catch(() => false)
         setRefreshNeeded(!refreshed)

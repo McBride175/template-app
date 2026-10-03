@@ -141,10 +141,14 @@ export function createDisputesJourney({ invoices = [
   }
   if (paths.summary) mocks['@/lib/collections/customer-summary'] = loadTypeScriptModule(paths.summary, { mocks })
   if (observeScoring) {
-    const scoring = loadTypeScriptModule('lib/collections/prioritization.ts')
+    const scoring = loadTypeScriptModule(paths.prioritization ?? 'lib/collections/prioritization.ts')
     mocks['@/lib/collections/prioritization'] = { ...scoring, prioritiseCustomer(...args) {
       const result = scoring.prioritiseCustomer(...args)
       observeScoring(...structuredClone(args), structuredClone(result))
+      return result
+    }, adjustCustomerPriority(base, override) {
+      const result = scoring.adjustCustomerPriority(base, override)
+      observeScoring(structuredClone(base.row), structuredClone(base.context), override, structuredClone(result))
       return result
     } }
   }

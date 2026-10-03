@@ -228,12 +228,15 @@ test('current visible language contains no obsolete collectible product terminol
   for(const path of paths)assert.doesNotMatch(readFileSync(path,'utf8'),/collectible in invoice currency|Oldest collectible overdue|debt that remains collectible|Remaining debt is collectible again/)
 })
 
-test('live scorer callers remain the Actions route and delegated synthetic playbook; client never assembles scores',()=>{
+test('live scoring stays in pure queue boundaries and delegated synthetic playbook; client never assembles scores',()=>{
   function files(dir){return readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?files(`${dir}/${e.name}`):/\.tsx?$/.test(e.name)?[`${dir}/${e.name}`]:[])}
   const callers=[...files('app'),...files('lib')].filter(path=>/\bprioritiseCustomer\s*\(/.test(readFileSync(path,'utf8')))
-  assert.deepEqual(callers.sort(),['app/api/collections/actions/route.ts','lib/collections/prioritization.ts','lib/credit-control-playbook.ts'])
+  assert.deepEqual(callers.sort(),['lib/collections/prioritization.ts','lib/credit-control-playbook.ts'])
+  assert.match(readFileSync('app/api/collections/actions/route.ts','utf8'), /calculatePortfolioBaseScores\(benchmarks, organisationBaseCurrency\)/)
+  assert.match(readFileSync('lib/collections/portfolio-benchmarks.ts','utf8'), /calculateBaseCustomerScore\(/)
+  assert.match(readFileSync('lib/collections/queue-projection.ts','utf8'), /adjustCustomerPriority\(base,/)
   const client=readFileSync('app/collections/actions/CollectionActionsClient.tsx','utf8')
-  assert.doesNotMatch(client,/computeExposureScore|computeUrgencyScore|computeBehaviourScore|prioritiseCustomer\s*\(/)
+  assert.doesNotMatch(client,/computeExposureScore|computeUrgencyScore|computeBehaviourScore|prioritiseCustomer\s*\(|calculateBaseCustomerScore|calculatePortfolioBaseScores|adjustCustomerPriority/)
   assert.match(client,/row\.priority_score\.toFixed\(1\)/)
   assert.match(client,/row\.score_breakdown_lines\.map/)
 })

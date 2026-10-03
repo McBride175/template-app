@@ -154,6 +154,26 @@ const server = loadTypeScriptModule('lib/collections/invoice-disputes-server.ts'
 })
 const { deriveInvoiceDispute } = loadTypeScriptModule('lib/collections/invoice-disputes.ts')
 
+test('consolidated-detail invoice projection exactly matches the legacy loader', async () => {
+  currentUser = 'user-a'
+  currentRun = 'run-2'
+  try {
+    const oldPath = await server.loadCustomerInvoiceDisputes({
+      tenantId: 'tenant-a', customerSourceId: 'customer-a',
+    })
+    const pure = server.projectCustomerInvoiceDisputes({
+      userId: 'user-a', tenantId: 'tenant-a', customerSourceId: 'customer-a',
+      invoices: invoices.filter(row => row.user_id === 'user-a' && row.tenant_id === 'tenant-a' &&
+        row.sync_run_id === currentRun && row.customer_source_id === 'customer-a'),
+      disputes: disputes.filter(row => row.user_id === 'user-a' && row.tenant_id === 'tenant-a'),
+      promises: new Map(),
+    })
+    assert.deepEqual(pure, oldPath)
+  } finally {
+    currentRun = 'run-1'
+  }
+})
+
 test('one provider-keyed dispute survives generation promotion and deliberate review/reactivation', async () => {
   const created = await server.setFullInvoiceDispute({ tenantId: 'tenant-a', invoiceSourceId: 'invoice-a', note: 'Check goods' })
   assert.equal(created.recorded_disputed_amount_native, '10000')
@@ -508,4 +528,16 @@ test('customer invoice DTO retains native amounts and revision without unvalidat
   } finally {
     Object.assign(current, original)
   }
+})
+
+test('post-commit continuation receives validated owner/customer, and its failure cannot reject a saved dispute',async()=>{
+ currentUser='user-a';currentRun='run-1';disputes.length=0
+ const received=[]
+ const created=await server.setPartialInvoiceDispute({tenantId:'tenant-a',invoiceSourceId:'invoice-a',disputedAmountNative:'2000',
+  afterCommit:async(context,customer)=>{received.push([context.userId,context.tenantId,customer]);throw Error('projection failed')}})
+ assert.equal(created.recorded_disputed_amount_native,'2000');assert.equal(disputes.length,1)
+ assert.deepEqual(received,[['user-a','tenant-a','customer-a']])
+ await server.editInvoiceDisputeNote({tenantId:'tenant-a',disputeId:created.id,expectedRevision:String(created.revision),note:'updated',
+  afterCommit:async(context,customer)=>{received.push([context.userId,context.tenantId,customer])}})
+ assert.equal(received.length,2);assert.equal(disputes[0].note,'updated')
 })

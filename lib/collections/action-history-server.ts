@@ -61,7 +61,15 @@ async function authenticate(tenantValue: unknown) {
   if (entitlement.tenantId !== tenantId || !entitlement.hasActionsAccess) {
     throw new ActionHistoryOperationError('forbidden')
   }
-  return { admin: createSupabaseAdminClient(), userId: user.id, tenantId }
+  return { admin: createSupabaseAdminClient(), userId: user.id, tenantId, entitlement }
+}
+
+export type ActionHistoryCommandContext = Awaited<ReturnType<typeof authenticate>>
+type AfterCommit = (context: ActionHistoryCommandContext) => Promise<Record<string, unknown>>
+async function withCommittedProjection<T extends Record<string, unknown>>(
+  result: T, context: ActionHistoryCommandContext, afterCommit?: AfterCommit
+) {
+  return afterCommit ? { ...result, ...await afterCommit(context) } : result
 }
 
 function scopedActions(admin: Admin, userId: string, tenantId: string, customerSourceId: string) {
@@ -106,7 +114,7 @@ async function organisationTimezone(admin: Admin, userId: string, tenantId: stri
   )
 }
 
-export async function createActionHistory(input: Record<string, unknown>, now = new Date()) {
+export async function createActionHistory(input: Record<string, unknown>, now = new Date(), afterCommit?: AfterCommit) {
   const id = uuid(input.action_id, 'action_id')
   const tenantId = identity(input.tenant_id, 'tenant_id')
   const customerSourceId = identity(input.customer_source_id, 'customer_source_id')
@@ -128,7 +136,7 @@ export async function createActionHistory(input: Record<string, unknown>, now = 
       (explicitDate !== null && existing.next_action_date !== explicitDate)) {
       throw new ActionHistoryOperationError('conflict')
     }
-    return { action: actionDTO(existing), replayed: true }
+    return withCommittedProjection({ action: actionDTO(existing), replayed: true }, context, afterCommit)
   }
 
   const snapshot = await assertOwnedCurrentCustomer(context.admin, context.userId, tenantId, customerSourceId)
@@ -146,12 +154,12 @@ export async function createActionHistory(input: Record<string, unknown>, now = 
       raced.action_type === 'outcome' && raced.outcome === selectedOutcome &&
       raced.note === actionNote &&
       (explicitDate === null || raced.next_action_date === explicitDate)) {
-      return { action: actionDTO(raced), replayed: true }
+      return withCommittedProjection({ action: actionDTO(raced), replayed: true }, context, afterCommit)
     }
     throw new ActionHistoryOperationError('conflict')
   }
   if (error || !data) throw error ?? new Error('Action creation returned no row')
-  return { action: actionDTO(data), replayed: false }
+  return withCommittedProjection({ action: actionDTO(data), replayed: false }, context, afterCommit)
 }
 
 export async function readLatestActionHistory(input: Record<string, unknown>) {
@@ -188,7 +196,7 @@ export async function readCustomerActionHistory(input: Record<string, unknown>) 
   }
 }
 
-export async function deleteActionHistory(input: Record<string, unknown>) {
+export async function deleteActionHistory(input: Record<string, unknown>, afterCommit?: AfterCommit) {
   const id = uuid(input.action_id, 'action_id')
   const customerSourceId = identity(input.customer_source_id, 'customer_source_id')
   sourceSystem(input.source_system)
@@ -199,7 +207,7 @@ export async function deleteActionHistory(input: Record<string, unknown>) {
     .eq('action_type', 'outcome').select('id').maybeSingle<{ id: string }>()
   if (error) throw error
   // Repeating the same deletion is successful and reveals no foreign row.
-  return { deleted: Boolean(data), actionId: id }
+  return withCommittedProjection({ deleted: Boolean(data), actionId: id }, context, afterCommit)
 }
 
 export { ActionHistoryInputError }

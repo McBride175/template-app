@@ -138,6 +138,7 @@ export default function DisputesClient({ tenantId, query }: {
             <InvoiceDisputeList tenantId={data.tenantId} customerSourceId={row.customerSourceId ?? ''}
               customerName={row.customerName ?? 'unavailable customer'} invoices={[row]}
               showBulkActions={false} disabled={mutating} reload={() => reload()} onChanged={async () => true}
+              onReconciled={async () => reload()}
               onMutationStarted={() => { setMutating(true); setOutcome(null) }}
               onMutationPending={(message) => setOutcome({ stale: true, message })}
               onMutationResult={(refreshed, message) => { setMutating(false); setOutcome({ stale: !refreshed, message }) }}

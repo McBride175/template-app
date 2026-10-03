@@ -238,5 +238,5 @@ test('live scoring stays in pure queue boundaries and delegated synthetic playbo
   const client=readFileSync('app/collections/actions/CollectionActionsClient.tsx','utf8')
   assert.doesNotMatch(client,/computeExposureScore|computeUrgencyScore|computeBehaviourScore|prioritiseCustomer\s*\(|calculateBaseCustomerScore|calculatePortfolioBaseScores|adjustCustomerPriority/)
   assert.match(client,/row\.priority_score\.toFixed\(1\)/)
-  assert.match(client,/row\.score_breakdown_lines\.map/)
+  assert.match(client,/\(row\.score_breakdown_lines \?\? \[\]\)\.map/)
 })

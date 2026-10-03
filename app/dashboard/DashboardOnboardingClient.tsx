@@ -1,24 +1,25 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Button from '@/app/components/ui/Button'
 import Card from '@/app/components/ui/Card'
 import SubscriptionStatus from '@/app/components/SubscriptionStatus'
-import CollectionActionsClient from '@/app/collections/actions/CollectionActionsClient'
+import CollectionActionsClient, { type CollectionActionsApiResponse } from '@/app/collections/actions/CollectionActionsClient'
 import DashboardXeroConnectionCard from '@/app/dashboard/DashboardXeroConnectionCard'
 import { buildLoginPath } from '@/lib/auth-flow'
 import { supabase } from '@/lib/supabase'
 import {
-  fetchXeroConnectionStatus,
   resolveXeroAccountStatusView,
-  XeroStatusRequestError,
   XERO_STATUS_UNAVAILABLE_MESSAGE,
   type XeroConnectionStatus,
 } from '@/lib/xero/account-status'
 import { triggerXeroAutoSyncOnEntry } from '@/lib/xero/auto-sync-client'
 import { shouldObserveFirstXeroSync } from '@/lib/xero/first-sync-feedback'
 import { getXeroCallbackNotice } from '@/lib/xero/oauth-return'
+import { fetchDashboardBootstrap, fetchDashboardReadiness, DashboardRequestError, dashboardResponseStamp,
+  shouldApplyDashboardResponse, type DashboardBootstrapPayload } from '@/lib/dashboard/bootstrap-client'
+import type { QueueResponseStamp } from '@/lib/collections/queue-response-order'
 
 function removeQueryParams(names: string[]) {
   const url = new URL(window.location.href)
@@ -38,68 +39,105 @@ export default function DashboardOnboardingClient() {
   const [xeroStatusError, setXeroStatusError] = useState<string | null>(null)
   const [xeroLoading, setXeroLoading] = useState(true)
 
-  const loadXeroStatus = useCallback(async () => {
-    setXeroLoading(true)
+  const [bootstrap, setBootstrap] = useState<DashboardBootstrapPayload | null>(null)
+  const requestSequence = useRef(0)
+  const latestStamp = useRef<QueueResponseStamp | null>(null)
+  const activeTenant = useRef(tenantId)
+  activeTenant.current = tenantId
+  const loadDashboard = useCallback(async (signal?: AbortSignal) => {
+    const sequence = ++requestSequence.current
+    const requestedTenant = tenantId
     setXeroStatusError(null)
-
     try {
-      const status = await fetchXeroConnectionStatus(tenantId)
-      setXeroStatus(status)
-      return status
+      const payload = await fetchDashboardBootstrap(requestedTenant, signal)
+      if (signal?.aborted || activeTenant.current !== requestedTenant) return null
+      const stamp = dashboardResponseStamp(payload, sequence)
+      if (!shouldApplyDashboardResponse(latestStamp.current, stamp)) return null
+      latestStamp.current = stamp
+      setBootstrap(payload)
+      setXeroStatus(payload.status)
+      setXeroStatusError(payload.statusError)
+      return payload
     } catch (error) {
-      if (error instanceof XeroStatusRequestError && error.status === 401) {
+      if (signal?.aborted || sequence !== requestSequence.current) return null
+      if (error instanceof DashboardRequestError && error.status === 401) {
         router.replace(buildLoginPath('/dashboard', 'session_expired'))
         return null
       }
       setXeroStatusError(XERO_STATUS_UNAVAILABLE_MESSAGE)
       return null
     } finally {
-      setXeroLoading(false)
+      if (!signal?.aborted && sequence === requestSequence.current) setXeroLoading(false)
     }
   }, [router, tenantId])
+  const refreshCollection = useCallback(async () => {
+    const result = await loadDashboard()
+    return result?.collection as CollectionActionsApiResponse | null
+  }, [loadDashboard])
+  const observeProjectionVersion = useCallback((stamp: QueueResponseStamp) => {
+    if (latestStamp.current?.tenantId === stamp.tenantId &&
+      shouldApplyDashboardResponse(latestStamp.current, { ...stamp, requestSequence: requestSequence.current })) {
+      latestStamp.current = { ...stamp, requestSequence: requestSequence.current }
+    }
+  }, [])
 
   useEffect(() => {
-    const controller = new AbortController()
+    const controller = new AbortController(), sequences = requestSequence
+    latestStamp.current = null
+    setBootstrap(null); setXeroStatus(null); setXeroLoading(true)
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session) router.replace(buildLoginPath('/dashboard', 'session_expired'))
     })
-
     const run = async () => {
-      const { data } = await supabase.auth.getUser()
-
-      if (!data.user) {
-        router.replace(buildLoginPath('/dashboard', 'session_expired'))
-        return
-      }
-
-      const initialStatus = await loadXeroStatus()
+      const initial = await loadDashboard(controller.signal)
+      const initialStatus = initial?.status
       if (!initialStatus || controller.signal.aborted) return
-
       if (!initialStatus.connected || initialStatus.canSync === false) return
-
-      if (shouldObserveFirstXeroSync(initialStatus)) {
+      if (initial?.collectionState === 'onboarding' && shouldObserveFirstXeroSync(initialStatus)) {
         const preparationTenantId = initialStatus.tenantId ?? tenantId
-        router.replace(
-          preparationTenantId
-            ? `/start?tenantId=${encodeURIComponent(preparationTenantId)}`
-            : '/start'
-        )
+        router.replace(preparationTenantId ? `/start?tenantId=${encodeURIComponent(preparationTenantId)}` : '/start')
         return
       }
-
-      void triggerXeroAutoSyncOnEntry({
-        surface: 'dashboard',
-        tenantId,
+      // The bootstrap has already rendered current data. Preserve the existing
+      // guarded entry refresh policy and observe completion without blocking UI.
+      void triggerXeroAutoSyncOnEntry({ surface: 'dashboard', tenantId }).then(result => {
+        if (!controller.signal.aborted && (result.triggered || result.reason === 'auto_sync_in_progress' || result.state === 'request_failed')) {
+          void loadDashboard(controller.signal)
+        }
       })
     }
-
     void run()
-
+    const onVisible = () => { if (document.visibilityState === 'visible') void loadDashboard(controller.signal) }
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
-      controller.abort()
+      controller.abort(); sequences.current++
+      document.removeEventListener('visibilitychange', onVisible)
       sub.subscription.unsubscribe()
     }
-  }, [loadXeroStatus, router, tenantId])
+  }, [loadDashboard, router, tenantId])
+
+  useEffect(() => {
+    if (xeroStatus?.latestSyncAttempt?.state !== 'running') return
+    const controller = new AbortController(), observedTenant = xeroStatus.tenantId ?? tenantId
+    const expiresAt = Date.now() + 5 * 60 * 1000
+    let timer: ReturnType<typeof setTimeout>
+    const observe = async () => {
+      try {
+        const next = await fetchDashboardReadiness(observedTenant, controller.signal)
+        if (controller.signal.aborted) return
+        const held = latestStamp.current
+        const changed = next.version && (held?.accountingGenerationId !== next.version.accountingGenerationId ||
+          held?.financialEpoch !== next.version.financialEpoch || held?.projectionRevision !== next.version.projectionRevision)
+        if (changed || next.status?.latestSyncAttempt?.state !== 'running') {
+          await loadDashboard(controller.signal)
+          return
+        }
+        if (Date.now() < expiresAt) timer = setTimeout(() => void observe(), 5000)
+      } catch { /* Keep valid existing content; visibility/manual refresh can retry. */ }
+    }
+    timer = setTimeout(() => void observe(), 5000)
+    return () => { controller.abort(); clearTimeout(timer) }
+  }, [xeroStatus?.latestSyncAttempt?.runId, xeroStatus?.latestSyncAttempt?.state, xeroStatus?.tenantId, loadDashboard, tenantId])
 
   const xeroViewState = resolveXeroAccountStatusView({
     loading: xeroLoading,
@@ -107,7 +145,7 @@ export default function DashboardOnboardingClient() {
     statusError: xeroStatusError,
   })
   const firstValuePreparationRequired = Boolean(
-    xeroStatus && shouldObserveFirstXeroSync(xeroStatus)
+    bootstrap?.collectionState === 'onboarding' && xeroStatus && shouldObserveFirstXeroSync(xeroStatus)
   )
 
   return (
@@ -170,7 +208,7 @@ export default function DashboardOnboardingClient() {
                 Your data has not been changed. Try checking the connection again.
               </p>
             </div>
-            <Button onClick={() => void loadXeroStatus()} disabled={xeroLoading}>
+            <Button onClick={() => void loadDashboard()} disabled={xeroLoading}>
               {xeroLoading ? 'Checking…' : 'Try again'}
             </Button>
           </div>
@@ -189,8 +227,12 @@ export default function DashboardOnboardingClient() {
       )}
 
       {!firstValuePreparationRequired &&
-        (xeroViewState === 'connected' || xeroViewState === 'temporary_issue') && (
-        <CollectionActionsClient embedded showTable={false} tenantId={tenantId} />
+        (bootstrap?.collectionState === 'ready' || bootstrap?.collectionState === 'blocked' ||
+          xeroViewState === 'connected' || xeroViewState === 'temporary_issue') && (
+        <CollectionActionsClient embedded showTable={false} tenantId={tenantId}
+          dashboardData={bootstrap?.collection as CollectionActionsApiResponse | null}
+          dashboardState={bootstrap?.collectionState ?? 'loading'}
+          dashboardRefresh={refreshCollection} onProjectionVersion={observeProjectionVersion} />
       )}
     </div>
   )

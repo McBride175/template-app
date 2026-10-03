@@ -41,38 +41,38 @@ interface CollectionActionRow {
   customer_source_id: string
   customer_name: string
   customer_email: string | null
-  overdue_outstanding_base_decimal: string | null
-  total_outstanding_base_decimal: string | null
+  overdue_outstanding_base_decimal?: string | null
+  total_outstanding_base_decimal?: string | null
   overdue_outstanding_base: number | null
-  total_outstanding_base: number | null
-  collectible_overdue_base: number
+  total_outstanding_base?: number | null
+  collectible_overdue_base?: number
   customer_to_chase_overdue_base: number
   customer_credit_applied_base: number
   has_actionable_overdue_balance: boolean
   active_promised_overdue_base_decimal?: string | null
-  collectible_outstanding_base: number
+  collectible_outstanding_base?: number
   effective_disputed_overdue_base_decimal: string | null
-  overdue_invoices_count: number
-  open_invoices_count: number
-  actionable_overdue_invoices_count: number
-  actionable_open_invoices_count: number
+  overdue_invoices_count?: number
+  open_invoices_count?: number
+  actionable_overdue_invoices_count?: number
+  actionable_open_invoices_count?: number
   weighted_avg_overdue_days: number
-  relative_lateness_days: number | null
-  relative_lateness_score: number
+  relative_lateness_days?: number | null
+  relative_lateness_score?: number
   last_payment_date: string | null
-  exposure_score: number
-  exposure_share_percent: number
-  exposure_relative_to_largest_percent: number
+  exposure_score?: number
+  exposure_share_percent?: number
+  exposure_relative_to_largest_percent?: number
   override_level: OverrideLevel
-  override_multiplier: number
-  base_score: number
-  final_score: number
+  override_multiplier?: number
+  base_score?: number
+  final_score?: number
   priority_score: number
   recommended_action: 'Review now' | 'Follow up' | 'Monitor' | 'No action'
-  reason: string
-  score_breakdown_lines: string[]
-  organisation_base_currency_code: string
-  native_currency_breakdown: Array<{
+  reason?: string
+  score_breakdown_lines?: string[]
+  organisation_base_currency_code?: string
+  native_currency_breakdown?: Array<{
     currency_code: string
     total_outstanding_native: string
     overdue_outstanding_native: string
@@ -95,7 +95,7 @@ interface CollectionActionRow {
   } | null
 }
 
-interface CollectionActionsApiResponse {
+export interface CollectionActionsApiResponse {
   ok?: boolean
   code?: string
   entitlement?: ActionsEntitlement
@@ -240,6 +240,10 @@ interface CollectionActionsClientProps {
   showTable?: boolean
   loginNextPath?: string
   tenantId?: string | null
+  dashboardData?: CollectionActionsApiResponse | null
+  dashboardState?: 'loading' | 'ready' | 'preparing' | 'unavailable' | 'blocked' | 'onboarding'
+  dashboardRefresh?: () => Promise<CollectionActionsApiResponse | null>
+  onProjectionVersion?: (stamp: QueueResponseStamp) => void
 }
 
 type LegacyActionType = 'called' | 'emailed' | 'postponed'
@@ -505,7 +509,7 @@ export default function CollectionActionsClient({
   showQueue,
   showTable = true,
   loginNextPath,
-  tenantId = null,
+  tenantId = null, dashboardData, dashboardState, dashboardRefresh, onProjectionVersion,
 }: CollectionActionsClientProps) {
   const router = useRouter()
   const [rows, setRows] = useState<CollectionActionRow[]>([])
@@ -590,6 +594,7 @@ export default function CollectionActionsClient({
     }
     if (!shouldApplyQueueResponse(latestAppliedProjection.current, stamp)) return null
     latestAppliedProjection.current = stamp
+    onProjectionVersion?.(stamp)
     if (payload.entitlement) setEntitlement(payload.entitlement)
     setUsageLimitReached(false)
     setOrganisationBaseCurrency(payload.organisationBaseCurrency ?? null)
@@ -608,7 +613,7 @@ export default function CollectionActionsClient({
     setActionsTakenByCustomerId(nextActionsTakenByCustomerId)
     setQueueInfo(payload.queue ?? null)
     return { rows: visibleRows, actionsTakenByCustomerId: nextActionsTakenByCustomerId }
-  }, [tenantId])
+  }, [tenantId, onProjectionVersion])
   const loadRows = useCallback(
     async (manualRefresh: boolean) => {
       const requestId = ++loadRequestId.current
@@ -624,6 +629,14 @@ export default function CollectionActionsClient({
       setXeroConnectionMissing(false)
 
       try {
+        if (dashboardRefresh) {
+          const payload = await dashboardRefresh()
+          if (requestId !== loadRequestId.current || !payload) return null
+          if (!payload.ok) { setEntitlement(payload.entitlement ?? null); setRows([])
+            setUsageLimitReached(payload.code === 'ACTION_USAGE_LIMIT_REACHED')
+            setCurrencyAccess(payload.currencyAccess ?? null); return null }
+          return applyAuthoritativeProjection(payload, requestedOverdueOnly, requestSequence)
+        }
         const params = new URLSearchParams({
           limit: '200',
           overdueOnly: String(effectiveOverdueOnly),
@@ -710,14 +723,32 @@ export default function CollectionActionsClient({
         }
       }
     },
-    [applyAuthoritativeProjection, effectiveLoginNextPath, effectiveOverdueOnly, router, tenantId]
+    [applyAuthoritativeProjection, dashboardRefresh, effectiveLoginNextPath, effectiveOverdueOnly, router, tenantId]
   )
 
   useEffect(() => {
     const requests = loadRequestId
-    void loadRows(false)
+    if (!dashboardRefresh) void loadRows(false)
     return () => { requests.current++ }
-  }, [loadRows])
+  }, [dashboardRefresh, loadRows])
+
+  useEffect(() => {
+    if (!dashboardRefresh) return
+    if (dashboardData?.ok) {
+      if (applyAuthoritativeProjection(dashboardData, true, ++projectionRequestSequence.current)) setError(null)
+    }
+    else {
+      setRows([])
+      setXeroConnectionMissing(dashboardData?.code === 'NO_XERO_TENANT')
+      setEntitlement(dashboardData?.entitlement ?? null)
+      setUsageLimitReached(dashboardData?.code === 'ACTION_USAGE_LIMIT_REACHED')
+      setCurrencyContext(dashboardData?.currencyContext ?? null)
+      setCurrencyAccess(dashboardData?.currencyAccess ?? null)
+      setQueueInfo(null)
+      if (dashboardState === 'preparing' || dashboardState === 'unavailable') setError('Unable to load collection priorities right now. Try refreshing again.')
+    }
+    setLoading(dashboardState === 'loading')
+  }, [dashboardData, dashboardState, dashboardRefresh, applyAuthoritativeProjection])
 
   useEffect(() => subscribePromiseActionability(resolvedTenantId ?? tenantId, reconciliation => {
     if (reconciliation?.projection && reconciliation.projection.overdueOnly === effectiveOverdueOnly) {
@@ -1155,6 +1186,7 @@ export default function CollectionActionsClient({
   const showManualQueueRefresh = experience?.hasPriorCollectionActivity === true
 
   const disableQueueActions =
+    loading || refreshing ||
     submittingAction ||
     undoingAction ||
     Boolean(
@@ -1342,6 +1374,10 @@ export default function CollectionActionsClient({
                   queue.
                 </p>
               </div>
+            ) : !loading && error && dashboardRefresh ? (
+              <Button onClick={() => void loadRows(true)} variant="secondary" size="sm" disabled={refreshing}>
+                {refreshing ? 'Refreshing…' : 'Refresh priorities'}
+              </Button>
             ) : !loading && queueInfo?.status === 'complete_today' ? (
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">Queue complete</h3>
@@ -1797,7 +1833,7 @@ export default function CollectionActionsClient({
                               Score breakdown
                             </p>
                             <ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-gray-700">
-                              {row.score_breakdown_lines.map((line) => (
+                              {(row.score_breakdown_lines ?? []).map((line) => (
                                 <li key={line}>{line}</li>
                               ))}
                             </ul>

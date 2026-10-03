@@ -10,7 +10,7 @@ test('Dashboard derives connection, reconnect, error, and ready surfaces from se
     'utf8'
   )
 
-  assert.match(source, /fetchXeroConnectionStatus\(tenantId\)/)
+  assert.match(source, /fetchDashboardBootstrap\(requestedTenant, signal\)/)
   assert.match(source, /resolveXeroAccountStatusView/)
   assert.match(source, /xeroViewState === 'disconnected'/)
   assert.match(source, /state="disconnected"/)
@@ -18,7 +18,7 @@ test('Dashboard derives connection, reconnect, error, and ready surfaces from se
   assert.match(source, /state="reconnect_required"/)
   assert.match(source, /xeroViewState === 'error'/)
   assert.match(source, /Try again/)
-  assert.match(source, /xeroViewState === 'connected' \|\| xeroViewState === 'temporary_issue'/)
+  assert.match(source, /bootstrap\?\.collectionState === 'ready'/)
   assert.match(source, /<CollectionActionsClient embedded showTable=\{false\}/)
 })
 

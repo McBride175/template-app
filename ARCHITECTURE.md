@@ -545,3 +545,17 @@ cache, worker, refresh redesign or API/UI change is enabled. See
 [the dependency foundation contract](docs/collection-dependency-foundation.md)
 for classifications, locking, security, date validity and local validation.
 This phase validates the migration locally; it does not imply a hosted rollout.
+
+### Dashboard compact bootstrap (Performance Phase 3.8)
+
+The Dashboard reads one authenticated bootstrap instead of a status-gated rich
+queue GET. With the programme schema installed, it combines scoped access and
+connection/generation context, the existing free-use claim, the Phase 3.5 queue
+projection, and a final G/F/P/access fence. Only interactive Dashboard card fields
+are returned; the Priorities table explanations are omitted. The existing guarded
+entry auto-sync runs independently after useful bootstrap data. A bounded metadata
+observer can detect an in-flight attempt's completion without polling Xero.
+Explicit unmigrated/legacy compatibility preserves current authoritative reads;
+it is not the certified fast path. See `docs/performance/dashboard-bootstrap.md`
+for contracts, security, request counts, testing and measurement limits. No hosted
+programme migration or refresh-policy rollout is implied by this change.

@@ -1,0 +1,626 @@
+{
+  "provenance": {
+    "branch": "develop",
+    "baseSha": "e790c1f9430e6a0f69b23419385b1ca04308963f",
+    "evaluationDate": "2026-10-03",
+    "recordedAt": "2026-10-03T20:18:22.122037+00:00",
+    "environment": "disposable local Docker PostgreSQL; actual GET handler; fixture Auth",
+    "migrationFilesReplayed": 24,
+    "samplesPerWarmPlan": 3,
+    "statistic": "median by complete handler/response time",
+    "hosted": false,
+    "realBrowser": false,
+    "realSupabaseAuth": false,
+    "postgresTransport": "one Docker/psql process per logical database request",
+    "limitations": [
+      "No real Auth/PostgREST/hosted network latency",
+      "Application remainder is wall time, not separately profiled CPU",
+      "Customer list is one warm paid-route sample per scale",
+      "The earlier contended scale attempt was interrupted; its timings are excluded"
+    ]
+  },
+  "results": [
+    {
+      "customers": 100,
+      "richRowBytes": 386101,
+      "calculationMiss": null,
+      "invoices": 500,
+      "free": {
+        "name": "free-warm",
+        "p50": {
+          "totalMs": 430.51416699999936,
+          "timing": {
+            "auth": 0,
+            "db": 419.5,
+            "app": 10,
+            "total": 429.7
+          },
+          "rpcCount": 5,
+          "databaseExecutionMs": 21.019,
+          "databasePayloadBytes": 276916,
+          "browserBytes": 99815,
+          "rowsReturned": 100,
+          "customersExamined": 100,
+          "canonicalReads": 0,
+          "featureRebuilds": 0,
+          "benchmarkRebuilds": 0,
+          "scoreRebuilds": 0
+        },
+        "samples": [
+          {
+            "totalMs": 370.68141599999944,
+            "timing": {
+              "auth": 0,
+              "db": 362.4,
+              "app": 7.4,
+              "total": 369.9
+            },
+            "rpcCount": 5,
+            "databaseExecutionMs": 16.365,
+            "databasePayloadBytes": 276916,
+            "browserBytes": 99815,
+            "rowsReturned": 100,
+            "customersExamined": 100,
+            "canonicalReads": 0,
+            "featureRebuilds": 0,
+            "benchmarkRebuilds": 0,
+            "scoreRebuilds": 0
+          },
+          {
+            "totalMs": 430.51416699999936,
+            "timing": {
+              "auth": 0,
+              "db": 419.5,
+              "app": 10,
+              "total": 429.7
+            },
+            "rpcCount": 5,
+            "databaseExecutionMs": 21.019,
+            "databasePayloadBytes": 276916,
+            "browserBytes": 99815,
+            "rowsReturned": 100,
+            "customersExamined": 100,
+            "canonicalReads": 0,
+            "featureRebuilds": 0,
+            "benchmarkRebuilds": 0,
+            "scoreRebuilds": 0
+          },
+          {
+            "totalMs": 503.86804200000006,
+            "timing": {
+              "auth": 0,
+              "db": 445.7,
+              "app": 52,
+              "total": 498.1
+            },
+            "rpcCount": 5,
+            "databaseExecutionMs": 29.531,
+            "databasePayloadBytes": 276916,
+            "browserBytes": 99815,
+            "rowsReturned": 100,
+            "customersExamined": 100,
+            "canonicalReads": 0,
+            "featureRebuilds": 0,
+            "benchmarkRebuilds": 0,
+            "scoreRebuilds": 0
+          }
+        ]
+      },
+      "paid": {
+        "name": "paid-warm",
+        "p50": {
+          "totalMs": 290.32183299999997,
+          "timing": {
+            "auth": 0,
+            "db": 278.9,
+            "app": 10.4,
+            "total": 289.6
+          },
+          "rpcCount": 4,
+          "databaseExecutionMs": 15.473,
+          "databasePayloadBytes": 277069,
+          "browserBytes": 99819,
+          "rowsReturned": 100,
+          "customersExamined": 100,
+          "canonicalReads": 0,
+          "featureRebuilds": 0,
+          "benchmarkRebuilds": 0,
+          "scoreRebuilds": 0
+        },
+        "samples": [
+          {
+            "totalMs": 279.017041000001,
+            "timing": {
+              "auth": 0,
+              "db": 269.2,
+              "app": 8.9,
+              "total": 278.4
+            },
+            "rpcCount": 4,
+            "databaseExecutionMs": 16.233,
+            "databasePayloadBytes": 277069,
+            "browserBytes": 99819,
+            "rowsReturned": 100,
+            "customersExamined": 100,
+            "canonicalReads": 0,
+            "featureRebuilds": 0,
+            "benchmarkRebuilds": 0,
+            "scoreRebuilds": 0
+          },
+          {
+            "totalMs": 290.32183299999997,
+            "timing": {
+              "auth": 0,
+              "db": 278.9,
+              "app": 10.4,
+              "total": 289.6
+            },
+            "rpcCount": 4,
+            "databaseExecutionMs": 15.473,
+            "databasePayloadBytes": 277069,
+            "browserBytes": 99819,
+            "rowsReturned": 100,
+            "customersExamined": 100,
+            "canonicalReads": 0,
+            "featureRebuilds": 0,
+            "benchmarkRebuilds": 0,
+            "scoreRebuilds": 0
+          },
+          {
+            "totalMs": 294.9565829999992,
+            "timing": {
+              "auth": 0,
+              "db": 285.2,
+              "app": 8.9,
+              "total": 294.4
+            },
+            "rpcCount": 4,
+            "databaseExecutionMs": 15.927999999999999,
+            "databasePayloadBytes": 277069,
+            "browserBytes": 99819,
+            "rowsReturned": 100,
+            "customersExamined": 100,
+            "canonicalReads": 0,
+            "featureRebuilds": 0,
+            "benchmarkRebuilds": 0,
+            "scoreRebuilds": 0
+          }
+        ]
+      },
+      "list": {
+        "totalMs": 292.4785839999986,
+        "databaseRequests": 4,
+        "requestNames": [
+          "select:subscriptions",
+          "select:xero_connections_public",
+          "read_collection_customer_materialization",
+          "select:customer_overrides"
+        ],
+        "databasePayloadBytes": 325106,
+        "browserBytes": 250298,
+        "rowsReturned": 100,
+        "canonicalReads": 0,
+        "featureRebuilds": 0
+      },
+      "authCalls": 7,
+      "authMode": "local fixture; real Supabase Auth/network latency excluded"
+    },
+    {
+      "customers": 1000,
+      "richRowBytes": 772801,
+      "calculationMiss": {
+        "totalMs": 1838.3032080000012,
+        "rpcCount": 12,
+        "requestNames": [
+          "read_dashboard_bootstrap_context",
+          "read_collection_queue_projection_inputs",
+          "read_collection_portfolio_calculation",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "publish_collection_portfolio_calculation",
+          "read_collection_portfolio_calculation",
+          "read_collection_queue_projection_inputs",
+          "read_collection_queue_projection_details",
+          "read_dashboard_bootstrap_context"
+        ],
+        "databaseExecutionMs": 487.6860000000001,
+        "databasePayloadBytes": 3972046,
+        "browserBytes": 197326,
+        "canonicalReads": 0,
+        "featureRebuilds": 0,
+        "portfolioRebuilds": 1
+      },
+      "invoices": 5000,
+      "free": {
+        "name": "free-warm",
+        "p50": {
+          "totalMs": 461.4945000000007,
+          "timing": {
+            "auth": 0,
+            "db": 438.4,
+            "app": 21.7,
+            "total": 460.5
+          },
+          "rpcCount": 5,
+          "databaseExecutionMs": 35.907999999999994,
+          "databasePayloadBytes": 731637,
+          "browserBytes": 197322,
+          "rowsReturned": 200,
+          "customersExamined": 1000,
+          "canonicalReads": 0,
+          "featureRebuilds": 0,
+          "benchmarkRebuilds": 0,
+          "scoreRebuilds": 0
+        },
+        "samples": [
+          {
+            "totalMs": 433.6195000000007,
+            "timing": {
+              "auth": 0,
+              "db": 408.8,
+              "app": 23.4,
+              "total": 432.5
+            },
+            "rpcCount": 5,
+            "databaseExecutionMs": 42.596000000000004,
+            "databasePayloadBytes": 731637,
+            "browserBytes": 197322,
+            "rowsReturned": 200,
+            "customersExamined": 1000,
+            "canonicalReads": 0,
+            "featureRebuilds": 0,
+            "benchmarkRebuilds": 0,
+            "scoreRebuilds": 0
+          },
+          {
+            "totalMs": 461.4945000000007,
+            "timing": {
+              "auth": 0,
+              "db": 438.4,
+              "app": 21.7,
+              "total": 460.5
+            },
+            "rpcCount": 5,
+            "databaseExecutionMs": 35.907999999999994,
+            "databasePayloadBytes": 731637,
+            "browserBytes": 197322,
+            "rowsReturned": 200,
+            "customersExamined": 1000,
+            "canonicalReads": 0,
+            "featureRebuilds": 0,
+            "benchmarkRebuilds": 0,
+            "scoreRebuilds": 0
+          },
+          {
+            "totalMs": 482.12620900000184,
+            "timing": {
+              "auth": 0,
+              "db": 460.2,
+              "app": 20.6,
+              "total": 481.1
+            },
+            "rpcCount": 5,
+            "databaseExecutionMs": 46.333,
+            "databasePayloadBytes": 731637,
+            "browserBytes": 197322,
+            "rowsReturned": 200,
+            "customersExamined": 1000,
+            "canonicalReads": 0,
+            "featureRebuilds": 0,
+            "benchmarkRebuilds": 0,
+            "scoreRebuilds": 0
+          }
+        ]
+      },
+      "paid": {
+        "name": "paid-warm",
+        "p50": {
+          "totalMs": 322.4552079999994,
+          "timing": {
+            "auth": 0,
+            "db": 301,
+            "app": 20.5,
+            "total": 321.9
+          },
+          "rpcCount": 4,
+          "databaseExecutionMs": 31.41,
+          "databasePayloadBytes": 731794,
+          "browserBytes": 197326,
+          "rowsReturned": 200,
+          "customersExamined": 1000,
+          "canonicalReads": 0,
+          "featureRebuilds": 0,
+          "benchmarkRebuilds": 0,
+          "scoreRebuilds": 0
+        },
+        "samples": [
+          {
+            "totalMs": 321.33408300000156,
+            "timing": {
+              "auth": 0,
+              "db": 300.6,
+              "app": 19.6,
+              "total": 320.7
+            },
+            "rpcCount": 4,
+            "databaseExecutionMs": 32.845,
+            "databasePayloadBytes": 731794,
+            "browserBytes": 197326,
+            "rowsReturned": 200,
+            "customersExamined": 1000,
+            "canonicalReads": 0,
+            "featureRebuilds": 0,
+            "benchmarkRebuilds": 0,
+            "scoreRebuilds": 0
+          },
+          {
+            "totalMs": 322.4552079999994,
+            "timing": {
+              "auth": 0,
+              "db": 301,
+              "app": 20.5,
+              "total": 321.9
+            },
+            "rpcCount": 4,
+            "databaseExecutionMs": 31.41,
+            "databasePayloadBytes": 731794,
+            "browserBytes": 197326,
+            "rowsReturned": 200,
+            "customersExamined": 1000,
+            "canonicalReads": 0,
+            "featureRebuilds": 0,
+            "benchmarkRebuilds": 0,
+            "scoreRebuilds": 0
+          },
+          {
+            "totalMs": 343.2808329999971,
+            "timing": {
+              "auth": 0,
+              "db": 323.7,
+              "app": 18.6,
+              "total": 342.6
+            },
+            "rpcCount": 4,
+            "databaseExecutionMs": 37.766999999999996,
+            "databasePayloadBytes": 731794,
+            "browserBytes": 197326,
+            "rowsReturned": 200,
+            "customersExamined": 1000,
+            "canonicalReads": 0,
+            "featureRebuilds": 0,
+            "benchmarkRebuilds": 0,
+            "scoreRebuilds": 0
+          }
+        ]
+      },
+      "list": {
+        "totalMs": 833.2725839999985,
+        "databaseRequests": 7,
+        "requestNames": [
+          "select:subscriptions",
+          "select:xero_connections_public",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "select:customer_overrides"
+        ],
+        "databasePayloadBytes": 3235215,
+        "browserBytes": 500099,
+        "rowsReturned": 200,
+        "canonicalReads": 0,
+        "featureRebuilds": 0
+      },
+      "authCalls": 8,
+      "authMode": "local fixture; real Supabase Auth/network latency excluded"
+    },
+    {
+      "customers": 10000,
+      "richRowBytes": 773201,
+      "calculationMiss": null,
+      "invoices": 50000,
+      "free": {
+        "name": "free-warm",
+        "p50": {
+          "totalMs": 723.2320000000036,
+          "timing": {
+            "auth": 0,
+            "db": 662.2,
+            "app": 59.2,
+            "total": 721.7
+          },
+          "rpcCount": 5,
+          "databaseExecutionMs": 154.31,
+          "databasePayloadBytes": 2792858,
+          "browserBytes": 197329,
+          "rowsReturned": 200,
+          "customersExamined": 10000,
+          "canonicalReads": 0,
+          "featureRebuilds": 0,
+          "benchmarkRebuilds": 0,
+          "scoreRebuilds": 0
+        },
+        "samples": [
+          {
+            "totalMs": 621.4509160000016,
+            "timing": {
+              "auth": 0,
+              "db": 563.5,
+              "app": 56.8,
+              "total": 620.6
+            },
+            "rpcCount": 5,
+            "databaseExecutionMs": 131.30999999999997,
+            "databasePayloadBytes": 2792858,
+            "browserBytes": 197329,
+            "rowsReturned": 200,
+            "customersExamined": 10000,
+            "canonicalReads": 0,
+            "featureRebuilds": 0,
+            "benchmarkRebuilds": 0,
+            "scoreRebuilds": 0
+          },
+          {
+            "totalMs": 723.2320000000036,
+            "timing": {
+              "auth": 0,
+              "db": 662.2,
+              "app": 59.2,
+              "total": 721.7
+            },
+            "rpcCount": 5,
+            "databaseExecutionMs": 154.31,
+            "databasePayloadBytes": 2792858,
+            "browserBytes": 197329,
+            "rowsReturned": 200,
+            "customersExamined": 10000,
+            "canonicalReads": 0,
+            "featureRebuilds": 0,
+            "benchmarkRebuilds": 0,
+            "scoreRebuilds": 0
+          },
+          {
+            "totalMs": 939.6902919999993,
+            "timing": {
+              "auth": 0,
+              "db": 858.7,
+              "app": 76.2,
+              "total": 935.2
+            },
+            "rpcCount": 5,
+            "databaseExecutionMs": 205.57500000000002,
+            "databasePayloadBytes": 2792858,
+            "browserBytes": 197329,
+            "rowsReturned": 200,
+            "customersExamined": 10000,
+            "canonicalReads": 0,
+            "featureRebuilds": 0,
+            "benchmarkRebuilds": 0,
+            "scoreRebuilds": 0
+          }
+        ]
+      },
+      "paid": {
+        "name": "paid-warm",
+        "p50": {
+          "totalMs": 637.7386669999978,
+          "timing": {
+            "auth": 0,
+            "db": 575.4,
+            "app": 61.3,
+            "total": 637
+          },
+          "rpcCount": 4,
+          "databaseExecutionMs": 155.82000000000002,
+          "databasePayloadBytes": 2793015,
+          "browserBytes": 197333,
+          "rowsReturned": 200,
+          "customersExamined": 10000,
+          "canonicalReads": 0,
+          "featureRebuilds": 0,
+          "benchmarkRebuilds": 0,
+          "scoreRebuilds": 0
+        },
+        "samples": [
+          {
+            "totalMs": 615.6894579999935,
+            "timing": {
+              "auth": 0,
+              "db": 547.1,
+              "app": 67.2,
+              "total": 614.6
+            },
+            "rpcCount": 4,
+            "databaseExecutionMs": 154.984,
+            "databasePayloadBytes": 2793015,
+            "browserBytes": 197333,
+            "rowsReturned": 200,
+            "customersExamined": 10000,
+            "canonicalReads": 0,
+            "featureRebuilds": 0,
+            "benchmarkRebuilds": 0,
+            "scoreRebuilds": 0
+          },
+          {
+            "totalMs": 637.7386669999978,
+            "timing": {
+              "auth": 0,
+              "db": 575.4,
+              "app": 61.3,
+              "total": 637
+            },
+            "rpcCount": 4,
+            "databaseExecutionMs": 155.82000000000002,
+            "databasePayloadBytes": 2793015,
+            "browserBytes": 197333,
+            "rowsReturned": 200,
+            "customersExamined": 10000,
+            "canonicalReads": 0,
+            "featureRebuilds": 0,
+            "benchmarkRebuilds": 0,
+            "scoreRebuilds": 0
+          },
+          {
+            "totalMs": 638.0624160000007,
+            "timing": {
+              "auth": 0,
+              "db": 572.6,
+              "app": 64.4,
+              "total": 637.4
+            },
+            "rpcCount": 4,
+            "databaseExecutionMs": 128.728,
+            "databasePayloadBytes": 2793015,
+            "browserBytes": 197333,
+            "rowsReturned": 200,
+            "customersExamined": 10000,
+            "canonicalReads": 0,
+            "featureRebuilds": 0,
+            "benchmarkRebuilds": 0,
+            "scoreRebuilds": 0
+          }
+        ]
+      },
+      "list": {
+        "totalMs": 4184.307917000013,
+        "databaseRequests": 25,
+        "requestNames": [
+          "select:subscriptions",
+          "select:xero_connections_public",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "read_collection_customer_materialization",
+          "select:customer_overrides"
+        ],
+        "databasePayloadBytes": 32328909,
+        "browserBytes": 500100,
+        "rowsReturned": 200,
+        "canonicalReads": 0,
+        "featureRebuilds": 0
+      },
+      "authCalls": 7,
+      "authMode": "local fixture; real Supabase Auth/network latency excluded"
+    }
+  ]
+}

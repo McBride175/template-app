@@ -1,6 +1,11 @@
 -- Exact disposable financial calculations. No live route, score formula or domain writer changes.
 create schema collection_portfolio_private authorization postgres;
 revoke all on schema collection_portfolio_private from public,anon,authenticated,service_role;
+-- Fixed UTF-8 JSON hashing is independent of the pgcrypto installation schema.
+create function collection_portfolio_private.payload_hash(p_payload jsonb) returns bytea
+language sql immutable strict set search_path=pg_catalog as $$
+ select sha256(convert_to(p_payload::text,'UTF8'))
+$$;
 create table public.collection_portfolio_calculations (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -16,7 +21,7 @@ create table public.collection_portfolio_calculations (
   feature_basis_count integer not null check(feature_basis_count>=0),
   customer_count integer not null check(customer_count>=0), scored_customer_count integer not null check(scored_customer_count>=0),
   payload jsonb not null check(jsonb_typeof(payload)='object'), population_digest text not null, manifest_digest text not null,
-  payload_digest text generated always as (encode(public.digest(payload::text,'sha256'),'hex')) stored,
+  payload_digest text generated always as (encode(collection_portfolio_private.payload_hash(payload),'hex')) stored,
   published_at timestamptz not null default clock_timestamp(),
   foreign key(generation_id,user_id,tenant_id) references public.xero_sync_runs(id,user_id,tenant_id) on delete cascade,
   unique(user_id,tenant_id,source_system,generation_id,financial_epoch,evaluation_date,basis_version,feature_version,
@@ -35,7 +40,7 @@ create table public.collection_portfolio_base_scores (
   base_score double precision generated always as ((payload#>>'{score,weighted}')::double precision) stored,
   scoring_member boolean generated always as ((payload#>>'{membership,scoring}')::boolean) stored,
   to_chase_base numeric generated always as ((payload#>>'{projection,customer_to_chase_overdue_base_decimal}')::numeric) stored,
-  payload_digest text generated always as (encode(public.digest(payload::text,'sha256'),'hex')) stored,
+  payload_digest text generated always as (encode(collection_portfolio_private.payload_hash(payload),'hex')) stored,
   primary key(calculation_id,customer_source_id), unique(calculation_id,population_order)
 );
 alter table public.collection_portfolio_calculations enable row level security;

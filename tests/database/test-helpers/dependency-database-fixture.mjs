@@ -29,6 +29,9 @@ let created = false
 export function setup() {
   execFileSync('docker', ['exec', container, 'createdb', '-U', 'postgres', database]); created = true
   psql(execFileSync('docker', ['exec', container, 'pg_dump', '-U', 'postgres', '-d', 'postgres', '--schema=auth', '--schema-only', '--no-owner', '--no-privileges'], { encoding: 'utf8' }))
+  // Hosted Supabase installs pgcrypto in extensions, not public. Replay must
+  // exercise that layout so generated expressions cannot assume public.digest.
+  psql('create schema extensions; create extension pgcrypto with schema extensions;')
   const directory = new URL('../../../supabase/migrations/', import.meta.url)
   for (const file of readdirSync(directory).filter(name => name.endsWith('.sql')).sort()) psql(readFileSync(new URL(file, directory), 'utf8'))
 }

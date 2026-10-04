@@ -10,6 +10,13 @@ const ensure=admin=>portfolio.ensurePortfolioBaseCalculation(parameters(db,admin
 const read=(admin,extra={})=>portfolio.readPortfolioBaseCalculation({...parameters(db,admin),...extra})
 const held=async(admin)=>{const f=await featureServer.ensureCustomerFinancialFeaturesForPortfolioWithIdentity(featureParams(db,admin));return {identity:{...f.identity,scoringScope:'collections',overdueOnly:true,scoringModelVersion:calculation.COLLECTION_SCORING_MODEL_VERSION,calculationVersion:calculation.PORTFOLIO_CALCULATION_VERSION},calculation:calculation.calculateReusablePortfolio(f.result,true)}}
 const publish=b=>db.rpc(`select public.publish_collection_portfolio_calculation('${db.user}','tenant-a',${db.json(b.identity)},${db.json(b.calculation)});`)
+check('payload checksums preserve pgcrypto parity with hosted extension placement',()=>{
+ assert.equal(db.psql("select to_regprocedure('public.digest(text,text)') is null;"),'t')
+ for(const payload of [{}, {amount:'123.4500',missing:null}, {text:'£ é 日本語 \\ newline\n',rows:[1,true,null]}]) {
+  assert.equal(db.psql(`select collection_portfolio_private.payload_hash(${db.json(payload)}) = extensions.digest((${db.json(payload)})::text,'sha256');`),'t')
+ }
+ assert.equal(db.psql("select has_function_privilege('anon','collection_portfolio_private.payload_hash(jsonb)','execute') or has_function_privilege('authenticated','collection_portfolio_private.payload_hash(jsonb)','execute') or has_function_privilege('service_role','collection_portfolio_private.payload_hash(jsonb)','execute');"),'f')
+})
 check('replay; cold financial calculation and warm manifest/target/population reads are exact',async()=>{
  ready();const admin=client(db),p=parameters(db,admin),h=await portfolio.ensurePortfolioBaseCalculation(p)
  assert.equal(h.customerCount,2);assert.equal(p.metrics.scoresRecalculated,2)

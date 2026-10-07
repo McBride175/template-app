@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
-import test from 'node:test'
+import test, { before, after } from 'node:test'
+import * as fixture from './test-helpers/dependency-database-fixture.mjs'
 
 const enabled = process.env.RUN_SUPABASE_INTEGRATION === '1'
-const databaseContainer = 'supabase_db_yuohme'
+const databaseContainer = fixture.container
+before(() => { if (enabled) fixture.setup() })
+after(() => { if (enabled) fixture.cleanup() })
 const userA = '00000000-0000-4000-8000-0000000000a1'
 const userB = '00000000-0000-4000-8000-0000000000b2'
 
@@ -21,7 +24,7 @@ function psql(sql) {
       '-U',
       'postgres',
       '-d',
-      'postgres',
+      fixture.database,
       '-At',
       '-F',
       '|',
@@ -43,7 +46,7 @@ async function psqlAsync(sql) {
       '-U',
       'postgres',
       '-d',
-      'postgres',
+      fixture.database,
       '-At',
       '-F',
       '|',

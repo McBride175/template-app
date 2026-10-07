@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
-import test from 'node:test'
+import test, { before } from 'node:test'
+import * as fixture from './test-helpers/dependency-database-fixture.mjs'
 
 const enabled = process.env.RUN_SUPABASE_INTEGRATION === '1'
-const databaseContainer = 'supabase_db_yuohme'
+const databaseContainer = fixture.container
+before(() => { if (enabled) fixture.setup() })
 const userId = '00000000-0000-4000-8000-00000000e601'
 const grantId = '00000000-0000-4000-8000-00000000e602'
 const tenantId = '00000000-0000-4000-8000-00000000e603'
@@ -14,7 +16,7 @@ const ownerC = '00000000-0000-4000-8000-00000000e633'
 function psql(sql) {
   return execFileSync('docker', [
     'exec', '-i', databaseContainer, 'psql', '-X', '-q', '-v', 'ON_ERROR_STOP=1',
-    '-U', 'postgres', '-d', 'postgres', '-At', '-F', '|',
+    '-U', 'postgres', '-d', fixture.database, '-At', '-F', '|',
   ], { encoding: 'utf8', input: sql }).trim()
 }
 
@@ -22,7 +24,7 @@ async function psqlAsync(sql) {
   return new Promise((resolve, reject) => {
     const child = spawn('docker', [
       'exec', '-i', databaseContainer, 'psql', '-X', '-q', '-v', 'ON_ERROR_STOP=1',
-      '-U', 'postgres', '-d', 'postgres', '-At', '-F', '|',
+      '-U', 'postgres', '-d', fixture.database, '-At', '-F', '|',
     ])
     let stdout = ''
     let stderr = ''
@@ -463,5 +465,5 @@ test('reacquisition and validation infrastructure is service-only with fixed sea
 })
 
 test.after(() => {
-  if (enabled) psql(`delete from auth.users where id = '${userId}'::uuid;`)
+  if (enabled) fixture.cleanup()
 })

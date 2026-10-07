@@ -2,6 +2,18 @@
 
 This document is the high-level source of truth for environments, deployment, database workflow, security boundaries, and external integrations. Read it before making architecture, database, authentication, or deployment changes.
 
+## Durable accounting refresh foundation (Phase 7.1)
+
+`lib/accounting/` and the service-only `accounting_refresh_connections`,
+`accounting_refresh_jobs`, and `accounting_refresh_request_keys` provide dormant
+provider-neutral request/coalescing, retry, reservation, worker-attempt and
+connection-epoch contracts. The Xero facade reads existing connection/grant and
+promoted-generation/calculation authority without provider requests or derivative
+writes. No normal product or Xero route calls this foundation. Existing refresh,
+publication, billing and collection behaviour remains unchanged; no scheduler or
+worker delivery is enabled. Epoch integration with OAuth/disconnect/publication
+belongs to Phase 7.3. See [the foundation contract](docs/accounting-refresh-foundation.md).
+
 ## Environments
 
 | Environment | Application | Supabase | External-service intent |

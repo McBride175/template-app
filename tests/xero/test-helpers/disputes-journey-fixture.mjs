@@ -1,4 +1,4 @@
-import { loadTypeScriptModule } from './ts-module-loader.mjs'
+import { loadTypeScriptModule } from './legacy-collection-access-mock.mjs'
 
 export const USER_ID = 'journey-user'
 export const TENANT_ID = 'journey-tenant'

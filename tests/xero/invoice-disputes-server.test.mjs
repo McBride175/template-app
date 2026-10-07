@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { loadTypeScriptModule } from './test-helpers/ts-module-loader.mjs'
+import { loadTypeScriptModule } from './test-helpers/legacy-collection-access-mock.mjs'
 
 const invoices = [
   { user_id: 'user-a', tenant_id: 'tenant-a', sync_run_id: 'run-1',

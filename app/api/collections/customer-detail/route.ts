@@ -1,7 +1,7 @@
+import { claimCollectionAccess } from '@/lib/collections/access-context-server'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
-import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
 import { resolveCollectionsCurrencyAccess, MULTI_CURRENCY_REQUIRES_PRO_CODE } from '@/lib/billing/collections-access'
 import { CustomerDetailBootstrapUnavailable, readCustomerDetailBootstrap } from '@/lib/collections/customer-detail-bootstrap-server'
 import { loadCustomerCollectionsSummaryWithMetadata } from '@/lib/collections/customer-summary'
@@ -21,9 +21,11 @@ export async function GET(request: NextRequest) {
     const supabase = await createServerSupabaseClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    const entitlement = await claimActionsEntitlementStatus({
-      userId: user.id, preferredTenantId: requestedTenantId, supabase,
+    const accessAdmin = createSupabaseAdminClient()
+    const access = await claimCollectionAccess({
+      admin: accessAdmin, userId: user.id, tenantId: requestedTenantId, supabase,
     })
+    const entitlement = access.entitlement
     const tenantId = entitlement.tenantId
     if (!tenantId || (requestedTenantId && requestedTenantId !== tenantId)) {
       return NextResponse.json({ error: 'Tenant is unavailable.' }, { status: 403 })
@@ -32,7 +34,7 @@ export async function GET(request: NextRequest) {
       error: 'Free usage allowance exhausted', code: 'ACTION_USAGE_LIMIT_REACHED', entitlement,
     }, { status: 402 })
     const accessMs = performance.now() - started
-    const admin = createSupabaseAdminClient()
+    const admin = accessAdmin
     let detail
     try {
       detail = await readCustomerDetailBootstrap({ admin, userId: user.id, tenantId,

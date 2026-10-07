@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { loadTypeScriptModule } from './test-helpers/ts-module-loader.mjs'
+import { loadTypeScriptModule } from './test-helpers/legacy-collection-access-mock.mjs'
 
 const { parseDisputeWorklistQuery, disputeWorklistUrl } = loadTypeScriptModule('lib/collections/dispute-worklist.ts')
 function appFixture() {

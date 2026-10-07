@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createDisputesJourney, journeyInvoice, daysAgo, USER_ID, TENANT_ID } from './disputes-journey-fixture.mjs'
-import { loadTypeScriptModule } from './ts-module-loader.mjs'
+import { loadTypeScriptModule } from './legacy-collection-access-mock.mjs'
 import { observation } from './promise-evidence-fixture.mjs'
 
 export const owner = { user_id: USER_ID, tenant_id: TENANT_ID, source_system: 'xero' }

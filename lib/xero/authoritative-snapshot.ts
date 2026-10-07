@@ -88,6 +88,30 @@ function assertTrustedSnapshot(snapshot: XeroAuthoritativeSnapshot) {
   }
 }
 
+/** Server-only adapter for the scoped, service-only access RPC. Never accept
+ * this input from HTTP. SQL has verified the exact owned succeeded run in the
+ * same statement snapshot as its generation/dependency head. */
+export function snapshotFromCollectionAccessContext(context: {
+  userId: string; connection: { tenant_id: string } | null;
+  snapshot: XeroSnapshotReference | null; invalidSnapshot: boolean;
+  lastSyncedAt: string | null;
+}, identity: { userId: string; tenantId: string }): XeroAuthoritativeSnapshot {
+  if (context.userId !== identity.userId || context.connection?.tenant_id !== identity.tenantId) {
+    throw new XeroAuthoritativeSnapshotError('snapshot_identity_mismatch', 'Access context scope mismatch')
+  }
+  if (context.invalidSnapshot || !context.snapshot) {
+    throw new XeroAuthoritativeSnapshotError('active_run_invalid', 'Access context has invalid accounting')
+  }
+  if (context.snapshot.mode === 'legacy' && context.snapshot.syncRunId === null) {
+    return { ...identity, mode: 'legacy', syncRunId: null, lastSuccessfulSyncAt: null, [SNAPSHOT_BRAND]: true }
+  }
+  if (context.snapshot.mode !== 'generation' || !context.snapshot.syncRunId || !context.lastSyncedAt) {
+    throw new XeroAuthoritativeSnapshotError('tenant_state_inconsistent', 'Access context generation unavailable')
+  }
+  return { ...identity, mode: 'generation', syncRunId: context.snapshot.syncRunId,
+    lastSuccessfulSyncAt: context.lastSyncedAt, [SNAPSHOT_BRAND]: true }
+}
+
 export async function resolveXeroAuthoritativeSnapshot(params: {
   supabaseAdmin: SupabaseReader
   userId: string

@@ -39,7 +39,7 @@ check('free exhaustion blocks collections without reading financial projection',
 check('no connection and owner/tenant isolation return onboarding with no financial rows',async()=>{
  const r=await read();assert.equal(r.collectionState,'onboarding');assert.equal(r.status.lastSyncedAt,null)
  const foreign=await readDashboardBootstrap({admin:client(db),userId:db.other,tenantId:'tenant-a'});assert.equal(foreign.status.connected,false);assert.equal(foreign.collection,null)
- for(const role of ['anon','authenticated']) assert.throws(()=>db.psql(`set role ${role}; select public.read_dashboard_bootstrap_context('${db.user}','tenant-a',current_date,array[]::text[],now());`),/permission denied/)
+ for(const role of ['anon','authenticated']) assert.throws(()=>db.psql(`set role ${role}; select public.read_collection_access_context('${db.user}','tenant-a',current_date,array[]::text[],now());`),/permission denied/)
  db.psql(`delete from auth.users where id='${db.user}';`)
  assert.equal((await read()).status.connected,false)
 })
@@ -59,19 +59,19 @@ check('cold calculation uses existing ensure and subsequent read is a hit',async
 })
 check('P mutation during final context read retries and returns current priority',async()=>{
  await ready();let changed=false
- const admin=client(db,async(name)=>{if(name==='read_dashboard_bootstrap_context'&&admin.calls.filter(c=>c.name===name).length===2&&!changed){changed=true;db.psql(db.override())}})
+ const admin=client(db,async(name)=>{if(name==='read_collection_access_context'&&admin.calls.filter(c=>c.name===name).length===2&&!changed){changed=true;db.psql(db.override())}})
  const r=await read(admin);assert.equal(changed,true);assert.equal(r.collection.rows[0].override_level,'priority')
  assert.equal(r.collection.version.projectionRevision,db.head().projectionRevision)
 })
 check('generation promotion during bootstrap cannot relabel old recommendations current',async()=>{
  await ready();let changed=false,newRun
- const admin=client(db,async(name)=>{if(name==='read_dashboard_bootstrap_context'&&admin.calls.filter(c=>c.name===name).length===2&&!changed){changed=true;newRun=db.ready({invoiceChanges:{due_date:'2026-09-01',amount_due_native:'5000',amount_due_base:'5000'}});cert(db,newRun.run)}})
+ const admin=client(db,async(name)=>{if(name==='read_collection_access_context'&&admin.calls.filter(c=>c.name===name).length===2&&!changed){changed=true;newRun=db.ready({invoiceChanges:{due_date:'2026-09-01',amount_due_native:'5000',amount_due_base:'5000'}});cert(db,newRun.run)}})
  const r=await read(admin);assert.equal(r.collectionState,'ready');assert.equal(r.collection.version.accountingGenerationId,newRun.run)
  assert.equal(r.collection.rows[0].customer_to_chase_overdue_base,5000)
 })
 check('connection revocation during bootstrap discards financial payload',async()=>{
  await ready();let changed=false
- const admin=client(db,async(name)=>{if(name==='read_dashboard_bootstrap_context'&&admin.calls.filter(c=>c.name===name).length===2&&!changed){changed=true;db.psql(`update public.xero_connections_public set auth_state='reauth_required';`)}})
+ const admin=client(db,async(name)=>{if(name==='read_collection_access_context'&&admin.calls.filter(c=>c.name===name).length===2&&!changed){changed=true;db.psql(`update public.xero_connections_public set auth_state='reauth_required';`)}})
  const r=await read(admin);assert.equal(r.collectionState,'onboarding');assert.equal(r.status.needsReauth,true);assert.equal(r.collection,null)
 })
 check('inconsistent active generation fails closed without legacy accounting fallback',async()=>{
@@ -92,7 +92,7 @@ check('readiness observation reads one scoped context with no ledger or financia
  const {readDashboardReadiness}=loadTypeScriptModule('lib/dashboard/bootstrap-server.ts')
  const r=await readDashboardReadiness({admin,userId:db.user,tenantId:'tenant-a'})
  assert.equal(r.version.accountingGenerationId,run.run);assert.equal(admin.calls.length,1)
- assert.equal(admin.calls[0].name,'read_dashboard_bootstrap_context')
+ assert.equal(admin.calls[0].name,'read_collection_access_context')
  assert.equal(db.psql('select count(*) from public.billing_usage_days;'),'0')
 })
 

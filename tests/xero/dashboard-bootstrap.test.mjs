@@ -4,7 +4,7 @@ import { loadTypeScriptModule } from './test-helpers/ts-module-loader.mjs'
 const { compactDashboardCollection, DASHBOARD_CARD_FIELDS } = loadTypeScriptModule('lib/dashboard/collection-projection.ts')
 const { dashboardResponseStamp, shouldApplyDashboardResponse } = loadTypeScriptModule('lib/dashboard/bootstrap-client.ts')
 const G = '00000000-0000-4000-8000-000000000001'
-const context = extra => ({ subscription:null,paid:false,claim:{allowed:true,usage_days_consumed:1,usage_date_already_recorded:false},
+const context = extra => ({ userId:'u',sourceSystem:'xero',userUsageDays:0,usageDateConsumed:false, subscription:null,paid:false,claim:{allowed:true,usage_days_consumed:1,usage_date_already_recorded:false},
  connection:{tenant_id:'tenant-a',tenant_name:'Synthetic',auth_state:'active',grant_id:'g',last_refresh_error:null},
  grantScopes:['offline_access','accounting.settings.read','accounting.contacts.read','accounting.invoices.read','accounting.payments.read'],
  snapshot:{mode:'generation',syncRunId:G},lastSyncedAt:'2026-10-01T00:00:00Z',invalidSnapshot:false,statusUnavailable:false,
@@ -19,7 +19,7 @@ const projection = extra => ({ rows:[{customer_source_id:'c1',customer_name:'One
  metrics:{customersExamined:1000,calculationRebuilt:false},...extra })
 function setup({ctx=context(), project=projection(), hook}={}) {
  const calls=[];let projects=0
- const admin={async rpc(name,args){calls.push({name,args});const c=name==='read_dashboard_bootstrap_context'&&typeof ctx==='function'?await ctx(calls.filter(c=>c.name==='read_dashboard_bootstrap_context').length,args):typeof ctx==='function'?context():ctx;const data=name==='claim_billing_usage_day'?c.claim:c;return {data,error:null}}}
+ const admin={async rpc(name,args){calls.push({name,args});const c=name==='read_collection_access_context'&&typeof ctx==='function'?await ctx(calls.filter(c=>c.name==='read_collection_access_context').length,args):typeof ctx==='function'?context():ctx;const data=name==='claim_billing_usage_day'?c.claim:c;return {data,error:null}}}
  const { readDashboardBootstrap }=loadTypeScriptModule('lib/dashboard/bootstrap-server.ts', { mocks:{
   '@/lib/collections/fast-queue-projection-server':{classPlaceholder:null,FastQueueUnavailable:class extends Error{},async readCollectionQueueProjection(p){projects++;if(hook)await hook(p);if(project instanceof Error)throw project;return project}},
  }})
@@ -36,7 +36,7 @@ test('warm Dashboard shares one context and returns compact current queue with n
  const s=setup(),r=await s.read();assert.equal(r.collectionState,'ready');assert.equal(r.collection.rows.length,1)
  assert.equal(r.collection.entitlement.usageDaysConsumed,1);assert.equal(r.status.connected,true)
  assert.deepEqual(Object.keys(r.collection.actionsTakenByCustomerId),['c1']);assert.equal(s.projects(),1)
- assert.deepEqual(s.calls.map(c=>c.name),['read_dashboard_bootstrap_context','claim_billing_usage_day','read_dashboard_bootstrap_context'])
+ assert.deepEqual(s.calls.map(c=>c.name),['read_collection_access_context','claim_billing_usage_day','read_collection_access_context'])
 })
 for(const change of [{latestRun:{id:'new',status:'running',lease_expires_at:'2099-01-01',started_at:'2026-10-03'}},
  {latestRun:{id:'bad',status:'failed',started_at:'2026-10-03',error_code:'provider_failure'},connection:{...context().connection,last_refresh_error:'refresh_failed'}},
@@ -60,7 +60,7 @@ test('collection failure retains useful connection state',async()=>{
  assert.equal(r.collectionState,'unavailable');assert.equal(r.collection,null)
 })
 for(const field of ['financialEpoch','projectionRevision','accessDigest']) test(`Dashboard retries ${field} race`,async()=>{
- let n=0;const ctx=context();const s=setup({ctx:()=>{n++;return n===2?{...ctx,[field]:'changed'}:ctx}})
+ let n=0;const ctx=context();const s=setup({ctx:()=>{n++;return n===2?{...ctx,[field]:field==='accessDigest'?'changed':'2'}:ctx}})
  const r=await s.read();assert.equal(r.collectionState,'ready');assert.equal(s.projects(),2)
 })
 test('stale browser bootstrap cannot overwrite newer financial or operational revision',()=>{

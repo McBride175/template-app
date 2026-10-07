@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { loadTypeScriptModule } from './test-helpers/ts-module-loader.mjs'
+import { loadTypeScriptModule } from './test-helpers/legacy-collection-access-mock.mjs'
 import { promise, payment, observation } from './test-helpers/promise-evidence-fixture.mjs'
 const command = '00000000-0000-4000-8000-000000000001'
 const mocks = {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
-import { loadTypeScriptModule } from '../xero/test-helpers/ts-module-loader.mjs'
+import { loadTypeScriptModule } from '../xero/test-helpers/legacy-collection-access-mock.mjs'
 
 const projectFile = (path) => new URL(`../../${path}`, import.meta.url)
 
@@ -51,7 +51,7 @@ function commonMocks() {
     },
     '@/lib/supabase-admin': {
       createSupabaseAdminClient() {
-        throw new Error('protected data access must not run after entitlement denial')
+        return { from() { throw new Error('protected queries must not run after entitlement denial') }, rpc() { throw new Error('protected RPC must not run after entitlement denial') } }
       },
     },
     '@/lib/billing/entitlements': {
@@ -192,7 +192,7 @@ test('every directly callable billable surface uses the common claim boundary', 
 
   for (const path of protectedFiles) {
     const source = await readFile(projectFile(path), 'utf8')
-    assert.match(source, /claimActionsEntitlementStatus/, path)
+    assert.match(source, /claimActionsEntitlementStatus|claimCollectionAccess/, path)
   }
 })
 

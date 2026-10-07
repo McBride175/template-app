@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createDisputesJourney, journeyInvoice, USER_ID, TENANT_ID, daysAgo } from './test-helpers/disputes-journey-fixture.mjs'
-import { loadTypeScriptModule } from './test-helpers/ts-module-loader.mjs'
+import { loadTypeScriptModule } from './test-helpers/legacy-collection-access-mock.mjs'
 // Fixtures run the production reader/DTO/aggregation paths, mocking only the database transport.
 function commitment(app, fields = {}) {
   app.tables.invoice_promises.push({ id: 'promise-a', user_id: USER_ID, tenant_id: TENANT_ID, source_system: 'xero',

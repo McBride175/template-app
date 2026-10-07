@@ -43,7 +43,7 @@ export interface ActionsEntitlementStatus {
   usageDateConsumed: boolean
 }
 
-function buildEntitlementStatus(params: {
+export function buildEntitlementStatus(params: {
   isPaid: boolean
   paidPlan: PaidPlan | null
   tenantId: string | null

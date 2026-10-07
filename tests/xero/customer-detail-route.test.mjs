@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { loadTypeScriptModule } from './test-helpers/ts-module-loader.mjs'
+import { loadTypeScriptModule } from './test-helpers/legacy-collection-access-mock.mjs'
 
 const userId = '00000000-0000-4000-8000-000000003601'
 const detail = { row: { customer_source_id: 'c1', customer_name: 'Customer One' },

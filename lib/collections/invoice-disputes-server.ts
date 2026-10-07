@@ -3,7 +3,7 @@ import 'server-only'
 
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
-import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
+import { claimCollectionAccess, collectionAccessCurrencyContext } from '@/lib/collections/access-context-server'
 import {
   resolveCollectionsCurrencyAccess,
 } from '@/lib/billing/collections-access'
@@ -11,7 +11,7 @@ import { loadCollectionsCurrencyContext } from '@/lib/collections/currency-conte
 import {
   applyXeroAuthoritativeSnapshot,
   assertXeroSnapshotIdentity,
-  resolveXeroAuthoritativeSnapshot,
+  resolveXeroAuthoritativeSnapshot, snapshotFromCollectionAccessContext,
   type XeroAuthoritativeSnapshot,
 } from '@/lib/xero/authoritative-snapshot'
 import {
@@ -108,11 +108,9 @@ export async function authenticateDisputeTenant(tenantIdInput: string | null) {
   const { data: { user }, error } = await supabase.auth.getUser()
   if (error || !user) throw new InvoiceDisputeOperationError('unauthorized')
 
-  const entitlement = await claimActionsEntitlementStatus({
-    userId: user.id,
-    preferredTenantId: requestedTenantId,
-    supabase,
-  })
+  const admin = createSupabaseAdminClient()
+  const access = await claimCollectionAccess({ admin, userId: user.id, tenantId: requestedTenantId, supabase })
+  const entitlement = access.entitlement
   // The existing tenant resolver may fall back to a different connected tenant.
   // Dispute operations must never accept such a fallback for a requested tenant.
   if (requestedTenantId !== null && entitlement.tenantId !== requestedTenantId) {
@@ -122,13 +120,12 @@ export async function authenticateDisputeTenant(tenantIdInput: string | null) {
   const tenantId = entitlement.tenantId
   if (!tenantId) throw new InvoiceDisputeOperationError('forbidden')
 
-  const admin = createSupabaseAdminClient()
-  const snapshot = await resolveXeroAuthoritativeSnapshot({
+  const snapshot = access.context ? snapshotFromCollectionAccessContext(access.context, { userId: user.id, tenantId }) : await resolveXeroAuthoritativeSnapshot({
     supabaseAdmin: admin,
     userId: user.id,
     tenantId,
   })
-  const currencyContext = await loadCollectionsCurrencyContext({
+  const currencyContext = access.context ? collectionAccessCurrencyContext(access.context) : await loadCollectionsCurrencyContext({
     supabaseAdmin: admin,
     userId: user.id,
     tenantId,

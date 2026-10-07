@@ -1,8 +1,8 @@
 import 'server-only'
+import { readCollectionAccessDatabaseContext, CollectionAccessSchemaUnavailable, type CollectionAccessDatabaseContext } from '@/lib/collections/access-context-server'
 import type { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import { FREE_USAGE_DAYS } from '@/lib/billing/config'
-import { getConfiguredPaidPriceIds, isSubscriptionPaid, resolveConfiguredPaidPlan,
-  type SubscriptionEntitlementInput } from '@/lib/billing/policy'
+import { getConfiguredPaidPriceIds, isSubscriptionPaid, resolveConfiguredPaidPlan } from '@/lib/billing/policy'
 import type { ActionsEntitlementStatus } from '@/lib/billing/entitlements'
 import { resolveCollectionsCurrencyAccess } from '@/lib/billing/collections-access'
 import { classifyXeroGrant } from '@/lib/xero/scopes'
@@ -15,15 +15,7 @@ import { compactDashboardCollection, DASHBOARD_QUEUE_LIMIT } from '@/lib/dashboa
 type Admin = ReturnType<typeof createSupabaseAdminClient>
 export class DashboardSchemaUnavailable extends Error {}
 interface BillingClaim { allowed: boolean; usage_days_consumed: number; usage_date_already_recorded: boolean }
-interface Context {
-  subscription: SubscriptionEntitlementInput | null; paid: boolean;
-  connection: { tenant_id: string; tenant_name: string | null; auth_state: 'active' | 'reauth_required' | 'disconnected' | 'error';
-    last_refresh_error: string | null; grant_id: string | null; reauth_required_at: string | null } | null;
-  grantScopes: string[] | null; snapshot: XeroConnectionStatus['snapshot']; lastSyncedAt: string | null;
-  invalidSnapshot: boolean; statusUnavailable: boolean;
-  latestRun: { id: string; status: string; lease_expires_at: string | null; started_at: string; error_code: string | null } | null;
-  financialEpoch: string; projectionRevision: string; accessDigest: string;
-}
+type Context = CollectionAccessDatabaseContext
 export function dashboardConnectionStatus(c: Context, now: Date): XeroConnectionStatus {
   const connection = c.connection
   const grant = connection?.grant_id ? classifyXeroGrant({ scopes: c.grantScopes,
@@ -46,13 +38,11 @@ export function dashboardConnectionStatus(c: Context, now: Date): XeroConnection
 }
 
 async function readContext(admin: Admin, userId: string, tenantId: string | null, now: Date) {
-  const { data, error } = await admin.rpc('read_dashboard_bootstrap_context', {
-    p_user_id: userId, p_tenant_id: tenantId, p_usage_date: now.toISOString().slice(0, 10),
-    p_paid_price_ids: [...getConfiguredPaidPriceIds()], p_now: now.toISOString(),
-  })
-  if (error?.code === 'PGRST202' || error?.code === '42883') throw new DashboardSchemaUnavailable()
-  if (error || !data) throw new Error('Dashboard context unavailable')
-  return data as Context
+  try { return await readCollectionAccessDatabaseContext({ admin, userId, tenantId, now }) }
+  catch (error) {
+    if (error instanceof CollectionAccessSchemaUnavailable) throw new DashboardSchemaUnavailable()
+    throw error
+  }
 }
 
 /** Observe a known in-flight refresh through Yuohme metadata, never Xero.

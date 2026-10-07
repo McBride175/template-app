@@ -1,3 +1,4 @@
+import { claimCollectionAccess, collectionAccessCurrencyContext } from '@/lib/collections/access-context-server'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
@@ -5,7 +6,6 @@ import {
   CustomerCollectionsSummaryRow,
   loadCustomerCollectionsSummaryWithMetadata,
 } from '@/lib/collections/customer-summary'
-import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
 import {
   MULTI_CURRENCY_REQUIRES_PRO_CODE,
   resolveCollectionsCurrencyAccess,
@@ -143,11 +143,11 @@ export async function GET(request: NextRequest) {
     const requestedCustomerSourceId = parseTenantId(searchParams.get('customerSourceId'))
     const scopedCustomerSourceId = parseTenantId(searchParams.get('scopeCustomerSourceId'))
     if (scopedCustomerSourceId && !requestedTenantId) return NextResponse.json({ error: 'Tenant is required.' }, { status: 400 })
-    const entitlement = await claimActionsEntitlementStatus({
-      userId: user.id,
-      preferredTenantId: requestedTenantId,
-      supabase,
+    const accessAdmin = createSupabaseAdminClient()
+    const access = await claimCollectionAccess({
+      admin: accessAdmin, userId: user.id, tenantId: requestedTenantId, supabase,
     })
+    const entitlement = access.entitlement
     const tenantId = entitlement.tenantId
 
     if (scopedCustomerSourceId && entitlement.tenantId !== requestedTenantId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -161,7 +161,20 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const supabaseAdmin = createSupabaseAdminClient()
+    const supabaseAdmin = accessAdmin
+    const readOverrides = () => {
+      let overrideQuery = supabaseAdmin
+        .from('customer_overrides')
+        .select('customer_source_id, override_level')
+        .eq('user_id', user.id)
+        .eq('tenant_id', tenantId)
+      if (scopedCustomerSourceId) overrideQuery = overrideQuery.eq('customer_source_id', scopedCustomerSourceId)
+      return overrideQuery
+    }
+    const overridesPromise = access.context && !access.context.invalidSnapshot &&
+      resolveCollectionsCurrencyAccess({ entitlement, currencyContext: collectionAccessCurrencyContext(access.context) }).allowed
+      ? Promise.resolve(readOverrides()) : null
+
     const heldSnapshot = scopedCustomerSourceId ? await resolveXeroAuthoritativeSnapshot({ supabaseAdmin, userId: user.id, tenantId }) : undefined
     // A scoped refresh must not weaken the tenant-wide gross currency entitlement boundary.
     const grossCurrencyContext = heldSnapshot ? await loadCollectionsCurrencyContext({ supabaseAdmin, userId: user.id, tenantId, snapshot: heldSnapshot }) : null
@@ -232,13 +245,7 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    let overrideQuery = supabaseAdmin
-      .from('customer_overrides')
-      .select('customer_source_id, override_level')
-      .eq('user_id', user.id)
-      .eq('tenant_id', tenantId)
-    if (scopedCustomerSourceId) overrideQuery = overrideQuery.eq('customer_source_id', scopedCustomerSourceId)
-    const { data: overrideRows, error: overrideError } = await overrideQuery
+    const { data: overrideRows, error: overrideError } = await (overridesPromise ?? readOverrides())
 
     if (overrideError) {
       if (isMissingRelationError(overrideError, 'customer_overrides')) {

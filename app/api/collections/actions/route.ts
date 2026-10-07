@@ -1,3 +1,4 @@
+import { claimCollectionAccess } from '@/lib/collections/access-context-server'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
@@ -15,9 +16,6 @@ import {
 import {
   isMissingRelationError,
 } from '@/lib/collections/tenant-context'
-import {
-  claimActionsEntitlementStatus,
-} from '@/lib/billing/entitlements'
 import {
   MULTI_CURRENCY_REQUIRES_PRO_CODE,
   resolveCollectionsCurrencyAccess,
@@ -108,11 +106,11 @@ export async function GET(request: NextRequest) {
     const overdueOnly = parseOverdueOnly(searchParams.get('overdueOnly'))
     const requestedTenantId = parseTenantId(searchParams.get('tenantId'))
 
-    const entitlement = await claimActionsEntitlementStatus({
-      userId: user.id,
-      preferredTenantId: requestedTenantId,
-      supabase,
+    const accessAdmin = createSupabaseAdminClient()
+    const access = await claimCollectionAccess({
+      admin: accessAdmin, userId: user.id, tenantId: requestedTenantId, supabase,
     })
+    const entitlement = access.entitlement
     const tenantId = entitlement.tenantId
 
     if (!tenantId) {
@@ -138,7 +136,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const supabaseAdmin = createSupabaseAdminClient()
+    const supabaseAdmin = accessAdmin
     const resultAssemblyStartedAt = monotonicNow()
     recordFirstValueLatency({
       stage: 'T9',

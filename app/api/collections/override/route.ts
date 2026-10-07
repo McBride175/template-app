@@ -1,9 +1,9 @@
+import { claimCollectionAccess, collectionAccessCurrencyContext } from '@/lib/collections/access-context-server'
 import { NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import type { CustomerOverrideLevel } from '@/lib/collections/prioritization'
 import { isMissingRelationError } from '@/lib/collections/tenant-context'
-import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
 import {
   MULTI_CURRENCY_REQUIRES_PRO_CODE,
   resolveCollectionsCurrencyAccess,
@@ -73,11 +73,11 @@ export async function POST(request: Request) {
       )
     }
 
-    const entitlement = await claimActionsEntitlementStatus({
-      userId: user.id,
-      preferredTenantId: requestedTenantId,
-      supabase,
+    const accessAdmin = createSupabaseAdminClient()
+    const access = await claimCollectionAccess({
+      admin: accessAdmin, userId: user.id, tenantId: requestedTenantId, supabase,
     })
+    const entitlement = access.entitlement
     const tenantId = entitlement.tenantId
     if (!tenantId) {
       return NextResponse.json({ error: 'No tenant context found' }, { status: 400 })
@@ -89,8 +89,8 @@ export async function POST(request: Request) {
       )
     }
 
-    const supabaseAdmin = createSupabaseAdminClient()
-    const currencyContext = await loadCollectionsCurrencyContext({
+    const supabaseAdmin = accessAdmin
+    const currencyContext = access.context ? collectionAccessCurrencyContext(access.context) : await loadCollectionsCurrencyContext({
       supabaseAdmin,
       userId: user.id,
       tenantId,

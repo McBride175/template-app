@@ -2,8 +2,8 @@ import 'server-only'
 
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
-import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
-import { resolveXeroAuthoritativeSnapshot, applyXeroAuthoritativeSnapshot } from '@/lib/xero/authoritative-snapshot'
+import { claimCollectionAccess } from '@/lib/collections/access-context-server'
+import { resolveXeroAuthoritativeSnapshot, applyXeroAuthoritativeSnapshot, snapshotFromCollectionAccessContext } from '@/lib/xero/authoritative-snapshot'
 import { normalizeXeroOrganisationTimezone } from '@/lib/xero/organisation-timezone'
 import {
   ActionHistoryInputError, dateOnly, decodeHistoryCursor, encodeHistoryCursor,
@@ -54,14 +54,14 @@ async function authenticate(tenantValue: unknown) {
   const supabase = await createServerSupabaseClient()
   const { data: { user }, error } = await supabase.auth.getUser()
   if (error || !user) throw new ActionHistoryOperationError('unauthorized')
-  const entitlement = await claimActionsEntitlementStatus({
-    userId: user.id, preferredTenantId: tenantId, supabase,
-  })
+  const admin = createSupabaseAdminClient()
+  const access = await claimCollectionAccess({ admin, userId: user.id, tenantId, supabase })
+  const entitlement = access.entitlement
   // The tenant resolver may choose another connected tenant as fallback.
   if (entitlement.tenantId !== tenantId || !entitlement.hasActionsAccess) {
     throw new ActionHistoryOperationError('forbidden')
   }
-  return { admin: createSupabaseAdminClient(), userId: user.id, tenantId, entitlement }
+  return { admin, userId: user.id, tenantId, entitlement, accessContext: access.context }
 }
 
 export type ActionHistoryCommandContext = Awaited<ReturnType<typeof authenticate>>
@@ -87,8 +87,8 @@ async function findActionById(admin: Admin, id: string, userId: string, tenantId
   return data
 }
 
-async function assertOwnedCurrentCustomer(admin: Admin, userId: string, tenantId: string, customerSourceId: string) {
-  const snapshot = await resolveXeroAuthoritativeSnapshot({ supabaseAdmin: admin, userId, tenantId })
+async function assertOwnedCurrentCustomer(admin: Admin, userId: string, tenantId: string, customerSourceId: string, context?: ActionHistoryCommandContext) {
+  const snapshot = context?.accessContext ? snapshotFromCollectionAccessContext(context.accessContext, { userId, tenantId }) : await resolveXeroAuthoritativeSnapshot({ supabaseAdmin: admin, userId, tenantId })
   const { data, error } = await applyXeroAuthoritativeSnapshot(
     admin.from('canonical_customers').select('source_id')
       .eq('user_id', userId).eq('tenant_id', tenantId)
@@ -139,8 +139,8 @@ export async function createActionHistory(input: Record<string, unknown>, now = 
     return withCommittedProjection({ action: actionDTO(existing), replayed: true }, context, afterCommit)
   }
 
-  const snapshot = await assertOwnedCurrentCustomer(context.admin, context.userId, tenantId, customerSourceId)
-  const timezone = await organisationTimezone(context.admin, context.userId, tenantId, snapshot)
+  const snapshot = await assertOwnedCurrentCustomer(context.admin, context.userId, tenantId, customerSourceId, context)
+  const timezone = context.accessContext ? normalizeXeroOrganisationTimezone(context.accessContext.organisation?.source_timezone, context.accessContext.organisation?.country_code) : await organisationTimezone(context.admin, context.userId, tenantId, snapshot)
   const schedule = followUpDate(explicitDate, timezone, now)
   const { data, error } = await context.admin.from('collection_actions').insert({
     id, user_id: context.userId, tenant_id: tenantId, source_system: 'xero',

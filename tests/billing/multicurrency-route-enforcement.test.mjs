@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
-import { loadTypeScriptModule } from '../xero/test-helpers/ts-module-loader.mjs'
+import { loadTypeScriptModule } from '../xero/test-helpers/legacy-collection-access-mock.mjs'
 
 const projectFile = (path) => new URL(`../../${path}`, import.meta.url)
 

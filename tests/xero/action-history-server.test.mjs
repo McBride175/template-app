@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { loadTypeScriptModule } from './test-helpers/ts-module-loader.mjs'
+import { loadTypeScriptModule } from './test-helpers/legacy-collection-access-mock.mjs'
 
 const OWNER = '52a4b91c-79e4-49bc-bd16-c088acb8c1d2'
 const ID1 = '7957c73c-79dc-4a5d-bc9f-a6d3b6f0d851'

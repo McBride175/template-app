@@ -3,10 +3,10 @@ import 'server-only'
 
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
-import { claimActionsEntitlementStatus } from '@/lib/billing/entitlements'
+import { claimCollectionAccess, collectionAccessCurrencyContext } from '@/lib/collections/access-context-server'
 import { resolveCollectionsCurrencyAccess } from '@/lib/billing/collections-access'
 import { loadCollectionsCurrencyContext } from '@/lib/collections/currency-context-server'
-import { resolveXeroAuthoritativeSnapshot } from '@/lib/xero/authoritative-snapshot'
+import { resolveXeroAuthoritativeSnapshot, snapshotFromCollectionAccessContext } from '@/lib/xero/authoritative-snapshot'
 import { validateDisputableInvoice, type DisputeAccountingInvoice } from '@/lib/collections/invoice-disputes'
 import { compareDecimalValues, normalizeCurrencyCode, sumDecimalValues } from '@/lib/money/currency'
 import { completePromiseResource, derivePromiseTimeContext, exactPromiseAmount, validPromiseDate,
@@ -99,11 +99,14 @@ export async function authenticatePromiseTenant(tenantInput: string) {
   const supabase = await createServerSupabaseClient()
   const { data: { user }, error } = await supabase.auth.getUser()
   if (error || !user) throw new InvoicePromiseOperationError('unauthorized')
-  const entitlement = await claimActionsEntitlementStatus({ userId: user.id, preferredTenantId: tenantId, supabase })
-  if (!entitlement.hasActionsAccess || entitlement.tenantId !== tenantId) throw new InvoicePromiseOperationError('forbidden')
   const admin = createSupabaseAdminClient()
-  const snapshot = await resolveXeroAuthoritativeSnapshot({ supabaseAdmin: admin, userId: user.id, tenantId })
-  const currencyContext = await loadCollectionsCurrencyContext({ supabaseAdmin: admin, userId: user.id, tenantId, snapshot })
+  const access = await claimCollectionAccess({ admin, userId: user.id, tenantId, supabase })
+  const entitlement = access.entitlement
+  if (!entitlement.hasActionsAccess || entitlement.tenantId !== tenantId) throw new InvoicePromiseOperationError('forbidden')
+  const snapshot = access.context ? snapshotFromCollectionAccessContext(access.context, { userId: user.id, tenantId })
+    : await resolveXeroAuthoritativeSnapshot({ supabaseAdmin: admin, userId: user.id, tenantId })
+  const currencyContext = access.context ? collectionAccessCurrencyContext(access.context)
+    : await loadCollectionsCurrencyContext({ supabaseAdmin: admin, userId: user.id, tenantId, snapshot })
   if (!resolveCollectionsCurrencyAccess({ entitlement, currencyContext }).allowed) throw new InvoicePromiseOperationError('forbidden')
   return { admin, userId: user.id, tenantId, snapshot, entitlement }
 }

@@ -468,6 +468,22 @@ Preview and Production may intentionally share a Resend account and verified sen
 
 ## Vercel
 
+### Collection request performance (Phase 5.3)
+
+The repository's `vercel.json` selects `arn1` for future deployments, near Test's
+Supabase `eu-north-1` database. This prepares future Production placement but
+does not move an existing Production deployment or change project environment
+variables. Production adoption remains a separately authorized release.
+
+Eight exact collection/Dashboard API paths authenticate through their existing
+route/domain `getUser()` boundary and SSR cookie writer instead of repeating
+Auth in the proxy. Protected pages and unaudited APIs retain proxy session
+refresh. The service-only `read_collection_access_context` RPC consolidates
+owned subscription/connection/accounting/dependency/currency preparation in one
+statement snapshot. Free-day claims remain separate commits; domain revisions,
+generation validation and post-mutation fences remain intact. See
+[shared access context](docs/performance/shared-access-context.md).
+
 Vercel provides Preview and Production deployment scoping and supplies `VERCEL_ENV`, `VERCEL_URL`, and `VERCEL_GIT_COMMIT_SHA`. The application uses `VERCEL_URL` as a fallback origin and `VERCEL_ENV` for environment-sensitive behavior.
 
 Environment values—not variable names—must differ where required. In particular, Production must use the Production Supabase project and Stripe live configuration, while Preview uses Test Supabase and Stripe test configuration.

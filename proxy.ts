@@ -6,6 +6,7 @@
  */
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { usesRouteAuthentication } from '@/lib/auth-api-boundary'
 import {
   buildLoginPath,
   isAuthEntryPath,
@@ -31,6 +32,11 @@ export async function proxy(request: NextRequest) {
       headers: request.headers,
     },
   })
+
+  // Route Handlers can write refreshed cookies (unlike Server Components).
+  // These audited routes retain authoritative getUser(); no identity is
+  // forwarded or trusted here. Pages and all unaudited APIs keep the proxy.
+  if (usesRouteAuthentication(request.nextUrl.pathname)) return response
 
   // Create the Supabase client used to refresh the request's session cookies.
   const supabase = createServerClient(

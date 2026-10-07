@@ -77,3 +77,11 @@ No environment-variable names are added or changed. Test certification uses exis
 The finalized full suite with `RUN_SUPABASE_INTEGRATION=1` passed **2,150 tests**, with zero failures, skips or cancellations. The new unit/service files contain 49 tests; the new integration file contains 34 tests, including the rollback-only hosted certificate on clean replay. All 26 canonical migrations replayed in disposable Postgres databases. Lint, TypeScript, production build, SQL security check and `git diff --check` passed.
 
 Five pre-existing billing/Xero integration files targeted the retired `supabase_db_yuohme` container and shared `postgres` database. Their assertions are unchanged; their harnesses now use the existing `supabase_db_template-app` container with per-file disposable replay databases. The first enabled run exposed only that infrastructure issue; the corrected full rerun is clean.
+
+## Hosted Test certification result
+
+Migration `20261007193930_accounting_refresh_foundation` was applied to **Test only**, using an explicit project-ref/application/branch preflight and the certified file's SHA-256. The CLI preserved the repository version; the ledger advanced from 25 to 26 entries. No prior migration was edited or repaired and Vault updates were explicitly skipped.
+
+The guarded certification completed successfully through the existing Docker Postgres client. Its rollback-only transaction exercised acceptance, idempotency, priority, owner/provider isolation, exclusive reservation/claim, heartbeat, provider backoff, disconnect/reconnect epochs and stale-worker rejection. All thirteen RPC grants and three table/RLS boundaries were checked; actual anonymous/authenticated execution was denied. Fingerprints/counts for 31 existing accounting, operational, billing and calculation tables were identical before and after the synthetic control operations.
+
+Post-certification control connections/jobs/request keys are all empty. No synthetic Auth user or provider fixture persisted. `pg_cron`, `pg_net` and `pgmq` remain absent; the legacy scheduler state remains empty. No Xero sync, worker delivery, Production operation or main change occurred. Advisory no-policy informational findings are expected for service-only tables; the pre-existing Auth leaked-password-protection warning is unchanged.

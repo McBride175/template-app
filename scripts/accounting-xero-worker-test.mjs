@@ -67,6 +67,7 @@ if(action==='preflight'){
  const after=fingerprints();const changed=Object.keys(after).filter(table=>JSON.stringify(after[table])!==JSON.stringify(config.fingerprints[table]))
  console.log(JSON.stringify({changedOperationalTables:changed,counts:Object.fromEntries(Object.entries(after).map(([table,v])=>[table,v[0]]))}))
  if(changed.some(t=>!['invoice_promises','invoice_promise_events'].includes(t))||JSON.stringify(promiseTerms())!==JSON.stringify(config.promiseTerms))throw new Error('Operational terms/history integrity mismatch')
+ if(!config.result?.runId){console.log(JSON.stringify({promiseTermsPreserved:true,providerExecutionStarted:false}));process.exit(0)}
  const reconciliation=json(`select jsonb_build_object('evaluatedOnNewGeneration',count(*) filter(where evaluated_sync_run_id=${quote(config.result?.runId)}),'active',count(*) filter(where status='active'),'terminal',count(*) filter(where status<>'active')) from public.invoice_promises where user_id=${quote(config.owner)} and tenant_id=${quote(config.tenant)};`)
  console.log(JSON.stringify({promiseTermsPreserved:true,reconciliation}))
 }else throw new Error('Unknown Test operation')

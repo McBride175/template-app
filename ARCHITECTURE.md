@@ -4,6 +4,12 @@ This document is the high-level source of truth for environments, deployment, da
 
 ## Durable accounting refresh foundation (Phase 7.1)
 
+Phase 7.2 adds activity-driven dispatch and a Test-only synthetic worker. Launch
+intent comes from onboarding, reconnect, manual/meaningful activity and explicit
+recovery; dormant connections are not routinely refreshed. A one-minute Test
+Cron only dispatches/recovers already-requested work. The worker has no Xero or
+accounting execution connected. See [the dispatch contract](docs/accounting-refresh-dispatch.md).
+
 `lib/accounting/` and the service-only `accounting_refresh_connections`,
 `accounting_refresh_jobs`, and `accounting_refresh_request_keys` provide dormant
 provider-neutral request/coalescing, retry, reservation, worker-attempt and

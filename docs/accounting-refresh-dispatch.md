@@ -39,3 +39,24 @@ Structured `[accounting.refresh]` events cover dispatch source/submission, recei
 Idle ticks use bounded active-state indexes, read configuration, write one diagnostic tick and submit no HTTP. They do not load Vault credentials without eligible work. Detailed measured Test timing/plans and hosted outcomes are recorded after certification. Test Cron may remain enabled only with empty synthetic fixtures, no provider execution and proven idle zero-delivery behaviour.
 
 The guarded Test operator `scripts/accounting-transport-test.mjs` uses existing Test credentials, private temporary state, exact Preview selection and disposable fixture identities. Business-table fingerprints protect accounting, operational, billing and calculation state. No Xero connection or generation is created.
+
+## Certification evidence
+
+Local full enabled run: **2,183 passed, zero failed/skipped**. Focused worker suite: 21 passed. Final transport DB suite: 14 passed, including two additional post-full-run checks for terminal observation idempotency and indexed idle access with 5,000 terminal rows. The canonical 27-file migration chain replays in disposable databases. Lint, TypeScript, production build, SQL security check and diff check pass. Compiled worker maxDuration is 300; the generated worker secret is absent from client assets.
+
+Test migration 27 is `20261008074131_accounting_refresh_dispatch`; installed pg_cron 1.6.4 and pg_net 0.19.5. The installed http_post signature includes the explicit timeout parameter. Application worker configuration is Preview/develop only. No protection bypass was necessary because project Preview protection was already off; this phase did not change protection settings.
+
+Hosted certification at the exact arn1 Preview for `e15ee7683d5c02e1e4da847722a79d772057a5f1` proved:
+
+- Immediate acceptance/dispatch returned before a 35-second worker finished. A later independent process observed running state, one real heartbeat and one completion.
+- Duplicate valid delivery returned 202 ALREADY_HANDLED with one attempt/claim. GET returned 405; missing/wrong secrets 401; nonexistent delivery 409.
+- A separately accepted job without immediate signalling completed from the next Cron tick, without another worker completion acting as its trigger.
+- Four synthetic disappeared workers held exactly four live attempts. A fifth request stayed queued and dispatch reported capacity_full/submitted zero.
+- Controlled lease expiry recovered the same job; its second attempt completed. Three other connection-epoch changes cancelled old authority; old HTTP delivery returned 409 and SQL heartbeat/result updates rejected stale epochs.
+- An intentionally reserved-but-unsent delivery suppressed submission while live. Controlled expiry produced a replacement nonce and one pg_net delivery; the old nonce became unavailable.
+- Retryable failure persisted retry_wait/next eligibility, then completed on attempt 2 when test time was advanced. Deterministic failure persisted attention_required.
+- Cleanup removed only the temporary certification owner's Auth/control/spec rows. All 31 accounting/operational/billing/calculation table fingerprints remained identical.
+
+Idle measurements: cold dispatcher 23.634ms; warm/cleanup ticks 3.959–7.398ms. Occupied/eligible/recovered/submitted all zero, no new HTTP response and no worker execution. Initial active/eligible probes used indexes and returned zero rows; after fixture cleanup PostgreSQL chose one-page empty-table scans (zero rows examined). Local 5,000-terminal-row certification verifies indexed access without broad history scans. Each enabled idle tick performs bounded recovery/capacity/eligibility reads, reads one configuration row, inserts one diagnostic row and bounded retention cleanup; it does not read Vault values or submit HTTP. Network/client timing (about 3.4s for multiple remote probes) is separate from SQL duration.
+
+Test Cron is `yuohme-accounting-dispatch-v1`, every minute, explicitly enabled, synthetic-only. No pending fixture or real provider execution remains. Production/main and existing Xero/product source are untouched. The final exact Preview URL is rebound in Test Vault after the documentation push, preserving the same secret; final idle and short-completion checks reconfirm that deployment.

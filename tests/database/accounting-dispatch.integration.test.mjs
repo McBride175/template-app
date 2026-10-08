@@ -92,3 +92,13 @@ check('worker telemetry acknowledges heartbeat/result and deduplicates terminal 
  for(let i=0;i<2;i++)assert.equal(db.rpc(`select public.record_accounting_refresh_worker_event('${j.id}','${r.attemptId}','${r.workerId}','result');`),'t')
  assert.equal(db.psql(`select claimed_count||'|'||heartbeat_count||'|'||completed_count from accounting_refresh_private.synthetic_jobs where job_id='${j.id}';`),'1|1|1')
 })
+check('idle queries use active-state indexes with substantial terminal history',()=>{
+ const j=seed('internal','history',false)
+ db.psql(`select public.cancel_accounting_refresh('${j.id}','${db.user}','foundation_certification','history',1);
+ insert into public.accounting_refresh_jobs(connection_id,user_id,provider,provider_organisation_id,connection_epoch,trigger,latest_trigger,phase,completed_at)
+ select '${j.connection.connectionId}','${db.user}','foundation_certification','history',1,'internal','internal','complete',now() from generate_series(1,5000);
+ analyze public.accounting_refresh_jobs;`)
+ const plan=JSON.parse(db.psql("explain(analyze,format json) select id from public.accounting_refresh_jobs where phase in('running','preparing') and attempt_expires_at>now();"))[0]
+ assert.match(JSON.stringify(plan.Plan),/Index/);assert.equal(plan.Plan['Actual Rows'],0)
+ assert.equal(dispatch('cron').submitted,0)
+})

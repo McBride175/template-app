@@ -516,3 +516,15 @@ test('known incomplete scope metadata is a permission upgrade, while unknown leg
     }
   }
 })
+
+test('a relinked authorization revision defeats old token CAS without resetting the grant lock',async()=>{
+ const state=buildBaseSyncState(),revision='00000000-0000-4000-8000-000000000021'
+ state.connections.push({user_id:'user-1',tenant_id:'tenant-1',grant_id:'grant-1',auth_state:'active',last_refresh_error:null,reauth_required_at:null})
+ state.grants.push({id:'grant-1',user_id:'user-1',xero_user_id:'xero-user-1',scopes:LEGACY_COMPATIBLE_SCOPES,access_token_encrypted:'old-access',refresh_token_encrypted:'old-refresh',expires_at:new Date(Date.now()-60000).toISOString(),refresh_lock_id:null,refresh_lock_expires_at:null,authorization_revision:revision})
+ const harness=createSyncHarness({syncModuleSpecifier:SYNC_LIB_PATH,state,refreshBehavior:async()=>{
+   const row=state.grants[0];row.authorization_revision='00000000-0000-4000-8000-000000000022';row.access_token_encrypted='relinked-access';row.refresh_token_encrypted='relinked-refresh';row.expires_at=new Date(Date.now()+3600000).toISOString()
+   return {accessToken:'stale-rotation-access',refreshToken:'stale-rotation-refresh',expiresAt:new Date(Date.now()+3600000).toISOString()}
+ }})
+ const result=await harness.getValidXeroAccessTokenForTenant({supabaseAdmin:harness.supabaseAdmin,userId:'user-1',tenantId:'tenant-1'})
+ assert.equal(result.ok,true);assert.equal(state.grants[0].refresh_token_encrypted,'relinked-refresh');assert.equal(result.accessToken,'relinked-access')
+})

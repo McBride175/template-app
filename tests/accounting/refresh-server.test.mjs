@@ -136,10 +136,12 @@ test('epoch and activity wrappers preserve full scope; worker updates use captur
  for(const call of calls){assert.equal(call.args.p_user_id,user);assert.equal(call.args.p_provider,'xero');assert.equal(call.args.p_provider_organisation_id,'tenant-a')}
  assert.equal(calls[0].args.p_expected_epoch,'1');assert.equal(calls[2].args.p_attempt_id,conn);assert.equal(calls[3].args.p_failure_code,'unknown_failure')
 })
-test('Phase 7.1 changes no existing product/ingestion/config source and has no normal caller',()=>{
- const base='66ba59c956b96a5dfa25e13825fa597d43b38add'
+test('Phase 7.3 preserves compatibility triggers, billing, collections and configuration',()=>{
+ const base='91f43a732972a3919ea1fe592c882d8605b41da1'
+ const adapted=new Set(['app/api/xero/callback/route.ts','lib/xero/accounting.ts','lib/xero/sync.ts','lib/xero/generation-importer.ts','lib/xero/generation-sync.ts','lib/xero/generation-run.ts','lib/xero/promise-reconciliation.ts'])
  const files=execFileSync('git',['ls-tree','-r','--name-only',base],{encoding:'utf8'}).trim().split('\n')
  for(const file of files.filter(f=>f.startsWith('app/')||f.startsWith('lib/xero/')||f.startsWith('lib/collections/')||f.startsWith('lib/billing/')||f==='vercel.json'||f==='proxy.ts')) {
+   if(adapted.has(file))continue
    assert.equal(readFileSync(file,'utf8'),execFileSync('git',['show',`${base}:${file}`],{encoding:'utf8'}),file)
  }
  const sqlFile=readdirSync('supabase/migrations').find(f=>f.endsWith('_accounting_refresh_foundation.sql'))

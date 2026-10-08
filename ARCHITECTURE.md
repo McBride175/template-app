@@ -4,21 +4,22 @@ This document is the high-level source of truth for environments, deployment, da
 
 ## Durable accounting refresh foundation (Phase 7.1)
 
-Phase 7.2 adds activity-driven dispatch and a Test-only synthetic worker. Launch
-intent comes from onboarding, reconnect, manual/meaningful activity and explicit
-recovery; dormant connections are not routinely refreshed. A one-minute Test
-Cron only dispatches/recovers already-requested work. The worker has no Xero or
-accounting execution connected. See [the dispatch contract](docs/accounting-refresh-dispatch.md).
+Phase 7.2 adds activity-driven durable dispatch with minutely Test Cron. Cron
+only dispatches/recovers already-requested work; dormant connections generate no
+routine refresh intent. Phase 7.3 connects a separately gated Test worker to the
+existing Xero importer, evidence and atomic Promise/publication engine. Signed
+opaque deliveries retain distinct attempt, connection-epoch and generation
+fences. See [dispatch](docs/accounting-refresh-dispatch.md) and
+[Xero execution](docs/accounting-xero-worker.md).
 
-`lib/accounting/` and the service-only `accounting_refresh_connections`,
-`accounting_refresh_jobs`, and `accounting_refresh_request_keys` provide dormant
-provider-neutral request/coalescing, retry, reservation, worker-attempt and
-connection-epoch contracts. The Xero facade reads existing connection/grant and
-promoted-generation/calculation authority without provider requests or derivative
-writes. No normal product or Xero route calls this foundation. Existing refresh,
-publication, billing and collection behaviour remains unchanged; no scheduler or
-worker delivery is enabled. Epoch integration with OAuth/disconnect/publication
-belongs to Phase 7.3. See [the foundation contract](docs/accounting-refresh-foundation.md).
+`lib/accounting/` and service-only control tables provide provider-neutral
+coalescing, retries, reservations and attempts. Ordinary product triggers and
+refresh/billing routes retain their compatibility path pending Phase 7.4. OAuth
+relink/disconnect now fence publication transactionally. A committed durable
+accounting result parks at `preparing` for Phase 7.5; existing materialization and
+read-time ensures remain authoritative. No scoring/collection redesign or
+Production scheduler/provider enablement is implied. See
+[the foundation contract](docs/accounting-refresh-foundation.md).
 
 ## Environments
 

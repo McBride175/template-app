@@ -200,11 +200,11 @@ check('foreign owner/provider/organisation and forged connection ID are rejected
  assert.throws(()=>scalar(`select public.register_accounting_refresh_connection(${q(other)},'xero','tenant-a','tenant-a','unlinked');`),/invalid_connection/)
  assert.throws(()=>scalar(`select public.register_accounting_refresh_connection(${q(owner)},'xero','missing','missing','unlinked');`),/invalid_connection/)
 })
-check('actual Xero disconnect invalidates eligibility even before epoch wiring',()=>{
+check('actual Xero disconnect atomically invalidates eligibility and captured epoch',()=>{
  const c=register(),j=accept(c).job
  db.psql(`update public.xero_connections_public set auth_state='disconnected',grant_id=null where user_id=${q(owner)};`)
  assert.equal(db.rpc('select count(*) from public.list_accounting_refresh_work();'),'0')
- assert.throws(()=>reserve(j),/connection_unavailable/)
+ assert.throws(()=>reserve(j),/stale_epoch/)
  const observed=scalar(`select public.register_accounting_refresh_connection(${q(owner)},'xero','tenant-a','tenant-a','unlinked');`)
  assert.equal(observed.epoch,'2');assert.equal(control(observed).job.phase,'cancelled')
 })

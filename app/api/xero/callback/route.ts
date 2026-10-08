@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
@@ -228,6 +229,7 @@ export async function GET(request: NextRequest) {
       .from('xero_oauth_grants')
       .upsert(
         {
+          authorization_revision: randomUUID(),
           user_id: user.id,
           xero_user_id: xeroUserId,
           scopes,
@@ -252,6 +254,7 @@ export async function GET(request: NextRequest) {
       .from('xero_connections_public')
       .select('tenant_id')
       .eq('user_id', user.id)
+      .eq('grant_id', grantId)
 
     if (existingRowsError) {
       console.error('[xero.callback] Failed to load existing public connections', {
@@ -301,6 +304,7 @@ export async function GET(request: NextRequest) {
           reauth_required_at: null,
         })
         .eq('user_id', user.id)
+        .eq('grant_id', grantId)
         .in('tenant_id', removedTenantIds)
 
       if (publicDisconnectError) {

@@ -136,62 +136,76 @@ export function shouldRefreshXeroAccessToken(expiresAt: string | null, safetySec
   return expiresAtMs <= nowWithBufferMs
 }
 
-export async function refreshXeroAccessToken(refreshToken: string) {
-  const { clientId, clientSecret } = getXeroConfig()
-  const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
+export async function refreshXeroAccessToken(refreshToken: string, options: { signal?: AbortSignal; deadlineAtMs?: number; timeoutMs?: number } = {}) {
+  const controller = new AbortController()
+  const remaining = Math.min(30_000, options.timeoutMs ?? 30_000, (options.deadlineAtMs ?? Infinity) - Date.now())
+  if (options.signal?.aborted || remaining <= 0) throw new DOMException('Token deadline exhausted', 'AbortError')
+  const onAbort = () => controller.abort()
+  options.signal?.addEventListener('abort', onAbort, { once: true })
+  const timer = setTimeout(onAbort, remaining)
+  const started = Date.now()
+  try {
+    const { clientId, clientSecret } = getXeroConfig()
+    const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
 
-  const response = await fetch(getXeroTokenUrl(), {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${basicAuth}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken,
-    }).toString(),
-  })
+    const response = await fetch(getXeroTokenUrl(), {
+      signal: controller.signal,
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${basicAuth}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+      }).toString(),
+    })
 
-  if (!response.ok) {
-    let payload: XeroTokenRefreshErrorResponse | null = null
-    try {
-      payload = (await response.json()) as XeroTokenRefreshErrorResponse
-    } catch {
-      payload = null
+    if (!response.ok) {
+      let payload: XeroTokenRefreshErrorResponse | null = null
+      try {
+        payload = (await response.json()) as XeroTokenRefreshErrorResponse
+      } catch {
+        payload = null
+      }
+
+      const errorCode = typeof payload?.error === 'string' ? payload.error : null
+      const errorDescription =
+        typeof payload?.error_description === 'string' ? payload.error_description : null
+      const requiresReauth = requiresReauthFromRefreshFailure(
+        response.status,
+        errorCode,
+        errorDescription
+      )
+
+      throw new XeroTokenRefreshError({
+        status: response.status,
+        code: errorCode,
+        description: errorDescription,
+        requiresReauth,
+      })
     }
 
-    const errorCode = typeof payload?.error === 'string' ? payload.error : null
-    const errorDescription =
-      typeof payload?.error_description === 'string' ? payload.error_description : null
-    const requiresReauth = requiresReauthFromRefreshFailure(
-      response.status,
-      errorCode,
-      errorDescription
-    )
+    const payload = (await response.json()) as Partial<XeroTokenRefreshResponse>
 
-    throw new XeroTokenRefreshError({
-      status: response.status,
-      code: errorCode,
-      description: errorDescription,
-      requiresReauth,
-    })
-  }
+    if (
+      !payload.access_token ||
+      !payload.refresh_token ||
+      typeof payload.expires_in !== 'number'
+    ) {
+      throw new Error('Token refresh response was missing required fields')
+    }
 
-  const payload = (await response.json()) as Partial<XeroTokenRefreshResponse>
-
-  if (
-    !payload.access_token ||
-    !payload.refresh_token ||
-    typeof payload.expires_in !== 'number'
-  ) {
-    throw new Error('Token refresh response was missing required fields')
-  }
-
-  return {
-    accessToken: payload.access_token,
-    refreshToken: payload.refresh_token,
-    expiresAt: new Date(Date.now() + payload.expires_in * 1000).toISOString(),
-    scopes: typeof payload.scope === 'string' ? normalizeXeroScopes(payload.scope) : null,
+    return {
+      accessToken: payload.access_token,
+      refreshToken: payload.refresh_token,
+      expiresAt: new Date(Date.now() + payload.expires_in * 1000).toISOString(),
+      scopes: typeof payload.scope === 'string' ? normalizeXeroScopes(payload.scope) : null,
+    }
+  } finally {
+    clearTimeout(timer)
+    options.signal?.removeEventListener('abort', onAbort)
+    console.info('[xero.oauth] refresh_finished', { durationMs: Date.now() - started, aborted: controller.signal.aborted })
   }
 }
 

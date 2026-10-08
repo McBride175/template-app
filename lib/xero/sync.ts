@@ -39,6 +39,7 @@ interface XeroOAuthGrantRow {
   expires_at: string | null
   refresh_lock_id: string | null
   refresh_lock_expires_at: string | null
+  authorization_revision?: string
 }
 
 export interface TokenAcquisitionSuccess {
@@ -75,11 +76,10 @@ type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>
 function toRefreshErrorDiagnostic(error: unknown) {
   if (error instanceof XeroTokenRefreshError) {
     const parts = [`refresh_failed status=${error.status}`]
-    if (error.code) parts.push(`code=${error.code}`)
-    if (error.description) parts.push(`description=${error.description}`)
+    if (error.code && /^[a-z_]{1,64}$/.test(error.code)) parts.push(`code=${error.code}`)
     return parts.join(' ')
   }
-  if (error instanceof Error) return error.message
+  if (error instanceof Error) return error.name
   return 'Unknown refresh error'
 }
 
@@ -193,7 +193,7 @@ async function loadGrantRow(
   const { data, error } = await supabaseAdmin
     .from('xero_oauth_grants')
     .select(
-      'id, user_id, xero_user_id, scopes, access_token_encrypted, refresh_token_encrypted, expires_at, refresh_lock_id, refresh_lock_expires_at'
+      'id, user_id, xero_user_id, scopes, access_token_encrypted, refresh_token_encrypted, expires_at, refresh_lock_id, refresh_lock_expires_at, authorization_revision'
     )
     .eq('user_id', params.userId)
     .eq('id', params.grantId)
@@ -319,8 +319,14 @@ export async function getValidXeroAccessTokenForTenant(params: {
   userId: string
   tenantId: string
   forceRefresh?: boolean
+  signal?: AbortSignal
+  deadlineAtMs?: number
 }): Promise<TokenAcquisitionResult> {
   const { supabaseAdmin, userId, tenantId, forceRefresh = false } = params
+  const assertTokenBudget = () => {
+    if (params.signal?.aborted || Date.now() >= (params.deadlineAtMs ?? Infinity)) throw new DOMException('Token authority/deadline lost', 'AbortError')
+  }
+  assertTokenBudget()
 
   const { data: connection, error: connectionError } = await loadTenantConnectionRow(supabaseAdmin, {
     userId,
@@ -517,6 +523,7 @@ export async function getValidXeroAccessTokenForTenant(params: {
 
       if (!lockAcquired) {
         await sleep(REFRESH_LOCK_WAIT_MS)
+        assertTokenBudget()
 
         const { data: latestGrant, error: latestGrantError } = await loadGrant()
 
@@ -645,14 +652,26 @@ export async function getValidXeroAccessTokenForTenant(params: {
 
         let refreshed: Awaited<ReturnType<typeof refreshXeroAccessToken>>
         try {
-          refreshed = await refreshXeroAccessToken(refreshToken)
+          assertTokenBudget()
+          refreshed = await refreshXeroAccessToken(refreshToken, { signal: params.signal, deadlineAtMs: params.deadlineAtMs })
         } catch (refreshError) {
+          if (params.signal?.aborted || Date.now() >= (params.deadlineAtMs ?? Infinity)) throw refreshError
           if (refreshError instanceof XeroTokenRefreshError && refreshError.requiresReauth) {
             console.error('[xero.sync] Token refresh requires reauthentication', {
               user_id: userId,
               grant_id: grantId,
               detail: toRefreshErrorDiagnostic(refreshError),
             })
+            if (latestGrant.authorization_revision) {
+              const { data: invalidated, error: invalidationError } = await supabaseAdmin.rpc('record_xero_grant_auth_failure', {
+                p_user_id: userId, p_grant_id: grantId, p_lock_id: lockId, p_authorization_revision: latestGrant.authorization_revision,
+              })
+              if (invalidationError || invalidated !== true) return { ok: false, response: buildRetryableRefreshFailureResponse({
+                error: 'Xero connection authority changed', code: 'XERO_REFRESH_IN_PROGRESS', status: 503, tenantId: connection.tenant_id,
+              }) }
+            } else {
+              // Compatibility for legacy diagnostic fixtures; migrated hosted
+              // grants always have the non-null authorization revision.
             await markGrantConnectionsReauthRequired({
               userId,
               grantId,
@@ -662,6 +681,7 @@ export async function getValidXeroAccessTokenForTenant(params: {
               userId,
               grantId,
             })
+            }
             return { ok: false, response: buildReauthRequiredResponse() }
           }
 
@@ -702,13 +722,14 @@ export async function getValidXeroAccessTokenForTenant(params: {
           grantUpdate.scopes = normalizeXeroScopes(refreshed.scopes)
         }
 
-        const { data: persistedRows, error: updateError } = await supabaseAdmin
+        const persistenceQuery = supabaseAdmin
           .from('xero_oauth_grants')
           .update(grantUpdate)
           .eq('user_id', userId)
           .eq('id', grantId)
           .eq('refresh_lock_id', lockId)
-          .select('id')
+        if (latestGrant.authorization_revision) persistenceQuery.eq('authorization_revision', latestGrant.authorization_revision)
+        const { data: persistedRows, error: updateError } = await persistenceQuery.select('id')
 
         if (updateError) {
           console.error('[xero.sync] Failed to persist refreshed OAuth grant token', {
@@ -734,6 +755,7 @@ export async function getValidXeroAccessTokenForTenant(params: {
 
         if (!persistedRows || persistedRows.length === 0) {
           await sleep(REFRESH_LOCK_WAIT_MS)
+        assertTokenBudget()
           const { data: latestAfterRace, error: latestAfterRaceError } = await loadGrant()
 
           if (latestAfterRaceError) {

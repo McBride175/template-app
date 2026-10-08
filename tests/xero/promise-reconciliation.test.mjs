@@ -96,3 +96,20 @@ test('the existing production generation-run entry point uses atomic Promise pro
   assert.deepEqual(db.calls.map(call => call.name), ['prepare_invoice_promise_reconciliation', 'promote_xero_sync_run_with_promises'])
   assert.equal(db.calls[1].args.p_reconciliation.proposals[0].result.qualifying_paid_amount_native, '1000')
 })
+
+test('worker authority/deadline is rechecked before each bounded preparation and commit',async()=>{
+ const changed={data:[{promoted:false,result_code:'promise_state_changed',promoted_at:null}]}
+ const db=client([{data:snapshot()},changed]),events=[];let checks=0
+ await assert.rejects(promote({syncRunId:'run',leaseOwner:'owner',fencingToken:1,supabaseAdmin:db,
+   assertPublicationAuthority:async()=>{if(++checks===3)throw new Error('worker deadline exhausted')},
+   onPublicationEvent:event=>events.push(event),
+ }),/deadline exhausted/)
+ assert.equal(db.calls.filter(c=>c.name==='prepare_invoice_promise_reconciliation').length,1)
+ assert.equal(db.calls.filter(c=>c.name==='promote_xero_sync_run_with_promises').length,1)
+ assert.equal(checks,3);assert.equal(events[0].proposalCount,1)
+})
+test('publication telemetry cannot change a committed accounting/Promise result',async()=>{
+ const db=client([{data:snapshot()},success])
+ const result=await promote({syncRunId:'run',leaseOwner:'owner',fencingToken:1,supabaseAdmin:db,onPublicationEvent:()=>{throw new Error('telemetry unavailable')}})
+ assert.equal(result.promoted,true)
+})

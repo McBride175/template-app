@@ -1,7 +1,7 @@
 import 'server-only'
 
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
-import { promoteXeroGenerationWithPromises } from '@/lib/xero/promise-reconciliation'
+import { promoteXeroGenerationWithPromises, type XeroPromisePublicationEvent } from '@/lib/xero/promise-reconciliation'
 
 type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>
 
@@ -231,6 +231,8 @@ export async function promoteXeroGenerationRun(params: {
   leaseOwner: string
   fencingToken: number
   snapshotAsOf?: string | null
+  onPublicationEvent?: (event: XeroPromisePublicationEvent) => void
+  assertPublicationAuthority?: () => Promise<void>
   supabaseAdmin?: SupabaseAdminClient
 }) {
   const supabaseAdmin = params.supabaseAdmin ?? createSupabaseAdminClient()
@@ -240,6 +242,8 @@ export async function promoteXeroGenerationRun(params: {
     fencingToken: requirePositiveInteger(params.fencingToken, 'fencingToken'),
     snapshotAsOf: params.snapshotAsOf?.trim() || null,
     supabaseAdmin,
+    onPublicationEvent: params.onPublicationEvent,
+    assertPublicationAuthority: params.assertPublicationAuthority,
   })
 }
 

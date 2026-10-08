@@ -102,17 +102,20 @@ export type XeroGenerationImportFailureCode =
   | 'provider_data_invalid'
   | 'generation_validation_failed'
   | 'persistence_failed'
+  | 'internal_failure'
 
 export class XeroGenerationImportError extends Error {
   readonly code: XeroGenerationImportFailureCode
   readonly resource: string | null
   readonly runId: string | null
+  readonly retryAfterSeconds: number | null
 
   constructor(params: {
     code: XeroGenerationImportFailureCode
     resource?: string | null
     runId?: string | null
     detail?: string
+    retryAfterSeconds?: number | null
   }) {
     const detail = params.detail ? `: ${params.detail}` : ''
     super(`Xero generation import failed (${params.code})${detail}`)
@@ -120,6 +123,7 @@ export class XeroGenerationImportError extends Error {
     this.code = params.code
     this.resource = params.resource ?? null
     this.runId = params.runId ?? null
+    this.retryAfterSeconds = params.retryAfterSeconds ?? null
   }
 }
 
@@ -160,6 +164,8 @@ interface XeroGenerationImportDependencies {
     userId: string
     tenantId: string
     forceRefresh?: boolean
+    signal?: AbortSignal
+    deadlineAtMs?: number
   }) => Promise<GenerationAccessTokenResult>
   fetchOrganisation: typeof fetchXeroOrganisation
   fetchCollection: typeof fetchXeroPaginatedCollection
@@ -389,6 +395,8 @@ async function loadGenerationAccessToken(params: {
   userId: string
   tenantId: string
   forceRefresh?: boolean
+  signal?: AbortSignal
+  deadlineAtMs?: number
 }): Promise<GenerationAccessTokenResult> {
   const result = await getValidXeroAccessTokenForTenant(params)
   if (!result.ok) return parseTokenFailure(result)
@@ -419,7 +427,7 @@ function classifyError(error: unknown, runId: string | null): XeroGenerationImpo
       if (error.kind === 'http' && !error.retryable) return 'provider_data_invalid'
       return 'provider_unavailable'
     })()
-    return new XeroGenerationImportError({ code, resource: error.resource, runId })
+    return new XeroGenerationImportError({ code, resource: error.resource, runId, retryAfterSeconds: error.metadata.maximumRetryAfterSeconds })
   }
   if (error instanceof XeroPaginationError) {
     return new XeroGenerationImportError({
@@ -459,7 +467,7 @@ function classifyError(error: unknown, runId: string | null): XeroGenerationImpo
       runId,
     })
   }
-  return new XeroGenerationImportError({ code: 'provider_unavailable', runId })
+  return new XeroGenerationImportError({ code: 'internal_failure', runId })
 }
 
 async function runWithConcurrency<T>(
@@ -540,6 +548,9 @@ export async function importXeroGeneration(params: {
   heartbeatIntervalMs?: number
   deadlineMs?: number
   signal?: AbortSignal
+  deadlineAtMs?: number
+  externalLease?: Pick<XeroGenerationLeaseController, 'assertOwned' | 'renewNow'>
+  assertExecutionAuthority?: () => Promise<void>
   supabaseAdmin?: SupabaseAdminClient
   dependencies?: Partial<XeroGenerationImportDependencies>
 }): Promise<XeroGenerationImportResult> {
@@ -568,7 +579,7 @@ export async function importXeroGeneration(params: {
   const supabaseAdmin = params.supabaseAdmin ?? dependencies.createSupabaseAdminClient()
   const runStartedMs = dependencies.now()
   const importStartedAt = dependencies.monotonicNow()
-  const deadlineAtMs = runStartedMs + deadlineMs
+  const deadlineAtMs = Math.min(runStartedMs + deadlineMs, params.deadlineAtMs ?? Infinity)
   if (params.signal?.aborted) {
     throw new XeroGenerationImportError({ code: 'run_cancelled' })
   }
@@ -600,8 +611,8 @@ export async function importXeroGeneration(params: {
     })
     return {
       status,
-      runId: null,
-      fencingToken: null,
+      runId: acquisition.syncRunId,
+      fencingToken: acquisition.fencingToken,
       leaseExpiresAt: acquisition.leaseExpiresAt,
     }
   }
@@ -655,7 +666,7 @@ export async function importXeroGeneration(params: {
     deadlineReached = true
     abortController.abort()
   }, Math.max(0, deadlineAtMs - dependencies.now()))
-  const lease = new XeroGenerationLeaseController({
+  const localLease = new XeroGenerationLeaseController({
     heartbeatIntervalMs,
     abortController,
     timers: dependencies.leaseTimers,
@@ -671,7 +682,8 @@ export async function importXeroGeneration(params: {
       return result
     },
   })
-  lease.start()
+  const lease = params.externalLease ?? localLease
+  if (!params.externalLease) localLease.start()
 
   const assertCanContinue = () => {
     lease.assertOwned()
@@ -713,6 +725,8 @@ export async function importXeroGeneration(params: {
       userId,
       tenantId,
       forceRefresh,
+      signal: abortController.signal,
+      deadlineAtMs,
     })
     if (!token.ok) throw new XeroGenerationImportError({ code: token.code, runId: authority.syncRunId })
     if (token.tenantId !== tenantId || token.grantId !== grantId) {
@@ -775,7 +789,7 @@ export async function importXeroGeneration(params: {
     tenantId,
     config,
     ifModifiedSince,
-    signal: lease.signal,
+    signal: abortController.signal,
     deadlineAtMs: requestDeadlineAtMs,
     dependencies: dependencies.requestDependencies,
   }))
@@ -799,6 +813,7 @@ export async function importXeroGeneration(params: {
 
   try {
     await loadToken()
+    await params.assertExecutionAuthority?.()
     assertCanContinue()
 
     const providerStartedAt = dependencies.monotonicNow()
@@ -814,7 +829,7 @@ export async function importXeroGeneration(params: {
         withAuthenticationRetry((token) => dependencies.fetchOrganisation({
           accessToken: token,
           tenantId,
-          signal: lease.signal,
+          signal: abortController.signal,
           deadlineAtMs,
           dependencies: dependencies.requestDependencies,
         }))
@@ -965,6 +980,7 @@ export async function importXeroGeneration(params: {
 
     assertCanContinue()
     let mapping: XeroGenerationMappingResult
+    await params.assertExecutionAuthority?.()
     const canonicalMappingStartedAt = dependencies.monotonicNow()
     try {
       mapping = await dependencies.mapCanonical({ ...authority, supabaseAdmin })
@@ -1242,6 +1258,6 @@ export async function importXeroGeneration(params: {
   } finally {
     dependencies.cancelDeadline(deadlineHandle)
     params.signal?.removeEventListener('abort', onExternalAbort)
-    await lease.stop()
+    await localLease.stop()
   }
 }

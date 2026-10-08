@@ -251,6 +251,7 @@ function importFailureResponse(error: XeroGenerationImportError) {
       code: 'XERO_GENERATION_VALIDATION_FAILED',
       error: 'The new Xero snapshot failed validation',
     },
+    internal_failure: { status: 500, code: 'XERO_INTERNAL_FAILURE', error: 'Accounting refresh needs attention' },
     persistence_failed: {
       status: 500,
       code: 'XERO_GENERATION_PERSISTENCE_FAILED',
@@ -259,7 +260,7 @@ function importFailureResponse(error: XeroGenerationImportError) {
   }
   const response = responseByCode[error.code]
   return NextResponse.json(
-    { error: response.error, code: response.code, runId: error.runId },
+    { error: response.error, code: response.code, runId: error.runId, retryAfterSeconds: error.retryAfterSeconds },
     { status: response.status }
   )
 }
@@ -305,11 +306,17 @@ async function failPreparedRun(params: {
   }
 }
 
-export async function syncXeroAuthoritatively(params: {
+export async function executeXeroAccountingGeneration(params: {
   userId: string
   tenantId: string
   supabaseAdmin?: SupabaseAdminClient
   dependencies?: Partial<XeroGenerationSyncDependencies>
+  execution?: {
+    leaseOwner: string
+    importOptions: Pick<Parameters<typeof importXeroGeneration>[0], 'signal' | 'deadlineAtMs' | 'externalLease' | 'dependencies'>
+    assertAuthority: () => Promise<void>
+    onPublicationEvent?: Parameters<typeof promoteXeroGenerationRun>[0]['onPublicationEvent']
+  }
 }) {
   const userId = requireNonEmpty(params.userId, 'userId')
   const tenantId = requireNonEmpty(params.tenantId, 'tenantId')
@@ -319,11 +326,13 @@ export async function syncXeroAuthoritatively(params: {
   const preflight = await loadPreflight({ supabaseAdmin, userId, tenantId })
   if (!preflight.ok) return preflight.response
 
-  const leaseOwner = dependencies.randomUUID()
+  const leaseOwner = params.execution?.leaseOwner ?? dependencies.randomUUID()
   let result: XeroGenerationImportResult
   try {
+    await params.execution?.assertAuthority()
     result = await dependencies.importGeneration({
-      userId,
+      ...params.execution?.importOptions,
+      assertExecutionAuthority: params.execution?.assertAuthority,      userId,
       tenantId,
       grantId: preflight.preflight.grantId,
       leaseOwner,
@@ -331,6 +340,7 @@ export async function syncXeroAuthoritatively(params: {
       dependencies: {
         monotonicNow: dependencies.monotonicNow,
         recordLatency: dependencies.recordLatency,
+        ...params.execution?.importOptions.dependencies,
       },
     })
   } catch (error) {
@@ -383,6 +393,7 @@ export async function syncXeroAuthoritatively(params: {
   }
 
   try {
+    await params.execution?.assertAuthority()
     const heartbeat = await dependencies.heartbeatRun({
       syncRunId: result.runId,
       leaseOwner,
@@ -442,11 +453,14 @@ export async function syncXeroAuthoritatively(params: {
       )
     }
 
+    await params.execution?.assertAuthority()
     const promotion = await dependencies.promoteRun({
       syncRunId: result.runId,
       leaseOwner,
       fencingToken: result.fencingToken,
       snapshotAsOf: result.diagnostics.runStartedAt,
+      onPublicationEvent: params.execution?.onPublicationEvent,
+      assertPublicationAuthority: params.execution?.assertAuthority,
       supabaseAdmin,
     })
     if (!promotion.promoted || !promotion.promotedAt) {
@@ -557,4 +571,9 @@ export async function syncXeroAuthoritatively(params: {
       { status: 500 }
     )
   }
+}
+
+/** Compatibility response contract and trigger/billing callers are unchanged. */
+export async function syncXeroAuthoritatively(params: Parameters<typeof executeXeroAccountingGeneration>[0]) {
+  return executeXeroAccountingGeneration(params)
 }

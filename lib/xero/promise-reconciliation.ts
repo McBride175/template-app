@@ -8,6 +8,12 @@ import { qualifyPromisePayments } from '@/lib/collections/promise-payment-qualif
 import { resolvePromiseOutcome, type PromiseCurrencyValuation, type PromiseResolutionResult } from '@/lib/collections/promise-outcome-resolution'
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>
+export interface XeroPromisePublicationEvent {
+  stage: 'prepared' | 'published' | 'recovered'
+  attempt: number
+  proposalCount: number
+  resultCode?: string
+}
 interface InvoiceContext extends PromiseCurrencyValuation { customer_source_id: string; type: string }
 export interface PromiseReconciliationSnapshot {
   evidence_digest: string
@@ -81,20 +87,29 @@ function promotionRow(data: unknown) {
 /** Preparation is provisional; SQL publishes accounting + Promise state together. */
 export async function promoteXeroGenerationWithPromises(params: {
   syncRunId: string; leaseOwner: string; fencingToken: number; snapshotAsOf?: string | null; supabaseAdmin: AdminClient
+  onPublicationEvent?: (event: XeroPromisePublicationEvent) => void
+  assertPublicationAuthority?: () => Promise<void>
 }) {
+  const observe = (event: XeroPromisePublicationEvent) => {
+    try { params.onPublicationEvent?.(event) } catch { /* telemetry is never publication authority */ }
+  }
   const args = { p_sync_run_id: params.syncRunId, p_lease_owner: params.leaseOwner, p_fencing_token: params.fencingToken }
   for (let attempt = 0; attempt < 3; attempt++) {
+    await params.assertPublicationAuthority?.()
     const snapshot = await prepare(params.supabaseAdmin, args)
     if (snapshot.already_promoted && snapshot.promoted_at) return { promoted: true, resultCode: 'already_promoted', promotedAt: snapshot.promoted_at }
     if (snapshot.empty_active_set && snapshot.promises?.length !== 0) throw new Error('Invalid empty Active Promise set')
     const reconciliation = snapshot.empty_active_set ? null : preparePromiseReconciliation(snapshot)
+    observe({ stage: 'prepared', attempt: attempt + 1, proposalCount: reconciliation?.proposals.length ?? 0 })
     let response: Awaited<ReturnType<AdminClient['rpc']>>
     try {
+      await params.assertPublicationAuthority?.()
       response = await params.supabaseAdmin.rpc('promote_xero_sync_run_with_promises', {
         ...args, p_snapshot_as_of: params.snapshotAsOf ?? null, p_reconciliation: reconciliation,
       })
       if (response.error) throw new Error(`Atomic Promise promotion failed (${response.error.code ?? 'database'})`)
       const result = promotionRow(response.data)
+      observe({ stage: 'published', attempt: attempt + 1, proposalCount: reconciliation?.proposals.length ?? 0, resultCode: result.resultCode })
       if (['promise_state_changed', 'promise_evidence_changed', 'promise_preparation_required'].includes(result.resultCode) && attempt < 2) continue
       return result
     } catch (error) {
@@ -102,6 +117,7 @@ export async function promoteXeroGenerationWithPromises(params: {
       // exact run before the caller marks failure; never replay terminal events.
       const recovered = await prepare(params.supabaseAdmin, args).catch(() => null)
       if (recovered?.already_promoted && recovered.promoted_at) {
+        observe({ stage: 'recovered', attempt: attempt + 1, proposalCount: reconciliation?.proposals.length ?? 0, resultCode: 'already_promoted' })
         return { promoted: true, resultCode: 'already_promoted', promotedAt: recovered.promoted_at }
       }
       throw error

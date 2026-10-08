@@ -14,10 +14,14 @@ fences. See [dispatch](docs/accounting-refresh-dispatch.md) and
 
 `lib/accounting/` and service-only control tables provide provider-neutral
 coalescing, retries, reservations and attempts. Ordinary product triggers and
-refresh/billing routes retain their compatibility path pending Phase 7.4. OAuth
+refresh/billing routes retain their compatibility path pending Phase 7.5. OAuth
 relink/disconnect now fence publication transactionally. A committed durable
-accounting result parks at `preparing` for Phase 7.5; existing materialization and
-read-time ensures remain authoritative. No scoring/collection redesign or
+accounting result enters `preparing`. Phase 7.4 reuses existing feature and portfolio
+ensures, verifies both ordinary collection variants against current G/F/UTC date/
+version/evidence identity, and durably completes or supersedes the refresh.
+Preparation has independent retries and never re-enters provider execution.
+Existing materialization and read-time ensures remain authoritative. See
+[the preparation contract](docs/accounting-preparation.md). No scoring/collection redesign or
 Production scheduler/provider enablement is implied. See
 [the foundation contract](docs/accounting-refresh-foundation.md).
 

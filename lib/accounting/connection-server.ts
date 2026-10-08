@@ -58,15 +58,13 @@ export async function getAccountingAuthority(params: {
   const date = params.now.toISOString().slice(0, 10)
   let derivatives: AccountingAuthority['derivatives'] = { state: 'preparing', generationId: snapshot.syncRunId, financialEpoch: null, evaluationDate: date }
   try {
-    const probes = await Promise.all([true, false].map(overdueOnly => accountingControlRpc<{
-      context: { generationId: string; financialEpoch: string; evidenceIdentity: string }; head: { identity: { generationId: string; financialEpoch: string; evaluationDate: string; evidenceIdentity: string } } | null
-    }>(params.admin, 'read_collection_portfolio_calculation', { p_user_id: params.authenticatedOwnerId, p_tenant_id: org,
-      p_evaluation_date: date, p_overdue_only: overdueOnly, p_scoring_scope: 'collections', p_customer_ids: [], p_limit: 0 })))
-    if (probes.some(probe => probe.context.generationId !== snapshot.syncRunId) || probes[0].context.financialEpoch !== probes[1].context.financialEpoch) return unavailable
-    derivatives.financialEpoch = probes[0].context.financialEpoch
-    if (probes.every(probe => probe.head && probe.head.identity.generationId === snapshot.syncRunId &&
-      probe.head.identity.financialEpoch === probe.context.financialEpoch && probe.head.identity.evaluationDate === date &&
-      probe.head.identity.evidenceIdentity === probe.context.evidenceIdentity)) derivatives = { ...derivatives, state: 'ready' }
+    const probe = await accountingControlRpc<{
+      ready: boolean; context: { generationId: string; financialEpoch: string }; evaluationDate: string
+    }>(params.admin,'read_accounting_preparation_readiness',{p_user_id:params.authenticatedOwnerId,p_provider:params.provider,
+      p_provider_organisation_id:org,p_evaluation_date:date})
+    if (probe.context.generationId !== snapshot.syncRunId || probe.evaluationDate !== date) return unavailable
+    derivatives.financialEpoch = probe.context.financialEpoch
+    if (probe.ready) derivatives = { ...derivatives,state:'ready' }
   } catch { derivatives = { ...derivatives, state: 'unavailable' } }
   // Recheck accounting after the separate calculation reads; never combine Gs.
   const current = await resolveXeroAuthoritativeSnapshot({ supabaseAdmin: params.admin, userId: params.authenticatedOwnerId, tenantId: org }).catch(() => null)

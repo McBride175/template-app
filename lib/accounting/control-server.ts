@@ -30,6 +30,8 @@ export function parseAccountingJob(value: unknown): AccountingRefreshJob {
     !Number.isSafeInteger(row.retryCount) || Number(row.retryCount) < 0 ||
     typeof row.requestCount !== 'string' || !/^[1-9]\d*$/.test(row.requestCount) ||
     !['requestedAt', 'lastRequestedAt', 'nextEligibleAt'].every(key => typeof row[key] === 'string' && Number.isFinite(Date.parse(row[key] as string)))) throw new AccountingControlError('unavailable')
+  if (row.preparationRetryCount !== undefined && (!Number.isSafeInteger(row.preparationRetryCount) || Number(row.preparationRetryCount)<0)) throw new AccountingControlError('unavailable')
+  if (row.completionKind != null && !['prepared','superseded'].includes(String(row.completionKind))) throw new AccountingControlError('unavailable')
   accountingRefreshTrigger(row.trigger); accountingRefreshTrigger(row.latestTrigger)
   return { ...row, connection } as unknown as AccountingRefreshJob
 }

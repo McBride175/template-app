@@ -5,6 +5,7 @@ import { accountingControlRpc, claimAccountingRefreshAttempt, heartbeatAccountin
 import { planAccountingRetry } from './refresh-policy'
 import { accountingTransportEvent, dispatchAccountingRefresh } from './dispatch-server'
 import { AccountingAttemptController } from './attempt-controller'
+import { prepareAccountingRefresh, type AccountingPreparationResult } from './preparation-server'
 import { executeAccountingProvider, type AccountingProviderResult } from './provider-execution'
 import type { AccountingRefreshJob } from './refresh'
 
@@ -13,11 +14,12 @@ export const ACCOUNTING_WORKER_SUBSTANTIVE_BUDGET_MS = 240_000
 export const ACCOUNTING_WORKER_BOOKKEEPING_BOUNDARY_MS = 270_000
 const TEST_PROJECT = 'rbmxegyiwntomhpbepnu'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-interface Delivery { projectRef: string; mode?: 'synthetic' | 'xero'; job: AccountingRefreshJob; synthetic: { scenario: 'complete' | 'delay_complete' | 'retry_once' | 'attention' | 'disappear'; delaySeconds: number } }
+interface Delivery { projectRef: string; mode?: 'synthetic' | 'xero' | 'preparation'; job: AccountingRefreshJob; synthetic: { scenario: 'complete' | 'delay_complete' | 'retry_once' | 'attention' | 'disappear'; delaySeconds: number } }
 interface Dependencies {
   admin?: AccountingControlClient; environment?: Record<string, string | undefined>
   heartbeatMs?: number; now?: () => number
   executeProvider?: typeof executeAccountingProvider
+  executePreparation?: typeof prepareAccountingRefresh
 }
 function sameSecret(provided: string, expected: string) {
   const a = Buffer.from(provided), b = Buffer.from(expected)
@@ -43,7 +45,7 @@ export async function handleAccountingRefreshWorker(request: Request, dependenci
   }
   let project: string | null = null
   try { if (new URL(env.NEXT_PUBLIC_SUPABASE_URL ?? '').hostname === `${TEST_PROJECT}.supabase.co`) project = TEST_PROJECT } catch { /* fail closed */ }
-  if (env.VERCEL_ENV === 'production' || (env.ACCOUNTING_REFRESH_SYNTHETIC_ENABLED !== '1' && env.ACCOUNTING_REFRESH_XERO_ENABLED !== '1') || project !== TEST_PROJECT || request.headers.get('x-accounting-project-ref') !== project) {
+  if (env.VERCEL_ENV === 'production' || (env.ACCOUNTING_REFRESH_SYNTHETIC_ENABLED !== '1' && env.ACCOUNTING_REFRESH_XERO_ENABLED !== '1' && env.ACCOUNTING_REFRESH_PREPARATION_ENABLED !== '1') || project !== TEST_PROJECT || request.headers.get('x-accounting-project-ref') !== project) {
     return Response.json({ code: 'ENVIRONMENT_REJECTED' }, { status: 403 })
   }
   const body = await request.json().catch(() => null) as { jobId?: unknown; deliveryId?: unknown } | null
@@ -61,8 +63,10 @@ export async function handleAccountingRefreshWorker(request: Request, dependenci
     if (!delivery || delivery.projectRef !== project) return Response.json({ code: 'DELIVERY_UNAVAILABLE' }, { status: 409 })
     delivery.job = parseAccountingJob(delivery.job)
     if (delivery.job.id !== body.jobId || delivery.job.deliveryId !== body.deliveryId) return Response.json({ code: 'DELIVERY_UNAVAILABLE' }, { status: 409 })
-    if (delivery.mode === 'xero') {
-      if (env.ACCOUNTING_REFRESH_XERO_ENABLED !== '1' || delivery.job.connection.provider !== 'xero' || delivery.synthetic) return Response.json({ code: 'DELIVERY_UNAVAILABLE' }, { status: 409 })
+    if (delivery.mode === 'preparation') {
+      if (env.ACCOUNTING_REFRESH_PREPARATION_ENABLED !== '1' || delivery.job.stage !== 'derivatives' || !delivery.job.generationRunId || delivery.synthetic) return Response.json({ code: 'DELIVERY_UNAVAILABLE' }, { status: 409 })
+    } else if (delivery.mode === 'xero') {
+      if (env.ACCOUNTING_REFRESH_XERO_ENABLED !== '1' || delivery.job.connection.provider !== 'xero' || delivery.job.stage !== 'accounting' || delivery.synthetic) return Response.json({ code: 'DELIVERY_UNAVAILABLE' }, { status: 409 })
     } else if (env.ACCOUNTING_REFRESH_SYNTHETIC_ENABLED !== '1' || delivery.job.connection.provider !== 'foundation_certification' ||
       !delivery.synthetic || !['complete', 'delay_complete', 'retry_once', 'attention', 'disappear'].includes(delivery.synthetic.scenario) ||
       !Number.isInteger(delivery.synthetic.delaySeconds) || delivery.synthetic.delaySeconds < 0 || delivery.synthetic.delaySeconds > 40) return Response.json({ code: 'DELIVERY_UNAVAILABLE' }, { status: 409 })
@@ -79,6 +83,7 @@ export async function handleAccountingRefreshWorker(request: Request, dependenci
     job = parseAccountingJob(result.job)
   } catch { return Response.json({ code: 'CLAIM_REJECTED' }, { status: 409 }) }
   accountingTransportEvent('worker_claimed', { jobId: job.id, attemptId: job.attemptId, attemptNumber: job.attemptNumber })
+  if (delivery.mode === 'preparation') return executePreparationJob(admin, job, start, dependencies)
   if (delivery.mode === 'xero') return executeRealJob(admin, job, start, dependencies)
   const record = (event: string) => accountingControlRpc(admin, 'record_accounting_refresh_worker_event', { p_job_id: job.id, p_attempt_id: job.attemptId, p_worker_id: workerId, p_event: event })
   const abort = new AbortController()
@@ -167,4 +172,25 @@ async function executeRealJob(admin: AccountingControlClient, job: AccountingRef
     accountingTransportEvent('worker_result_deferred', { jobId: job.id, attemptId: job.attemptId })
     return Response.json({ code: 'RESULT_DEFERRED' }, { status: 409 })
   } finally { clearTimeout(deadline); await authority.stop() }
+}
+
+async function executePreparationJob(admin: AccountingControlClient, job: AccountingRefreshJob, start: number, dependencies: Dependencies) {
+  const now = dependencies.now ?? Date.now
+  const authority = new AccountingAttemptController(async () => {
+    await heartbeatAccountingRefreshAttempt(admin, job)
+    accountingTransportEvent('preparation_heartbeat', { jobId: job.id, attemptId: job.attemptId, epoch: job.connection.epoch })
+  }, dependencies.heartbeatMs ?? ACCOUNTING_WORKER_HEARTBEAT_MS)
+  const deadline = setTimeout(() => authority.cancel(), Math.max(0,start+ACCOUNTING_WORKER_SUBSTANTIVE_BUDGET_MS-now()))
+  authority.start()
+  try {
+    const result: AccountingPreparationResult = await (dependencies.executePreparation ?? prepareAccountingRefresh)({admin,job,authority,
+      deadlineAtMs:start+ACCOUNTING_WORKER_SUBSTANTIVE_BUDGET_MS,bookkeepingAtMs:start+ACCOUNTING_WORKER_BOOKKEEPING_BOUNDARY_MS})
+    await authority.stop()
+    await dispatchAccountingRefresh(admin,'completion').catch(()=>undefined)
+    return Response.json({code:result.kind==='complete'?'ACCOUNTING_REFRESH_COMPLETE':result.kind==='superseded'?'ACCOUNTING_REFRESH_SUPERSEDED':result.kind==='authority_lost'?'AUTHORITY_LOST':'PREPARATION_RESULT_RECORDED'},
+      {status:result.kind==='authority_lost'?409:200})
+  } catch {
+    accountingTransportEvent('preparation_result_deferred',{jobId:job.id,noProviderRetrieval:true})
+    return Response.json({code:'RESULT_DEFERRED'},{status:409})
+  } finally {clearTimeout(deadline);await authority.stop()}
 }

@@ -83,3 +83,15 @@ test('status idle/failure is computed and failure codes are sanitized', () => {
   assert.equal(status.failure.code,'unknown_failure');assert.equal(status.failure.nextRetryAt,'2026-10-08')
   assert.throws(()=>deriveAccountingRefreshStatus({connection,health:'healthy',authority,now,job:{connection:{...connection,ownerId:'other'}}}))
 })
+
+test('provider-neutral status distinguishes preparation retry/attention and historical supersession',()=>{
+ const connection={connectionId:'c',ownerId:'u',provider:'xero',providerOrganisationId:'org',epoch:'1'}
+ const authority={state:'valid',mode:'generation',activeGenerationId:'g',lastSuccessfulRefreshAt:atAge(1000),accountingObservedAt:atAge(1000),derivatives:{state:'preparing',generationId:'g',financialEpoch:'4',evaluationDate:'2026-10-07'}}
+ const base={id:'j',connection,stage:'derivatives',trigger:'internal',requestedAt:atAge(2000),claimedAt:atAge(1500),heartbeatAt:atAge(1000),completedAt:null,attemptNumber:2,retryCount:4,preparationRetryCount:1,failureClass:'preparation_failure',failureCode:'preparation_failed',failedAt:atAge(500),nextEligibleAt:atAge(-60000)}
+ for(const [phase,activity] of [['preparing','preparing_priorities'],['retry_wait','preparation_retry'],['attention_required','preparation_attention'],['complete','updated']]){
+  const r=deriveAccountingRefreshStatus({connection,health:'healthy',authority,job:{...base,phase},now})
+  assert.equal(r.work.activity,activity);assert.equal(r.work.stage,'derivatives');assert.equal(r.work.preparationRetryCount,1)
+  assert.equal(r.accounting.derivatives.state,'preparing')
+ }
+ assert.equal(deriveAccountingRefreshStatus({connection,health:'healthy',authority,job:{...base,phase:'complete',completionKind:'superseded'},now}).work.activity,'superseded')
+})

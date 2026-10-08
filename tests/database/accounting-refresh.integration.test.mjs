@@ -14,7 +14,7 @@ const register=(user=owner,provider='xero',organisation=org)=>scalar(`select pub
 const accept=(c,trigger='scheduled',key=null,notBefore=null)=>scalar(`select public.accept_accounting_refresh(${scope(c)},${q(trigger)},${key===null?'null':q(key)},${notBefore===null?'null':q(notBefore)});`)
 const reserve=(job,deliveryOwner=randomUUID())=>scalar(`select public.reserve_accounting_refresh_delivery(${jobScope(job)},${q(deliveryOwner)},60);`)
 const claim=(job,worker=randomUUID(),delivery=job.deliveryId)=>scalar(`select public.claim_accounting_refresh_attempt(${jobScope(job)},${q(delivery)},${q(worker)},300);`)
-const running=()=>{const c=register();const j=accept(c).job;const r=reserve(j);return claim(r.job).job}
+const running=(provider='xero')=>{const c=register(owner,provider);const j=accept(c).job;const r=reserve(j);return claim(r.job).job}
 const attempt=j=>`${jobScope(j)},${q(j.attemptId)},${q(j.workerId)},${j.attemptNumber}`
 const update=(j,operation,opts={})=>scalar(`select public.update_accounting_refresh_attempt(${attempt(j)},${q(operation)},${opts.failureClass?q(opts.failureClass):'null'},${opts.failureCode?q(opts.failureCode):'null'},${opts.retryAt?q(opts.retryAt):'null'},${opts.providerNotBefore?q(opts.providerNotBefore):'null'},${q(opts.retrySource??'none')},${opts.generationRunId?q(opts.generationRunId):'null'});`)
 const control=c=>scalar(`select public.read_accounting_refresh_control(${q(c.ownerId)},${q(c.provider)},${q(c.providerOrganisationId)});`)
@@ -61,7 +61,7 @@ check('one-active-job partial index also rejects bypass through direct postgres 
  values(${scope(c)},'manual','manual');`),/accounting_refresh_one_active_job/)
 })
 check('terminal completion permits a new job but an old key remains a read-only replay',()=>{
- const j=running();const c=j.connection;const linked=accept(c,'manual','old-key');assert.equal(linked.job.id,j.id)
+ const j=running('fixture_provider');const c=j.connection;const linked=accept(c,'manual','old-key');assert.equal(linked.job.id,j.id)
  update(j,'complete');const next=accept(c,'manual','new-key').job
  assert.notEqual(next.id,j.id);assert.equal(next.phase,'queued');assert.ok(Date.parse(next.nextEligibleAt)>Date.now()+290000)
  assert.equal(accept(c,'manual','old-key').job.id,j.id);assert.equal(control(c).job.id,next.id)

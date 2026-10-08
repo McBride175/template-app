@@ -25,10 +25,11 @@ function harness(options={}) {
  if(name==='register_accounting_refresh_connection')return {data:{...ref,invalidated:options.invalidated??false},error:null}
  if(name==='accept_accounting_refresh')return {data:{resultCode:'accepted',job:options.job??job},error:null}
  if(name==='read_accounting_refresh_control')return {data:{connection:ref,invalidated:options.invalidated??false,job:options.job??job},error:null}
- if(name==='read_collection_portfolio_calculation') {
+ if(name==='read_accounting_preparation_readiness') {
+ if(options.rpcError==='read_collection_portfolio_calculation')return {data:null,error:{code:'XX000'}}
  const context={generationId:run,financialEpoch:'5',evidenceIdentity:'proof'}
  const head=options.ready?{identity:{...context,evaluationDate:'2026-10-07',...options.head}}:null
- return {data:{context,head},error:null}
+ return {data:{context,evaluationDate:'2026-10-07',ready:!!head&&head.identity.generationId===context.generationId&&head.identity.financialEpoch===context.financialEpoch&&head.identity.evaluationDate==='2026-10-07'&&head.identity.evidenceIdentity===context.evidenceIdentity},error:null}
  }
  throw new Error('unexpected RPC '+name)}}
  const session={auth:{getUser:async()=>({data:{user:options.signedOut?null:{id:options.owner??user}},error:null})}}
@@ -136,9 +137,9 @@ test('epoch and activity wrappers preserve full scope; worker updates use captur
  for(const call of calls){assert.equal(call.args.p_user_id,user);assert.equal(call.args.p_provider,'xero');assert.equal(call.args.p_provider_organisation_id,'tenant-a')}
  assert.equal(calls[0].args.p_expected_epoch,'1');assert.equal(calls[2].args.p_attempt_id,conn);assert.equal(calls[3].args.p_failure_code,'unknown_failure')
 })
-test('Phase 7.3 preserves compatibility triggers, billing, collections and configuration',()=>{
- const base='91f43a732972a3919ea1fe592c882d8605b41da1'
- const adapted=new Set(['app/api/xero/callback/route.ts','lib/xero/accounting.ts','lib/xero/sync.ts','lib/xero/generation-importer.ts','lib/xero/generation-sync.ts','lib/xero/generation-run.ts','lib/xero/promise-reconciliation.ts'])
+test('Phase 7.4 preserves compatibility triggers, billing, collections and configuration',()=>{
+ const base='4d72baa9d25e897622daff04b876d6c9f530d06e'
+ const adapted=new Set()
  const files=execFileSync('git',['ls-tree','-r','--name-only',base],{encoding:'utf8'}).trim().split('\n')
  for(const file of files.filter(f=>f.startsWith('app/')||f.startsWith('lib/xero/')||f.startsWith('lib/collections/')||f.startsWith('lib/billing/')||f==='vercel.json'||f==='proxy.ts')) {
    if(adapted.has(file))continue

@@ -40,6 +40,8 @@ export interface AccountingRefreshJob {
   failedAt: string | null
   attemptNumber: number
   retryCount: number
+  preparationRetryCount?: number
+  completionKind?: 'prepared' | 'superseded' | null
   failureClass: AccountingRefreshFailureClass | null
   failureCode: string | null
   retrySource: AccountingRetrySource
@@ -73,6 +75,9 @@ export interface AccountingRefreshStatus {
   accounting: AccountingAuthority & { ageSeconds: number | null; freshness: AccountingFreshnessBand }
   work: {
     phase: 'idle' | AccountingRefreshPhase
+    stage: 'accounting' | 'derivatives' | null
+    activity: 'idle' | 'refreshing_accounting' | 'preparing_priorities' | 'preparation_retry' | 'preparation_attention' | 'updated' | 'superseded'
+    preparationRetryCount: number
     jobId: string | null
     trigger: AccountingRefreshTrigger | null
     requestedAt: string | null

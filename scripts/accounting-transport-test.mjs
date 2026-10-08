@@ -1,7 +1,7 @@
 // Test-only operator. Credentials stay in environment/stdin/private temp files.
 import {execFileSync} from 'node:child_process'
 import {readFileSync,writeFileSync,existsSync} from 'node:fs'
-import {randomBytes,randomUUID} from 'node:crypto'
+import {createHmac,randomBytes,randomUUID} from 'node:crypto'
 const project='rbmxegyiwntomhpbepnu',temp='/private/tmp/yuohme72-config.json'
 if(readFileSync('supabase/.temp/project-ref','utf8').trim()!==project||new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname!==project+'.supabase.co')throw new Error('Test project preflight failed')
 const url=new URL(readFileSync('supabase/.temp/pooler-url','utf8').trim())
@@ -74,11 +74,13 @@ if(action==='prepare-env'){
  if(!config.url)throw new Error('Exact Preview unavailable')
  const id=process.argv[3]??config.jobs?.at(-1)?.id
  const delivery=json(`select jsonb_build_object('jobId',id,'deliveryId',delivery_id) from public.accounting_refresh_jobs where id=${quote(id)} and user_id=${quote(config.owner)};`)
- const headers={'content-type':'application/json',authorization:'Bearer '+config.secret,'x-accounting-project-ref':project}
+ const signature=payload=>createHmac('sha256',config.secret).update(`${project}:${payload.jobId}:${payload.deliveryId}`).digest('hex')
+ const headers={'content-type':'application/json',authorization:'Bearer '+signature(delivery),'x-accounting-project-ref':project}
+ const invalid={jobId:randomUUID(),deliveryId:randomUUID()}
  const calls=action==='duplicate'?[{method:'POST',headers,body:JSON.stringify(delivery)}]:[
   {method:'GET'}, {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(delivery)},
   {method:'POST',headers:{...headers,authorization:'Bearer wrong'},body:JSON.stringify(delivery)},
-  {method:'POST',headers,body:JSON.stringify({jobId:randomUUID(),deliveryId:randomUUID()})}]
+  {method:'POST',headers:{...headers,authorization:'Bearer '+signature(invalid)},body:JSON.stringify(invalid)}]
  console.log(JSON.stringify(await Promise.all(calls.map(async init=>{const response=await fetch(config.url+'/api/internal/accounting/refresh-worker',init);return {status:response.status,body:await response.json()}}))))
 }else if(action==='cleanup'){
  sql(`delete from auth.users where id=${quote(config.owner)};`)

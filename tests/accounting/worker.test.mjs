@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import {createHmac} from 'node:crypto'
 import {loadTypeScriptModule} from '../xero/test-helpers/ts-module-loader.mjs'
 const {handleAccountingRefreshWorker:handle}=loadTypeScriptModule('lib/accounting/worker-server.ts')
 const {signalAccountingRefresh}=loadTypeScriptModule('lib/accounting/dispatch-server.ts')
@@ -8,7 +9,7 @@ const ref={connectionId:id,ownerId:id,provider:'foundation_certification',provid
 const base={id,connection:ref,phase:'queued',stage:'accounting',trigger:'internal',latestTrigger:'internal',priority:30,requestCount:'1',requestedAt:'2026-10-08T00:00:00Z',lastRequestedAt:'2026-10-08T00:00:00Z',nextEligibleAt:'2026-10-08T00:00:00Z',attemptNumber:0,retryCount:0,deliveryId:token,attemptId:null,workerId:null}
 const project='rbmxegyiwntomhpbepnu',secret='test-only-not-production-'.repeat(3)
 const env={ACCOUNTING_REFRESH_INTERNAL_SECRET:secret,ACCOUNTING_REFRESH_SYNTHETIC_ENABLED:'1',VERCEL_ENV:'preview',NEXT_PUBLIC_SUPABASE_URL:`https://${project}.supabase.co`}
-function request(options={}){return new Request('https://fixture.vercel.app/api/internal/accounting/refresh-worker',{method:options.method??'POST',headers:{authorization:'Bearer '+(options.secret??secret),'content-type':'application/json','x-accounting-project-ref':options.project??project},...(options.method==='GET'?{}:{body:JSON.stringify(options.body??{jobId:id,deliveryId:token})})})}
+function request(options={}){const b=options.body??{jobId:id,deliveryId:token};const mac=createHmac('sha256',options.secret??secret).update(`${options.project??project}:${b.jobId}:${b.deliveryId}`).digest('hex');return new Request('https://fixture.vercel.app/api/internal/accounting/refresh-worker',{method:options.method??'POST',headers:{authorization:'Bearer '+mac,'content-type':'application/json','x-accounting-project-ref':options.project??project},...(options.method==='GET'?{}:{body:JSON.stringify(b)})})}
 function fixture(options={}){let job={...base},active=0,maxActive=0;const calls=[]
  const admin={rpc:async(name,args)=>{calls.push({name,args})
  if(name==='load_accounting_refresh_delivery')return {data:options.missing?null:{projectRef:options.project??project,job:{...job,...options.job},synthetic:{scenario:options.scenario??'complete',delaySeconds:options.delay??0}},error:null}

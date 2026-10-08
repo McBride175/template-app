@@ -1,5 +1,5 @@
 import 'server-only'
-import { randomUUID, timingSafeEqual } from 'node:crypto'
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import { accountingControlRpc, claimAccountingRefreshAttempt, heartbeatAccountingRefreshAttempt, parseAccountingJob, updateAccountingRefreshAttempt, type AccountingControlClient } from './control-server'
 import { planAccountingRetry } from './refresh-policy'
@@ -35,7 +35,7 @@ export async function handleAccountingRefreshWorker(request: Request, dependenci
   const expected = env.ACCOUNTING_REFRESH_INTERNAL_SECRET
   if (!expected || expected.length < 32) return Response.json({ code: 'WORKER_DISABLED' }, { status: 503 })
   const auth = request.headers.get('authorization') ?? ''
-  if (!auth.startsWith('Bearer ') || !sameSecret(auth.slice(7), expected)) {
+  if (!auth.startsWith('Bearer ')) {
     accountingTransportEvent('worker_auth_rejected'); return Response.json({ code: 'UNAUTHORIZED' }, { status: 401 })
   }
   let project: string | null = null
@@ -45,6 +45,10 @@ export async function handleAccountingRefreshWorker(request: Request, dependenci
   }
   const body = await request.json().catch(() => null) as { jobId?: unknown; deliveryId?: unknown } | null
   if (!body || Object.keys(body).length !== 2 || typeof body.jobId !== 'string' || !UUID.test(body.jobId) || typeof body.deliveryId !== 'string' || !UUID.test(body.deliveryId)) return Response.json({ code: 'INVALID_DELIVERY' }, { status: 400 })
+  const signature = createHmac('sha256', expected).update(`${project}:${body.jobId}:${body.deliveryId}`).digest('hex')
+  if (!sameSecret(auth.slice(7), signature)) {
+    accountingTransportEvent('worker_auth_rejected'); return Response.json({ code: 'UNAUTHORIZED' }, { status: 401 })
+  }
   const admin = dependencies.admin ?? createSupabaseAdminClient()
   let delivery: Delivery | null
   try {

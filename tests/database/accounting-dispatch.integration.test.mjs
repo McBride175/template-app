@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test,{before,after,beforeEach} from 'node:test'
 import * as db from './test-helpers/dependency-database-fixture.mjs'
 import {randomUUID} from 'node:crypto'
+import {readFileSync} from 'node:fs'
 const enabled=process.env.RUN_SUPABASE_INTEGRATION==='1',check=(n,f)=>test(n,{skip:!enabled},f),q=db.quote
 const parse=s=>{const r=db.rpc(s);return r?JSON.parse(r):null}
 before(()=>{if(enabled){db.setup();db.psql(`create table public.test_deliveries(id bigint generated always as identity,job uuid,delivery uuid);
@@ -101,4 +102,14 @@ check('idle queries use active-state indexes with substantial terminal history',
  const plan=JSON.parse(db.psql("explain(analyze,format json) select id from public.accounting_refresh_jobs where phase in('running','preparing') and attempt_expires_at>now();"))[0]
  assert.match(JSON.stringify(plan.Plan),/Index/);assert.equal(plan.Plan['Actual Rows'],0)
  assert.equal(dispatch('cron').submitted,0)
+})
+check('post-install hardening closes default net grants without disrupting the dispatcher owner',()=>{
+ db.psql('create schema net;create function net.test_transport() returns boolean language sql as $$select true$$;grant usage on schema net to public,anon,authenticated,service_role;grant execute on function net.test_transport() to public,anon,authenticated,service_role;')
+ const sql=readFileSync(new URL('../../supabase/migrations/20261008082615_accounting_transport_net_privileges.sql',import.meta.url),'utf8')
+ db.psql(sql)
+ for(const role of ['anon','authenticated','service_role']){
+  assert.equal(db.psql(`select has_schema_privilege('${role}','net','usage');`),'f')
+  assert.equal(db.psql(`select has_function_privilege('${role}','net.test_transport()','execute');`),'f')
+ }
+ assert.equal(db.psql('select net.test_transport();'),'t')
 })

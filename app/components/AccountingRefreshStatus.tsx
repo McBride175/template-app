@@ -11,7 +11,7 @@ export default function AccountingRefreshStatus({status,outcome,busy,error,onRef
  return <section aria-label="Accounting status" aria-live="polite" className={`mb-5 rounded-xl border px-4 py-3 ${view.warning?'border-amber-200 bg-amber-50':'border-gray-200 bg-white'}`}>
   <div className="flex flex-wrap items-center justify-between gap-3">
    <p className="text-sm font-medium text-gray-700">{busy?'Requesting refresh…':view.label}</p>
-   {view.reconnect?<a className="text-sm font-semibold text-teal-800 underline" href={reconnectHref}>Reconnect {status.connection.displayName}</a>:<Button variant="secondary" size="sm" disabled={busy||accountingWorkActive(status)} onClick={onRefresh}>{accountingWorkActive(status)?'Refreshing…':'Refresh'}</Button>}
+   {view.reconnect?<a className="text-sm font-semibold text-teal-800 underline" href={reconnectHref}>Reconnect {status.connection.displayName}</a>:<Button variant="secondary" size="sm" disabled={busy} onClick={onRefresh}>{accountingWorkActive(status)?'Refreshing…':'Refresh'}</Button>}
   </div>
   {view.message && <p className="mt-2 text-sm text-gray-600">{view.message}</p>}
   {view.retryAt && <p className="mt-1 text-sm text-gray-600">Next retry: {new Date(view.retryAt).toLocaleTimeString()}</p>}

@@ -39,7 +39,7 @@ export function useAccountingRefresh(organisation?: string | null) {
     if(!response.ok || !payload.ok)throw new Error('Could not check accounting status.')
     if(held.controller.signal.aborted || requestSequence!==sequence)return
     const next=payload.status as ProductAccountingStatus
-    console.info('[accounting.refresh.client]',{event:'status_observed',phase:next.work.phase,freshness:next.accounting.freshness,durationMs:Math.round(performance.now()-observedAt)})
+    console.info('[accounting.refresh.client]',JSON.stringify({event:'status_observed',phase:next.work.phase,freshness:next.accounting.freshness,durationMs:Math.round(performance.now()-observedAt)}))
     const generation=next.accounting.activeGenerationId
     if(next.work.phase==='complete' && held.generation && generation!==held.generation)window.dispatchEvent(new Event('accounting-updated'))
     if(!held.generation || next.work.phase==='complete')held.generation=generation
@@ -60,7 +60,7 @@ export function useAccountingRefresh(organisation?: string | null) {
   try {
    const acceptedAt=performance.now()
    const result=await postAccountingRefresh(trigger,organisation,surface,crypto.randomUUID())
-   console.info('[accounting.refresh.client]',{event:'accepted',trigger,outcome:result.outcome,jobId:result.jobId,durationMs:Math.round(performance.now()-acceptedAt)})
+   console.info('[accounting.refresh.client]',JSON.stringify({event:'accepted',trigger,outcome:result.outcome,jobId:result.jobId,durationMs:Math.round(performance.now()-acceptedAt)}))
    if(held!==live.current || held?.controller.signal.aborted)return null
    setOutcome(result)
    if(['queued','running','preparing','retry_wait'].includes(result.phase))setStatus(current=>current?{...current,work:{...current.work,phase:result.phase,jobId:result.jobId,stage:result.phase==='preparing'?'derivatives':result.outcome==='started'?'accounting':current.work.stage}}:current)

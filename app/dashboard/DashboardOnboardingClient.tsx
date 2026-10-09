@@ -55,7 +55,7 @@ export default function DashboardOnboardingClient() {
       if (!shouldApplyDashboardResponse(latestStamp.current, stamp)) return null
       latestStamp.current = stamp
       setBootstrap(payload)
-      requestAnimationFrame(() => console.info('[accounting.refresh.client]',{event:'dashboard_content',durationMs:Math.round(performance.now()-contentStartedAt)}))
+      requestAnimationFrame(() => console.info('[accounting.refresh.client]',JSON.stringify({event:'dashboard_content',durationMs:Math.round(performance.now()-contentStartedAt)})))
       setXeroStatus(payload.status)
       setXeroStatusError(payload.statusError)
       return payload

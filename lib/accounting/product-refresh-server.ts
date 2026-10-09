@@ -19,12 +19,18 @@ export async function resolveProductAccountingSelection(admin: AccountingControl
   if (!selection.providerOrganisationId.trim() || selection.providerOrganisationId !== selection.providerOrganisationId.trim() || selection.providerOrganisationId.length>500) throw new AccountingControlError('invalid_input')
   return { provider, providerOrganisationId: selection.providerOrganisationId }
  }
+ // Historical disconnected scopes must not make one active organisation
+ // ambiguous. Multiple active organisations still require explicit selection.
+ const { data: active, error: activeError } = await admin.from('xero_connections_public').select('tenant_id')
+  .eq('user_id', owner).eq('auth_state','active').limit(2)
+ if(activeError)throw new AccountingControlError('unavailable')
+ if(active?.length===1)return {provider,providerOrganisationId:active[0].tenant_id as string}
+ if(active && active.length>1)throw new AccountingControlError('conflict')
  const { data, error } = await admin.from('xero_connections_public').select('tenant_id').eq('user_id', owner).limit(2)
- if (error) throw new AccountingControlError('unavailable')
- if (!data?.length) throw new AccountingControlError('not_found')
- // Never silently reinterpret an ambiguous accounting scope.
- if (data.length !== 1) throw new AccountingControlError('conflict')
- return { provider, providerOrganisationId: data[0].tenant_id as string }
+ if(error)throw new AccountingControlError('unavailable')
+ if(!data?.length)throw new AccountingControlError('not_found')
+ if(data.length!==1)throw new AccountingControlError('conflict')
+ return {provider,providerOrganisationId:data[0].tenant_id as string}
 }
 /** Server-only callback/selection seam. Owner comes from verified getUser(),
  * never from browser payload. No billing, provider or materialization work. */

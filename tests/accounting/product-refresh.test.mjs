@@ -87,3 +87,19 @@ test('fresh, materially stale and reconnect UI use the same status component wit
   if(health==='reconnect_required')assert.match(html,/Reconnect Xero/)
  }
 })
+test('default scope selects one owned active organisation; disconnected history is retained without creating ambiguity',async()=>{
+ const h=service(),calls=[],rows=[{tenant_id:'org',auth_state:'active'},{tenant_id:'old-a',auth_state:'disconnected'},{tenant_id:'old-b',auth_state:'disconnected'}]
+ const admin={from(){let state;return {select(){return this},eq(k,v){calls.push([k,v]);if(k==='auth_state')state=v;return this},limit:async n=>({data:rows.filter(r=>!state||r.auth_state===state).slice(0,n),error:null})}}}
+ assert.deepEqual(await h.api.resolveProductAccountingSelection(admin,scope.ownerId,{}),{provider:'xero',providerOrganisationId:'org'})
+ assert.ok(calls.some(([k,v])=>k==='user_id'&&v===scope.ownerId));assert.ok(calls.some(([k,v])=>k==='auth_state'&&v==='active'))
+ rows.push({tenant_id:'other-active',auth_state:'active'})
+ await assert.rejects(h.api.resolveProductAccountingSelection(admin,scope.ownerId,{}),e=>e.code==='conflict')
+ assert.deepEqual(await h.api.resolveProductAccountingSelection(admin,scope.ownerId,{providerOrganisationId:'org'}),{provider:'xero',providerOrganisationId:'org'})
+})
+test('Refresh can join queued/running/preparing work; only the acceptance request disables the control',async()=>{
+ const React=await import('react'),{renderToStaticMarkup}=await import('react-dom/server'),{default:Component}=loadTypeScriptModule('app/components/AccountingRefreshStatus.tsx')
+ for(const phase of ['queued','running','preparing'])for(const busy of [false,true]){
+  const html=renderToStaticMarkup(React.createElement(Component,{status:domain.productAccountingStatus(status(phase)),busy,error:null,onRefresh(){},onCheck(){},returnTo:'/account'}))
+  assert.equal(html.includes('disabled=""'),busy)
+ }
+})

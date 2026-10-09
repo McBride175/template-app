@@ -35,6 +35,10 @@ G/F/date/version/evidence based. Existing lazy product ensures remain unchanged.
 Acceptance commits before best-effort immediate dispatch; Cron recovers a missed
 signal. There is no provider wait in product POST. Status derives connection health,
 control work, authoritative generation/observation and computed derivative readiness.
+Default scope resolves a unique owned active connection; disconnected history is
+retained separately. Multiple active organisations require selection. Account also
+publishes its owned selected scope to the shared status observer.
+
 Public responses omit owner, epoch, attempts, worker identities and leases. Clients
 cannot supply job, generation, worker mode, authority or owner.
 

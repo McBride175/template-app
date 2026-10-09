@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { notifyAccountingScope } from '@/lib/accounting/product-events'
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Card from '@/app/components/ui/Card'
@@ -136,6 +137,7 @@ export default function AccountPage() {
       setXeroStatus(xero)
       setXeroLastSyncedAt(xero.lastSyncedAt)
       setSelectedTenantId(xero.tenantId ?? null)
+      notifyAccountingScope(xero.tenantId)
       setXeroStatusError(null)
     } catch {
       setXeroStatusError(XERO_STATUS_UNAVAILABLE_MESSAGE)

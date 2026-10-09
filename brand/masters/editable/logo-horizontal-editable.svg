@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="292" height="90" viewBox="0 0 292 90" version="1.1" id="H3">
+  <title>Yuohme horizontal — APPROVED FINAL</title>
+  <desc>APPROVED FINAL on 2026-10-09. Exact H3 fourth-option bespoke lowercase yuohme geometry.</desc>
+  <g id="logo-horizontal">
+    <path id="letter-1-y-custom" aria-label="y" fill="#171A1C" transform="translate(11.25 22.94)" d="M 0,0 H 10.5 V 22.5 C 10.5,27.5 13.1,30.1 18,30.1 C 22.9,30.1 25.5,27.5 25.5,22.5 V 0 H 36 V 43.5 C 36,51.5 32.1,55.5 24.3,55.5 H 0 V 45.3 H 23 C 24.8,45.3 25.5,44.3 25.5,42.2 V 33.3 C 23.1,36.7 19.7,39.06 15.1,39.06 C 5.7,39.06 0,32.5 0,22.5 Z" />
+    <text id="letter-2-u" aria-label="u" fill="#171A1C" transform="translate(47.193000000 62) scale(0.717500000 0.7)" x="0" y="0" font-family="Plus Jakarta Sans" font-weight="800" font-size="100">u</text>
+    <text id="letter-3-o" aria-label="o" fill="#0F6B5D" transform="translate(86.557250000 62) scale(0.717500000 0.7)" x="0" y="0" font-family="Plus Jakarta Sans" font-weight="800" font-size="100">o</text>
+    <text id="letter-4-h" aria-label="h" fill="#0F6B5D" transform="translate(129.603750000 62) scale(0.717500000 0.7)" x="0" y="0" font-family="Plus Jakarta Sans" font-weight="800" font-size="100">h</text>
+    <text id="letter-5-m" aria-label="m" fill="#171A1C" transform="translate(168.577000000 62) scale(0.686000000 0.7)" x="0" y="0" font-family="Plus Jakarta Sans" font-weight="800" font-size="100">m</text>
+    <text id="letter-6-e" aria-label="e" fill="#171A1C" transform="translate(229.482250000 62) scale(0.717500000 0.7)" x="0" y="0" font-family="Plus Jakarta Sans" font-weight="800" font-size="100">e</text>
+  </g>
+</svg>

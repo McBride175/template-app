@@ -1,0 +1,17 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="146.329153686" height="146" viewBox="0 0 146.329153686 146" version="1.1" id="yuohme-diagonal-centred-me">
+  <title id="title1">Yuohme stacked — APPROVED FINAL</title>
+  <desc id="desc1">APPROVED FINAL on 2026-10-09. Exact right-hand centred-me v15 geometry.</desc>
+  <g id="logo-stacked">
+    <g id="row-yu" transform="translate(10 9.872) scale(1.070223260644) translate(-12 -9.872)">
+      <path id="letter-1-y-custom" aria-label="y" fill="#171A1C" d="M 10.5,9.872 H 21.3 V 22.8 C 21.3,28.5 24.2,31.3 29.4,31.3 C 34.5,31.3 37.3,28.5 37.3,22.8 V 9.872 H 48.1 V 75.234690115 C 48.1,84.134690115 43.5,88.134690115 35.7,88.134690115 H 10.5 V 78.034690115 H 34.1 C 36.4,78.034690115 37.3,76.734690115 37.3,74.134690115 V 37.2 C 34.8,40.4 31,42 26.6,42 C 16.6,42 10.5,35.2 10.5,23.8 Z" transform="translate(1.5 0)" />
+      <text id="letter-2-u" aria-label="u" fill="#171A1C" transform="translate(49.828480 47) scale(0.720800 0.680000)" x="0" y="0" font-family="Plus Jakarta Sans" font-weight="800" font-size="100">u</text>
+    </g>
+    <text id="letter-3-o" aria-label="o" fill="#0F6B5D" transform="translate(51.511403686 93.630551402) scale(0.717500 0.700000)" x="0" y="0" font-family="Plus Jakarta Sans" font-weight="800" font-size="100">o</text>
+    <path id="letter-4-h" aria-label="h" fill="#0F6B5D" transform="translate(94.759653686 93.630551402) scale(0.749000 0.700000)" d="m 5.5,0 v -119.655073431 h 15 V -49.5 q 2.3,-3.2 6,-4.7 3.7,-1.6 8.3,-1.6 6.2,0 10.8,2.6 4.7,2.6 7.3,7.3 2.6,4.6 2.6,10.8 V 0 h -15 v -31.9 q 0,-4.7 -2.8,-7.5 -2.8,-2.9 -7.2,-2.9 -4.4,0 -7.2,2.9 -2.8,2.8 -2.8,7.5 V 0 Z" />
+    <g id="row-me-restored" aria-label="me" transform="translate(13.450639343000 -13.293120298131)">
+      <text id="letter-5-m" aria-label="m" fill="#171A1C" transform="translate(7.167600 148.4) scale(0.696800 0.670000)" x="0" y="0" font-family="Plus Jakarta Sans" font-weight="800" font-size="100">m</text>
+      <text id="letter-6-e" aria-label="e" fill="#171A1C" transform="translate(68.733725 148.4) scale(0.686750 0.670000)" x="0" y="0" font-family="Plus Jakarta Sans" font-weight="800" font-size="100">e</text>
+    </g>
+  </g>
+</svg>

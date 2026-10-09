@@ -1,0 +1,281 @@
+{
+  "date": "2026-10-09",
+  "status": "APPROVED FINAL \u2014 all eight variants and retained derivatives",
+  "authoritative_asset_usage": "brand/docs/usage-guide.md",
+  "standalone_comprehensive_v1_reconciliation": "Open: specification not located; implemented/recovered v1 foundations checked without creating a substitute specification.",
+  "archive_record": "brand/sources/provenance.json",
+  "cleanup": {
+    "before_files": 119,
+    "before_bytes": 5337669,
+    "after_files": 31,
+    "after_bytes": 1011308,
+    "web_pngs_before": 44,
+    "web_pngs_after": 6,
+    "original_files_archived_externally": 91,
+    "original_files_relocated": 3,
+    "original_files_retained": 25
+  },
+  "intentional_duplicate_pairs": [
+    [
+      "brand/masters/outlined/logo-stacked-outlined.svg",
+      "public/brand/logo-stacked.svg"
+    ],
+    [
+      "brand/masters/outlined/logo-horizontal-outlined.svg",
+      "public/brand/logo-horizontal.svg"
+    ]
+  ],
+  "files": [
+    {
+      "path": "brand/README.md",
+      "category": "documentation",
+      "intended_use": "Canonical index/usage guidance/Phase 1 closeout",
+      "bytes": 4974,
+      "sha256": "06e6a6f17b1a7b157008c2d0734f0b2af8e6bcea675e087fc6a5584502cd83b7"
+    },
+    {
+      "path": "brand/docs/phase1-consolidation.md",
+      "category": "documentation",
+      "intended_use": "Canonical index/usage guidance/Phase 1 closeout",
+      "bytes": 8228,
+      "sha256": "81c306a824e41ee49f7df907264f34b211bd415110c089c7497b2b79ea48a5dc"
+    },
+    {
+      "path": "brand/docs/usage-guide.md",
+      "category": "documentation",
+      "intended_use": "Canonical index/usage guidance/Phase 1 closeout",
+      "bytes": 7020,
+      "sha256": "6feda45ddaf10c333b7eb4feae33b8fee2637f5fd59188a85dbc223231ff90fc"
+    },
+    {
+      "path": "brand/fonts/OFL.txt",
+      "category": "font/licensing",
+      "intended_use": "SIL Open Font License compliance",
+      "bytes": 4402,
+      "sha256": "995c7199cab65954f545996326755daee7b63cc6b42b06c13da1f9502ab08a99"
+    },
+    {
+      "path": "brand/fonts/PlusJakartaSans-ExtraBold.ttf",
+      "category": "font/licensing",
+      "intended_use": "Exact logo editing font",
+      "bytes": 128888,
+      "sha256": "7d60d21b5dec501c77437e80aabd539f1d7a7b0ac7d4ada361d4d42abc7c55ea"
+    },
+    {
+      "path": "brand/masters/editable/logo-horizontal-editable.svg",
+      "category": "canonical editable master",
+      "intended_use": "Live glyph editing; requires bundled ExtraBold font",
+      "bytes": 1722,
+      "sha256": "f89e7f3bee3c081e85e5cc6e43ccb045b54452e97a8d88e8be053cc2a7aa88c5"
+    },
+    {
+      "path": "brand/masters/editable/logo-stacked-editable.svg",
+      "category": "canonical editable master",
+      "intended_use": "Live glyph editing; requires bundled ExtraBold font",
+      "bytes": 2230,
+      "sha256": "c3832aa0962699aeec4ee63b10fc49b7460bd0933893eee747180daff736eab1"
+    },
+    {
+      "path": "brand/masters/outlined/logo-horizontal-outlined.svg",
+      "category": "canonical outlined master",
+      "intended_use": "Definitive font-independent production source",
+      "bytes": 2896,
+      "sha256": "04f9f67c324a5408561e8eb3b94db94b770ba943a5df8c349c47c6e8c99d421c"
+    },
+    {
+      "path": "brand/masters/outlined/logo-stacked-outlined.svg",
+      "category": "canonical outlined master",
+      "intended_use": "Definitive font-independent production source",
+      "bytes": 3252,
+      "sha256": "f6f9f2fd3a55b804b109de91ae8a621d57255a642018dcef34a33938d97af43a"
+    },
+    {
+      "path": "brand/review/approved-assets-native.png",
+      "category": "approval/usage evidence",
+      "intended_use": "All approved variants and native-size check",
+      "bytes": 164170,
+      "sha256": "868fa317cf98aba3bbd1cf8fa261d4dfc074d18d209da15c475f4d8a38613d52",
+      "pixels": [
+        1040,
+        1220
+      ]
+    },
+    {
+      "path": "brand/review/horizontal-approved-comparison.png",
+      "category": "approval/usage evidence",
+      "intended_use": "Exact source selection evidence; right-hand stack/fourth H3 row",
+      "bytes": 322078,
+      "sha256": "5c2032256ed77ac3e53ce4b7a08ce287c506c4c199fe46d8e0cc97da5b533f51",
+      "pixels": [
+        1440,
+        1500
+      ]
+    },
+    {
+      "path": "brand/review/stacked-approved-comparison.png",
+      "category": "approval/usage evidence",
+      "intended_use": "Exact source selection evidence; right-hand stack/fourth H3 row",
+      "bytes": 108999,
+      "sha256": "84574cb77df86f51d03da2172018e3b5c23fbfa857b009537db83441544e4336",
+      "pixels": [
+        2200,
+        1080
+      ]
+    },
+    {
+      "path": "brand/scripts/validate.py",
+      "category": "focused validator",
+      "intended_use": "Portable validation only; no regeneration or app integration",
+      "bytes": 6480,
+      "sha256": "7ffa703378c90619e3f632e36ed9245cbf9f4dba7b189dcbde2bf07343324f95"
+    },
+    {
+      "path": "brand/sources/original-brand-specification.jpg",
+      "category": "essential source record",
+      "intended_use": "Original source/provenance evidence; historical geometry labels are superseded",
+      "bytes": 126065,
+      "sha256": "8f7b932e2bf1966de1ebb57700f5b8a4bc2a7be71156a532eb0ce07c03ef74c6"
+    },
+    {
+      "path": "brand/sources/provenance.json",
+      "category": "essential source record",
+      "intended_use": "Original source/provenance evidence; historical geometry labels are superseded",
+      "bytes": 15712,
+      "sha256": "cd1739293cbf73eef9d290df97e8c44c598c9d77a194b2713b3a17a5e18d922a"
+    },
+    {
+      "path": "public/brand/icons/favicon-yo.ico",
+      "category": "production compatibility icon",
+      "intended_use": "Native multi-resolution favicon; activation deferred",
+      "bytes": 15825,
+      "sha256": "589019fc45888ec371cda847d423ff8b01b5a91c16a33c8af300740cf2f387fd"
+    },
+    {
+      "path": "public/brand/icons/logo-square-180.png",
+      "category": "production compatibility raster",
+      "intended_use": "Touch/app/social icon",
+      "bytes": 7232,
+      "sha256": "7142b22333788f020159b04ea71bdc7c1e746d6b0358e3a464cd9453796d8e43",
+      "pixels": [
+        180,
+        180
+      ]
+    },
+    {
+      "path": "public/brand/icons/logo-square-192.png",
+      "category": "production compatibility raster",
+      "intended_use": "Touch/app/social icon",
+      "bytes": 7688,
+      "sha256": "6b21679e9555e3cf2466e73c4f2b0703e56cae0e31ea24c72da4c1f9433fb787",
+      "pixels": [
+        192,
+        192
+      ]
+    },
+    {
+      "path": "public/brand/icons/logo-square-512.png",
+      "category": "production compatibility raster",
+      "intended_use": "Touch/app/social icon",
+      "bytes": 21882,
+      "sha256": "dde885cd39c2b176f6309527c542476cbda65e6b81890611e5ab4b62fb1385c5",
+      "pixels": [
+        512,
+        512
+      ]
+    },
+    {
+      "path": "public/brand/icons/mark-yo-32.png",
+      "category": "production compatibility raster",
+      "intended_use": "PNG favicon compatibility",
+      "bytes": 1021,
+      "sha256": "766f76405c07e70bcc292d2d29d0181ac4645f63082718e22b94a5ced7d15cee",
+      "pixels": [
+        32,
+        32
+      ]
+    },
+    {
+      "path": "public/brand/logo-horizontal-monochrome.svg",
+      "category": "production SVG",
+      "intended_use": "Approved principal/logo/icon variant; future website delivery",
+      "bytes": 2958,
+      "sha256": "81af56beaa23d9f8e1a8311957436909306a3a9237bf40e2ce6ea9ff855ee17a"
+    },
+    {
+      "path": "public/brand/logo-horizontal-white.svg",
+      "category": "production SVG",
+      "intended_use": "Approved principal/logo/icon variant; future website delivery",
+      "bytes": 2953,
+      "sha256": "332fd5d6134337e635e97bae2f5934fd6c6cf94b0ea3b09057451e468c136b6a"
+    },
+    {
+      "path": "public/brand/logo-horizontal.svg",
+      "category": "production SVG",
+      "intended_use": "Approved principal/logo/icon variant; future website delivery",
+      "bytes": 2896,
+      "sha256": "04f9f67c324a5408561e8eb3b94db94b770ba943a5df8c349c47c6e8c99d421c"
+    },
+    {
+      "path": "public/brand/logo-square.svg",
+      "category": "production SVG",
+      "intended_use": "Approved principal/logo/icon variant; future website delivery",
+      "bytes": 3548,
+      "sha256": "b4cda8cee474fcc669784224632726d6a993a462c7f3b8435a8fcc961f0fcf0f"
+    },
+    {
+      "path": "public/brand/logo-stacked-monochrome.svg",
+      "category": "production SVG",
+      "intended_use": "Approved principal/logo/icon variant; future website delivery",
+      "bytes": 3314,
+      "sha256": "172ed22631db5178eb25646e7de5089d996a98d9ce15b7d46a4b20558e99dc2f"
+    },
+    {
+      "path": "public/brand/logo-stacked-white.svg",
+      "category": "production SVG",
+      "intended_use": "Approved principal/logo/icon variant; future website delivery",
+      "bytes": 3309,
+      "sha256": "80ef38c31ff9ab1a96f1a054b65a8a209784598cdfe9917d580e75a49cd46276"
+    },
+    {
+      "path": "public/brand/logo-stacked.svg",
+      "category": "production SVG",
+      "intended_use": "Approved principal/logo/icon variant; future website delivery",
+      "bytes": 3252,
+      "sha256": "f6f9f2fd3a55b804b109de91ae8a621d57255a642018dcef34a33938d97af43a"
+    },
+    {
+      "path": "public/brand/mark-yo.svg",
+      "category": "production SVG",
+      "intended_use": "Approved principal/logo/icon variant; future website delivery",
+      "bytes": 1618,
+      "sha256": "6ed8ad2ec37c0cf36df663bb6121039fb246e401589bbf5bdccf18a5ae5fbc9d"
+    },
+    {
+      "path": "public/brand/png/logo-horizontal-512.png",
+      "category": "production compatibility raster",
+      "intended_use": "Email/raster-only wordmark, light backgrounds",
+      "bytes": 9682,
+      "sha256": "0f42c85affd6d45547d6f2da51fc53d312a4d8f8fca5e29574e98456caa7c4d9",
+      "pixels": [
+        512,
+        158
+      ]
+    },
+    {
+      "path": "public/brand/png/logo-horizontal-white-512.png",
+      "category": "production compatibility raster",
+      "intended_use": "Email/raster-only wordmark, dark backgrounds",
+      "bytes": 6686,
+      "sha256": "387ff1d6dbd4e126a33a53041863fbce42eece4833f0d39ecddc40eb1126fe13",
+      "pixels": [
+        512,
+        158
+      ]
+    },
+    {
+      "path": "brand/asset-manifest.json",
+      "category": "documentation",
+      "intended_use": "Canonical inventory; self hash omitted to avoid recursion"
+    }
+  ]
+}

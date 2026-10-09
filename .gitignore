@@ -43,3 +43,10 @@ next-env.d.ts
 
 # Supabase local CLI link/runtime metadata
 supabase/.temp/
+
+# Brand packaging and diagnostic outputs are preserved outside the tracked pack.
+/brand/packages/
+/brand/qa/
+/brand/review/*-editable.svg
+/public/brand/**/*-4096.png
+/public/brand/**/*-2048.png

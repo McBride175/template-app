@@ -1,0 +1,226 @@
+{
+  "approval_date": "2026-10-09",
+  "approval_authority": "User explicitly approved right-hand centred-me v15 stacked design and fourth H3 bespoke lowercase design in this packaging request.",
+  "historical_labels": "Original candidate/exploration and H2 recommendation text is historical evidence, superseded by this explicit final selection.",
+  "stacked_reference_in_horizontal_studies_byte_identical": true,
+  "files": [
+    {
+      "original": "/Users/admin/.codex/visualizations/2026/10/09/01a1206d-11eb-7153-9ead-084109017d0f/yuohme-logo-reconstruction/diagonal-centred-me-v15/masters/yuohme-centred-me-editable.svg",
+      "sha256": "5c829c88058e5705d39b777394cc0b5f55690aeec708216a8fd9d281518e61c6",
+      "approved_pack_path": "brand/sources/stacked-v15/yuohme-centred-me-editable.svg",
+      "external_archive_copy": "snapshot/brand/sources/stacked-v15/yuohme-centred-me-editable.svg"
+    },
+    {
+      "original": "/Users/admin/.codex/visualizations/2026/10/09/01a1206d-11eb-7153-9ead-084109017d0f/yuohme-logo-reconstruction/diagonal-centred-me-v15/yuohme-centred-me-outlined.svg",
+      "sha256": "b0bd815bb0a6643f2cb1f66873c3a72c4679eb4199c92d6921e5098ab14a05e7",
+      "approved_pack_path": "brand/sources/stacked-v15/yuohme-centred-me-outlined.svg",
+      "external_archive_copy": "snapshot/brand/sources/stacked-v15/yuohme-centred-me-outlined.svg"
+    },
+    {
+      "original": "/Users/admin/.codex/visualizations/2026/10/09/01a1206d-11eb-7153-9ead-084109017d0f/yuohme-logo-reconstruction/diagonal-centred-me-v15/centering-note.md",
+      "sha256": "257abfa0ce1d9cd40f63c8da34223828b9f1c824e4e6a15eac192d665ec09f47",
+      "approved_pack_path": "brand/sources/stacked-v15/centering-note.md",
+      "external_archive_copy": "snapshot/brand/sources/stacked-v15/centering-note.md"
+    },
+    {
+      "original": "/Users/admin/.codex/visualizations/2026/10/09/01a1206d-11eb-7153-9ead-084109017d0f/yuohme-logo-reconstruction/diagonal-centred-me-v15/scripts/build.py",
+      "sha256": "4d140a08ea350b1c580220da4643bad7d9fe9a1fe7bfb3e28454b717c4c87ab4",
+      "approved_pack_path": "brand/sources/stacked-v15/original-build.py",
+      "external_archive_copy": "snapshot/brand/sources/stacked-v15/original-build.py"
+    },
+    {
+      "original": "/Users/admin/.codex/visualizations/2026/10/09/01a1206d-11eb-7153-9ead-084109017d0f/yuohme-logo-reconstruction/diagonal-centred-me-v15/scripts/sheets.py",
+      "sha256": "04615b7af572194a6fa4236c9a0d22d081b809ad38dd32db24411ce94d541f7f",
+      "approved_pack_path": "brand/sources/stacked-v15/original-sheets.py",
+      "external_archive_copy": "snapshot/brand/sources/stacked-v15/original-sheets.py"
+    },
+    {
+      "original": "/Users/admin/.codex/visualizations/2026/10/09/01a1206d-11eb-7153-9ead-084109017d0f/yuohme-logo-reconstruction/diagonal-centred-me-v15/yuohme-centred-me-comparison.png",
+      "sha256": "84574cb77df86f51d03da2172018e3b5c23fbfa857b009537db83441544e4336",
+      "approved_pack_path": "brand/sources/references/stacked-final-comparison.png",
+      "current_path": "brand/review/stacked-approved-comparison.png"
+    },
+    {
+      "original": "/Users/admin/.codex/visualizations/2026/10/09/01a1206d-11eb-7153-9ead-084109017d0f/yuohme-logo-reconstruction/analysis/reference.jpg",
+      "sha256": "8f7b932e2bf1966de1ebb57700f5b8a4bc2a7be71156a532eb0ce07c03ef74c6",
+      "approved_pack_path": "brand/sources/references/original-brand-specification.jpg",
+      "current_path": "brand/sources/original-brand-specification.jpg"
+    },
+    {
+      "original": "/Users/admin/.codex/visualizations/2026/10/09/01a1221d-a3ca-7cf1-9b37-5e839ad29db4/yuohme-horizontal-studies/masters/H3-editable.svg",
+      "sha256": "757885a8a6f75b9264125f04a166837f9ceab73417e936e602fb4abb05eedf15",
+      "approved_pack_path": "brand/sources/horizontal-H3/H3-editable.svg",
+      "external_archive_copy": "snapshot/brand/sources/horizontal-H3/H3-editable.svg"
+    },
+    {
+      "original": "/Users/admin/.codex/visualizations/2026/10/09/01a1221d-a3ca-7cf1-9b37-5e839ad29db4/yuohme-horizontal-studies/studies/H3-outlined.svg",
+      "sha256": "ef278c98e884a45987b588906f4b3a7adfdebceebf978c49abce18a1716117bc",
+      "approved_pack_path": "brand/sources/horizontal-H3/H3-outlined.svg",
+      "external_archive_copy": "snapshot/brand/sources/horizontal-H3/H3-outlined.svg"
+    },
+    {
+      "original": "/Users/admin/.codex/visualizations/2026/10/09/01a1221d-a3ca-7cf1-9b37-5e839ad29db4/yuohme-horizontal-studies/assessment.md",
+      "sha256": "e3999235cea825b4b25a604a93f1275f9ceba9c176af976cbbff36e7af3aeb74",
+      "approved_pack_path": "brand/sources/horizontal-H3/assessment.md",
+      "external_archive_copy": "snapshot/brand/sources/horizontal-H3/assessment.md"
+    },
+    {
+      "original": "/Users/admin/.codex/visualizations/2026/10/09/01a1221d-a3ca-7cf1-9b37-5e839ad29db4/yuohme-horizontal-studies/scripts/build.py",
+      "sha256": "6d1af0d6db1a062dbae3cb4a40c29619283e2a48d00920ce1f446ce42fe9e9cd",
+      "approved_pack_path": "brand/sources/horizontal-H3/original-build.py",
+      "external_archive_copy": "snapshot/brand/sources/horizontal-H3/original-build.py"
+    },
+    {
+      "original": "/Users/admin/.codex/visualizations/2026/10/09/01a1221d-a3ca-7cf1-9b37-5e839ad29db4/yuohme-horizontal-studies/scripts/sheets.py",
+      "sha256": "f6fafd235975ed8d45f15de159ccd85c61ad54938951bc18b0203a462117f255",
+      "approved_pack_path": "brand/sources/horizontal-H3/original-sheets.py",
+      "external_archive_copy": "snapshot/brand/sources/horizontal-H3/original-sheets.py"
+    },
+    {
+      "original": "/Users/admin/.codex/visualizations/2026/10/09/01a1221d-a3ca-7cf1-9b37-5e839ad29db4/yuohme-horizontal-studies/qa/construction.json",
+      "sha256": "316c4f96b1a79a4985a38c9ea1e6310e39a6bab5256b3a80ed607971cd63a47d",
+      "approved_pack_path": "brand/sources/horizontal-H3/construction.json",
+      "external_archive_copy": "snapshot/brand/sources/horizontal-H3/construction.json"
+    },
+    {
+      "original": "/Users/admin/.codex/visualizations/2026/10/09/01a1221d-a3ca-7cf1-9b37-5e839ad29db4/yuohme-horizontal-studies/review/comparison.png",
+      "sha256": "5c2032256ed77ac3e53ce4b7a08ce287c506c4c199fe46d8e0cc97da5b533f51",
+      "approved_pack_path": "brand/sources/references/horizontal-four-directions.png",
+      "current_path": "brand/review/horizontal-approved-comparison.png"
+    },
+    {
+      "original": "/Users/admin/.codex/visualizations/2026/10/09/01a1221d-a3ca-7cf1-9b37-5e839ad29db4/yuohme-horizontal-studies/fonts/PlusJakartaSans-ExtraBold.ttf",
+      "sha256": "7d60d21b5dec501c77437e80aabd539f1d7a7b0ac7d4ada361d4d42abc7c55ea",
+      "approved_pack_path": "brand/fonts/PlusJakartaSans-ExtraBold.ttf",
+      "current_path": "brand/fonts/PlusJakartaSans-ExtraBold.ttf"
+    },
+    {
+      "original": "/Users/admin/.codex/visualizations/2026/10/09/01a1221d-a3ca-7cf1-9b37-5e839ad29db4/yuohme-horizontal-studies/fonts/OFL.txt",
+      "sha256": "995c7199cab65954f545996326755daee7b63cc6b42b06c13da1f9502ab08a99",
+      "approved_pack_path": "brand/fonts/OFL.txt",
+      "current_path": "brand/fonts/OFL.txt"
+    },
+    {
+      "original": "/Users/admin/.codex/visualizations/2026/10/09/01a1206d-11eb-7153-9ead-084109017d0f/yuohme-logo-reconstruction/production-notes.md",
+      "sha256": "f366aee7730d993bc6d8362c74b013972f2592305b289c476f5aef8081d14c93",
+      "approved_pack_path": "brand/sources/typography-origin-notes.md",
+      "external_archive_copy": "snapshot/brand/sources/typography-origin-notes.md"
+    }
+  ],
+  "phase1_approval": {
+    "date": "2026-10-09",
+    "authority": "User Phase 1 instruction explicitly fully approves all eight SVG variants, square icon, yo micro-mark and favicon derivatives.",
+    "status": "APPROVED FINAL",
+    "metadata_only_updates": [
+      "public/brand/logo-square.svg",
+      "public/brand/mark-yo.svg"
+    ]
+  },
+  "archive": {
+    "location": "/Users/admin/.codex/visualizations/2026/10/09/01a1226e-541c-7c20-a789-88721f8de175/yuohme-phase1-archive",
+    "snapshot_directory": "snapshot/",
+    "original_pack": "snapshot/brand/packages/yuohme-brand-pack-2026-10-09.zip",
+    "original_pack_sha256": "5ee61a299c375386523f037849aa6419546f8a5cfab56f4aa1acd369828280f9",
+    "inventory": "before.json",
+    "per_file_disposition": "disposition.json",
+    "purpose": "Complete pre-cleanup pack preserved outside Git, including all original provenance and source copies. Historical paths are evidence only; canonical files do not depend on this archive."
+  },
+  "approved_geometry": {
+    "brand/masters/editable/logo-stacked-editable.svg": {
+      "approved_pack_sha256": "c3832aa0962699aeec4ee63b10fc49b7460bd0933893eee747180daff736eab1",
+      "geometry_sha256": "9cfbbab8ec235c2cbec73e62bd44e3f343e12af9b5b672137a5d18dccc75a3e2",
+      "geometry_signature": "SVG tree including all non-metadata attributes, group structure, glyph text/path data; only title/desc omitted."
+    },
+    "brand/masters/editable/logo-horizontal-editable.svg": {
+      "approved_pack_sha256": "f89e7f3bee3c081e85e5cc6e43ccb045b54452e97a8d88e8be053cc2a7aa88c5",
+      "geometry_sha256": "6983c5b808703be29280aab0fba4f83600920c4036033b1093360f9df14df079",
+      "geometry_signature": "SVG tree including all non-metadata attributes, group structure, glyph text/path data; only title/desc omitted."
+    },
+    "brand/masters/outlined/logo-stacked-outlined.svg": {
+      "approved_pack_sha256": "f6f9f2fd3a55b804b109de91ae8a621d57255a642018dcef34a33938d97af43a",
+      "geometry_sha256": "0018b9bcdfcff4a969197f3b3cea6921b517629df08009c98d068b1d82d1e0ce",
+      "geometry_signature": "SVG tree including all non-metadata attributes, group structure, glyph text/path data; only title/desc omitted."
+    },
+    "brand/masters/outlined/logo-horizontal-outlined.svg": {
+      "approved_pack_sha256": "04f9f67c324a5408561e8eb3b94db94b770ba943a5df8c349c47c6e8c99d421c",
+      "geometry_sha256": "2a936ff1936534f1ef2b448429668665eab7c63192811e42764a31285b784e2c",
+      "geometry_signature": "SVG tree including all non-metadata attributes, group structure, glyph text/path data; only title/desc omitted."
+    },
+    "public/brand/logo-horizontal-monochrome.svg": {
+      "approved_pack_sha256": "81af56beaa23d9f8e1a8311957436909306a3a9237bf40e2ce6ea9ff855ee17a",
+      "geometry_sha256": "fd26e619667e34f450b89f7434fe558d93079667800277a98c211558fa89663d",
+      "geometry_signature": "SVG tree including all non-metadata attributes, group structure, glyph text/path data; only title/desc omitted."
+    },
+    "public/brand/logo-horizontal-white.svg": {
+      "approved_pack_sha256": "332fd5d6134337e635e97bae2f5934fd6c6cf94b0ea3b09057451e468c136b6a",
+      "geometry_sha256": "f5f2e1bf034ba525c11a5ee3b8b595876ce6c1b2d5bcb25116e452f9bdc4fa25",
+      "geometry_signature": "SVG tree including all non-metadata attributes, group structure, glyph text/path data; only title/desc omitted."
+    },
+    "public/brand/logo-horizontal.svg": {
+      "approved_pack_sha256": "04f9f67c324a5408561e8eb3b94db94b770ba943a5df8c349c47c6e8c99d421c",
+      "geometry_sha256": "2a936ff1936534f1ef2b448429668665eab7c63192811e42764a31285b784e2c",
+      "geometry_signature": "SVG tree including all non-metadata attributes, group structure, glyph text/path data; only title/desc omitted."
+    },
+    "public/brand/logo-square.svg": {
+      "approved_pack_sha256": "01b5e2c0dfe2c4fee02ba4b64156060a64780855bba3cb203a92e2aa28cec1a5",
+      "geometry_sha256": "81730a831aed3cf7efbdee5152a876178482e54046506681a2efafc195b30cff",
+      "geometry_signature": "SVG tree including all non-metadata attributes, group structure, glyph text/path data; only title/desc omitted."
+    },
+    "public/brand/logo-stacked-monochrome.svg": {
+      "approved_pack_sha256": "172ed22631db5178eb25646e7de5089d996a98d9ce15b7d46a4b20558e99dc2f",
+      "geometry_sha256": "946d1129313c5ad0ab26581464d222484bf5d10bdd280c7f6f6b7fa3054a5abd",
+      "geometry_signature": "SVG tree including all non-metadata attributes, group structure, glyph text/path data; only title/desc omitted."
+    },
+    "public/brand/logo-stacked-white.svg": {
+      "approved_pack_sha256": "80ef38c31ff9ab1a96f1a054b65a8a209784598cdfe9917d580e75a49cd46276",
+      "geometry_sha256": "d925a7d8383c569da565fe1bd6797442cd1a980ce802a039edd16d5d925ed987",
+      "geometry_signature": "SVG tree including all non-metadata attributes, group structure, glyph text/path data; only title/desc omitted."
+    },
+    "public/brand/logo-stacked.svg": {
+      "approved_pack_sha256": "f6f9f2fd3a55b804b109de91ae8a621d57255a642018dcef34a33938d97af43a",
+      "geometry_sha256": "0018b9bcdfcff4a969197f3b3cea6921b517629df08009c98d068b1d82d1e0ce",
+      "geometry_signature": "SVG tree including all non-metadata attributes, group structure, glyph text/path data; only title/desc omitted."
+    },
+    "public/brand/mark-yo.svg": {
+      "approved_pack_sha256": "94d3d8a263de10686aaff2adbbde644976c4fa085a5d5d4b9f4536996ac2037c",
+      "geometry_sha256": "c40e81bad327e0ae7ebce9cd00923e0b696461031822e0bc101db313fee0efe1",
+      "geometry_signature": "SVG tree including all non-metadata attributes, group structure, glyph text/path data; only title/desc omitted."
+    }
+  },
+  "selected_sources": [
+    {
+      "design": "stacked centred-me v15, right-hand AFTER/CENTRED me comparison",
+      "original_editable_sha256": "5c829c88058e5705d39b777394cc0b5f55690aeec708216a8fd9d281518e61c6",
+      "canonical_editable": "brand/masters/editable/logo-stacked-editable.svg",
+      "canonical_outlined": "brand/masters/outlined/logo-stacked-outlined.svg",
+      "production": "public/brand/logo-stacked.svg",
+      "evidence": "brand/review/stacked-approved-comparison.png"
+    },
+    {
+      "design": "H3 bespoke lowercase, fourth row of One identity. Four horizontal directions",
+      "original_editable_sha256": "757885a8a6f75b9264125f04a166837f9ceab73417e936e602fb4abb05eedf15",
+      "canonical_editable": "brand/masters/editable/logo-horizontal-editable.svg",
+      "canonical_outlined": "brand/masters/outlined/logo-horizontal-outlined.svg",
+      "production": "public/brand/logo-horizontal.svg",
+      "evidence": "brand/review/horizontal-approved-comparison.png"
+    }
+  ],
+  "approved_rasters": {
+    "public/brand/png/logo-horizontal-white-512.png": "387ff1d6dbd4e126a33a53041863fbce42eece4833f0d39ecddc40eb1126fe13",
+    "public/brand/png/logo-horizontal-512.png": "0f42c85affd6d45547d6f2da51fc53d312a4d8f8fca5e29574e98456caa7c4d9",
+    "public/brand/icons/logo-square-512.png": "dde885cd39c2b176f6309527c542476cbda65e6b81890611e5ab4b62fb1385c5",
+    "public/brand/icons/favicon-yo.ico": "589019fc45888ec371cda847d423ff8b01b5a91c16a33c8af300740cf2f387fd",
+    "public/brand/icons/logo-square-192.png": "6b21679e9555e3cf2466e73c4f2b0703e56cae0e31ea24c72da4c1f9433fb787",
+    "public/brand/icons/logo-square-180.png": "7142b22333788f020159b04ea71bdc7c1e746d6b0358e3a464cd9453796d8e43",
+    "public/brand/icons/mark-yo-32.png": "766f76405c07e70bcc292d2d29d0181ac4645f63082718e22b94a5ced7d15cee"
+  },
+  "existing_v1_reference": {
+    "foundation_and_semantics": "app/theme.css",
+    "interface_font_loading": "app/layout.tsx",
+    "certified_visual_system_commit": "806b5420a87749665d9de28957970275c54924f8",
+    "recovered_foundation_brief_thread": "01a0def5-360a-77c3-9939-e7ab12af3183",
+    "recovered_foundation_brief_title": "Audit Frontend Styling Architecture",
+    "external_archive_evidence": "phase4a-approved-foundation-brief.txt",
+    "standalone_comprehensive_Visual_Identity_Specification_v1": "Not located; current asset guide was reconciled with existing approved foundations, not claimed as a replacement for an unavailable comprehensive specification."
+  }
+}

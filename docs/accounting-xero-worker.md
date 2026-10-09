@@ -1,8 +1,13 @@
 # Durable Xero execution (Phase 7.3)
 
+> Historical phase record. This document preserves Phase 7.3 execution and
+> authority certification. Its parked-preparation boundary was completed in
+> Phase 7.4; current lifecycle semantics live in `accounting-product-cutover.md`.
+
 Compute follows actual Yuohme usage. Cron dispatches/retries/recovers existing
-intent; it never creates intent from the age/existence of a connection. Product
-triggers, public refresh routes, billing and UX cutover remain Phase 7.4.
+intent; it never creates intent from the age/existence of a connection. At this
+phase boundary, product triggers, public refresh routes, billing and UX cutover
+remained for Phase 7.5.
 
 ## Inspected starting pipeline
 
@@ -84,7 +89,7 @@ start a second provider retrieval. A failed/abandoned candidate leaves the old
 generation authoritative; replacement acquisition fences it through the existing
 engine. Uncertain publication still uses the existing exact-run Promise recovery.
 
-## Deliberate Phase 7.5 boundary
+## Historical Phase 7.3 preparation boundary
 
 `preparing` may be parked with no live worker lease. Its stage is derivatives;
 G and captured publication F/P are retained in the run association. If an
@@ -93,7 +98,8 @@ unavailable rather than pairing its old G with a newer financial epoch; later
 preparation must resolve the current authoritative dependency context. It remains
 nonterminal/coalescible and is excluded from provider dispatch. Phase 7.5 will
 claim derivative work and complete it; Phase 7.3 never invents a ready boolean or
-marks calculation success. Existing lazy ensures and exact G/F read checks remain.
+marks calculation success. Phase 7.4 subsequently closed this boundary using the
+existing ensure services; exact G/F read checks and lazy ensures remain.
 
 ## Environment and security
 

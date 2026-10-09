@@ -1,5 +1,10 @@
 # Durable accounting refresh foundation — Phase 7.1
 
+> Historical phase record. This document describes the certified Phase 7.1
+> boundary before dispatch, Xero execution, preparation and product cutover were
+> connected. Current runtime policy and lifecycle are defined in
+> `accounting-product-cutover.md` and `ARCHITECTURE.md`.
+
 Starting revision: `66ba59c956b96a5dfa25e13825fa597d43b38add`, clean `develop`, matching `origin/develop`. Accepted Phase 6 baseline: 1,798 passed, 254 skipped. Test project: `rbmxegyiwntomhpbepnu`; the current Preview uses `arn1`.
 
 This unit is dormant. No normal page, API, Xero route, OAuth callback, disconnect route or collection reader imports the new control plane. There is no scheduler, worker endpoint, HTTP delivery, provider call, usage claim, generation writer or derivative ensure operation. Xero is the only installed connection facade. Other provider identifiers are accepted in the provider-neutral domain/storage, but no second connector is implemented.
@@ -50,7 +55,11 @@ Stored metadata includes failure class/code/time, retry count/source, provider l
 
 The pure retry proposal uses candidate delays 5/15/60 minutes with ±10% jitter, followed by six-hour probes. Reconnect pauses; deterministic and unknown failures require attention. Quota without a trustworthy reset uses a conservative six-hour probe. Provider-directed delay overrides any shorter local proposal. Preparation uses 1/5/15/60 minutes, then attention. No runtime retry loop is enabled.
 
-Meaningful activity is Dashboard, queue, customer or collection action. Polling, background maintenance, scheduler activity, OAuth/provider callbacks, login and health checks are excluded. No reliable existing product-activity timestamp was found; the new nullable timestamp is not yet instrumented. Scheduling metadata supports hourly activity within seven days, daily inactivity, and configurable/deferred dormant maintenance. No scheduling job is created.
+At this phase boundary, meaningful activity was defined as Dashboard, queue,
+customer or collection action; it was not yet wired. Historical scheduling
+metadata could represent hourly/daily concepts, but it remains dormant. The final
+launch policy does not periodically refresh active, inactive or dormant tenants:
+the activity itself requests work when accounting is due.
 
 Freshness uses the active generation observation timestamp: fresh below 2h; aging at 2h up to below 6h; materially stale from 6h through exactly 24h; very stale strictly over 24h through exactly 7d; extended stale strictly over 7d. Invalid/missing authority, observation or future timestamps are unusable; elapsed age alone is never unusable. No UI consumes this helper yet.
 

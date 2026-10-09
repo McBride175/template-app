@@ -1,5 +1,9 @@
 # Product accounting refresh (Phase 7.5)
 
+This is the final implemented Preview/Test refresh contract. Earlier Phase 7.1–7.4
+documents retain certification history; where their phase boundaries differ, this
+document and `ARCHITECTURE.md` describe current behaviour.
+
 Compute follows actual Yuohme usage, not the existence of an accounting connection.
 Cron only dispatches, retries and recovers already-accepted jobs. No connection-age
 scan, periodic intent creation or last-activity maintenance schedule is enabled.
@@ -68,9 +72,69 @@ Accounting maintenance does not claim a free UTC usage day. Existing collection
 reads/mutations continue to enforce the five-day and Basic/Pro currency entitlements.
 An exhausted user can maintain accounting but cannot use protected collections.
 
+## Lifecycle and authorities
+
+The durable lifecycle is `queued → running → preparing → complete`. Provider
+failure before promotion follows the provider retry policy and leaves the prior
+generation authoritative. Atomic promotion commits accounting and Promise outcomes
+together, then moves work to derivative preparation. Preparation retries use their
+own 1/5/15/60-minute sequence, never call Xero and never roll back successfully
+promoted accounting. Existing lazy read-time feature/calculation ensures remain a
+recovery fallback.
+
+`complete` means the promoted generation is authoritative and the required
+customer-feature population plus both normal portfolio calculation variants are
+valid for current G/F/UTC-date/version/evidence identity. It does not freeze later
+financial mutations; ordinary validity checks still apply.
+
+Publication requires three distinct authorities: the refresh-worker attempt lease,
+the accounting connection epoch/grant, and the existing generation lease/fencing
+token. None substitutes for another. Loss of any relevant authority prevents stale
+publication.
+
+## Freshness policy
+
+Authoritative observation age is classified once in the shared domain helper:
+
+- fresh: less than 2 hours;
+- aging but usable: 2 hours to less than 6 hours;
+- materially stale: 6 hours through 24 hours;
+- very stale: over 24 hours through 7 days;
+- extended stale: over 7 days.
+
+The approximately 60-minute opportunistic due threshold deliberately precedes the
+first warning threshold. Age alone never makes a valid generation unusable, and
+ordinary content continues from the current generation while refresh runs.
+Reconnect, missing/corrupt authority and other safety failures are separate states.
+
+## Provider boundary
+
+Acceptance, coalescing, dispatch, attempts, retries, status and preparation
+orchestration use provider-neutral accounting identities. Xero is the only
+implemented provider. Xero OAuth, requests, mapping and evidence remain within the
+Xero execution boundary. Future connectors can enter the same orchestration without
+changing scoring, queues, Promises, disputes or operational history; no speculative
+QuickBooks/Sage framework has been built.
+
+## Programme performance outcome
+
+Vercel functions run in `arn1`. Dashboard and other useful reads render independently
+of provider work. Final hosted Test measured the real Xero execution pipeline at
+about 8.2 seconds and derivative preparation below one second; both execute after
+the product acknowledgement. An idle dispatcher tick performs bounded database work
+in a few milliseconds and emits no worker request. Programme profiling showed that
+remote/data-access waiting was the historical material bottleneck; benchmark and
+base-scoring CPU was not.
+
 ## Rollout
 
 Only Test migration/application and exact arn1 Preview certification are authorised.
 Existing worker Test-project/authentication gates remain. Real Xero dispatch is enabled
 explicitly in Test after local certification. Production configuration, scheduling and
 main remain untouched. No new environment-variable name is required.
+
+Phase 7.5 was certified at `8f41004745d93de097cdfeb412bfe0fc68bf6de6`
+with the Test migration ledger at 32 and the full enabled suite at 2,327 passing.
+The accounting-refresh/performance programme is closed in Preview/Test.
+There is no additional Phase 7 work. Production rollout is outside this programme
+closeout and remains part of the application's later overall launch.

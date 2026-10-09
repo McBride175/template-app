@@ -1,5 +1,10 @@
 # Dashboard bootstrap — Phase 3.8
 
+> Historical performance record. The bootstrap architecture and measurements
+> remain valid, but Phase 7.5 replaced the request-bound entry auto-sync described
+> below with durable provider-neutral activity signalling. Current refresh policy
+> is documented in `../accounting-product-cutover.md`.
+
 ## Contract and scope
 
 Starting revision: `e790c1f9430e6a0f69b23419385b1ca04308963f`, `develop`, clean working tree. Phases 3.1–3.7 were committed and pushed before this unit. This unit makes no provider, scoring, financial-reconciliation, or refresh-policy changes.
@@ -24,8 +29,9 @@ one bootstrap GET / one server getUser
   → current useful cards + independent operational status
 
 independently after initial bootstrap:
-  unchanged guarded auto-sync request
-  → bootstrap refresh after completion
+  lightweight meaningful-activity signal
+  → durable background refresh only when server policy says due
+  → bootstrap refresh after durable completion
 ```
 
 The 200-card limit is a display window, never a scoring/benchmark population. No browser scoring or approximate ranking is introduced. On a healthy 10k portfolio, the database/server still examines the complete compact rank population, but the browser receives at most 200 card rows. Existing currency-review rows remain intact; a heavily degraded portfolio can still have a larger review panel.
@@ -56,9 +62,15 @@ Client request sequence plus G/F/P prevents old bootstrap or mutation projection
 
 ## Refresh observation
 
-The existing entry auto-sync helper, debounce, endpoint and server policy are unchanged. No provider request occurs inside the useful-content bootstrap. The browser starts the existing entry trigger only after its bootstrap is available; successful or failed attempts prompt a coherent bootstrap reread.
+Phase 7.5 superseded the original entry auto-sync integration without changing the
+useful-content bootstrap. Dashboard signals meaningful activity only after useful
+content renders. The server checks authoritative freshness, coalesces durable work
+when due and returns without provider wait. Xero runs only in the background worker.
 
-A known in-flight attempt, including one started in another window, is observed every five seconds for at most five minutes through `readinessOnly=true`. This returns one owner-scoped context read, no queue/feature population, no usage claim and no Xero call. Promotion/revision change or attempt completion triggers a full bootstrap reread. Observation is cancelled on unmount/tenant change; an observation failure retains prior valid content. Visibility return and manual refresh remain recovery paths after the bounded observer stops. This is browser observation, not a durable background job or a future refresh scheduler.
+Active durable work is observed after about two seconds and then every five seconds
+for at most five minutes. Observation stops on hide/unmount and resumes on visibility
+return or an explicit check. It makes no usage claim or provider call. Completion
+prompts a coherent bootstrap reread; observation failure retains prior valid content.
 
 ## Measurement methodology
 
@@ -96,4 +108,7 @@ Local database certification: 106 existing programme cases plus 13 final Dashboa
 
 Final enabled suite: 2,034 tests, 1,789 passed, 245 opt-in database cases skipped, zero failures. The 106 existing programme database cases and 13 final Dashboard database cases were separately enabled and passed against disposable PostgreSQL. Lint (zero warnings), TypeScript, SQL/security check, production build and `git diff --check` passed. No frozen financial/scoring expected value was changed.
 
-An uncertain auto-sync HTTP result also prompts a bootstrap read, without repeating the provider command: this discovers a run/generation which may have committed despite a lost response. The bounded observer and visibility/manual recovery do not establish a durable refresh scheduler.
+An uncertain acceptance/status response is resolved from durable status without
+repeating provider work. The bounded browser observer is not execution authority;
+the durable worker continues independently and Cron only dispatches/retries/recovers
+accepted work.

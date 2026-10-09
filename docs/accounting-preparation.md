@@ -1,5 +1,10 @@
 # Durable derivative completion (Phase 7.4)
 
+> Historical phase record. This document preserves the Phase 7.4 backend
+> certification before product cutover. Phase 7.5 now exposes these states through
+> the provider-neutral product status contract documented in
+> `accounting-product-cutover.md`.
+
 Refresh completion is a historical successful preparation point. It requires the
 job's confirmed promoted G to still be authoritative, a current full customer
 feature population and both standard `collections` portfolio variants:

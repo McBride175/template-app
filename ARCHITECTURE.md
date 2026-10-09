@@ -2,30 +2,52 @@
 
 This document is the high-level source of truth for environments, deployment, database workflow, security boundaries, and external integrations. Read it before making architecture, database, authentication, or deployment changes.
 
-## Durable accounting refresh foundation (Phase 7.1)
+## Accounting refresh architecture
 
-Phase 7.2 adds activity-driven durable dispatch with minutely Test Cron. Cron
-only dispatches/recovers already-requested work; dormant connections generate no
-routine refresh intent. Phase 7.3 connects a separately gated Test worker to the
-existing Xero importer, evidence and atomic Promise/publication engine. Signed
-opaque deliveries retain distinct attempt, connection-epoch and generation
-fences. See [dispatch](docs/accounting-refresh-dispatch.md) and
-[Xero execution](docs/accounting-xero-worker.md).
+The Preview/Test accounting-refresh programme is complete. Meaningful product
+activity, manual refresh, onboarding, reconnect or explicit internal recovery
+accepts/coalesces a durable provider-neutral job. Acceptance commits before a
+best-effort immediate dispatch; one-minute Supabase Cron dispatches, retries and
+recovers already-requested work. Cron never creates refresh intent because a
+connection exists or its accounting has aged. Dormant connections therefore
+produce no worker or provider calls.
 
-`lib/accounting/` and service-only control tables provide provider-neutral
-coalescing, retries, reservations and attempts. Phase 7.5 product activity/manual/onboarding/reconnect use provider-neutral durable
-acceptance and status; compatibility auto/manual URLs delegate to that service.
-Accounting maintenance/status do not claim a free-use day. Product entitlement
-remains unchanged. See [the product cutover](docs/accounting-product-cutover.md). OAuth
-relink/disconnect now fence publication transactionally. A committed durable
-accounting result enters `preparing`. Phase 7.4 reuses existing feature and portfolio
-ensures, verifies both ordinary collection variants against current G/F/UTC date/
-version/evidence identity, and durably completes or supersedes the refresh.
-Preparation has independent retries and never re-enters provider execution.
-Existing materialization and read-time ensures remain authoritative. See
-[the preparation contract](docs/accounting-preparation.md). No scoring/collection redesign or
-Production scheduler/provider enablement is implied. See
-[the foundation contract](docs/accounting-refresh-foundation.md).
+The worker claims independent refresh-attempt authority, resolves current
+connection-epoch/grant authority, then delegates to the existing Xero importer,
+evidence certification and Promise-safe fenced publication engine. A stale
+attempt, connection or generation authority cannot publish. Successful promotion
+moves the durable job to `preparing`; it is not refresh completion. Preparation
+reuses the existing customer-feature and portfolio ensure services and completes
+only after both standard calculation variants are valid for current
+G/F/UTC-date/version/evidence identity. Preparation retries independently and
+never refetches Xero. Existing lazy read-time ensures remain a recovery fallback.
+
+The launch lifecycle is `queued → running → preparing → complete`. Ordinary
+product reads continue from the last promoted generation while background work
+runs. Opportunistic refresh becomes due after approximately 60 minutes of
+authoritative accounting age, but user warnings use separate bands: fresh below
+2h, aging but usable from 2–6h, materially stale from 6–24h, very stale over 24h
+and extended stale over 7d. Age alone never invalidates an otherwise valid
+generation. Reconnect and accounting-safety failures remain separate.
+
+`lib/accounting/` and service-only control tables are provider-neutral. Xero is
+the only implemented connector; OAuth, retrieval, mapping and Xero evidence stay
+inside the Xero boundary. No QuickBooks or Sage implementation/framework exists.
+Accounting maintenance/status never claim a free-use day; protected product use
+retains the existing five-day and subscription entitlement.
+
+Vercel compute is aligned to `arn1`. Useful product reads do not wait for Xero.
+Final Test evidence measured the Xero worker at about 8.2 seconds, derivative
+preparation below one second and idle dispatch at only a few milliseconds with
+zero delivery. Programme profiling established remote/data-access waiting, not
+scoring CPU, as the historical material bottleneck.
+
+See [the final product contract](docs/accounting-product-cutover.md),
+[dispatch](docs/accounting-refresh-dispatch.md),
+[Xero execution](docs/accounting-xero-worker.md),
+[preparation](docs/accounting-preparation.md), and the historical
+[foundation record](docs/accounting-refresh-foundation.md). No Production
+scheduler/provider enablement is implied.
 
 ## Environments
 

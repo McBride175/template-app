@@ -9,8 +9,8 @@ The first-value preparation surface lives at `/start`. It derives every customer
 | Connected to Xero | Usable connection, no authoritative result and no active run | A fenced run becomes active | Reconstructed from connection and tenant state |
 | Reading your receivables | Latest owned run has a live lease and not every retrieval step has succeeded | Contacts, authorised invoices, paid invoices and payments are persisted with completed manifest steps | Reconstructed from the latest owned run and manifest |
 | Analysing receivables | Every retrieval step has succeeded | Canonical mapping step succeeds | Reconstructed with completed aggregate counts |
-| Building chase priorities | Canonical mapping has succeeded | Validation and atomic promotion complete | Reconstructed from the manifest and authoritative pointer |
-| Ready | A resolvable snapshot has authoritative freshness | Immediate navigation to the existing result | Returning users go directly to the result |
+| Building chase priorities | Accounting promotion has committed and durable work is preparing | Required customer features and both standard portfolio calculations are valid for current dependency identity | Reconstructed from durable refresh status and current derivative identities |
+| Ready | Durable refresh is complete with authoritative accounting and current required derivatives | Immediate navigation to the existing result | Returning users observe or join existing work rather than starting another provider run |
 | Failed/interrupted | Latest attempt is failed, abandoned, or has an expired lease | Explicit focused retry, reconnect, or permission update | Reconstructed without treating polling age as failure |
 
 The browser may skip stages when the server advances between observations. It never delays a ready result to replay missed stages.
@@ -28,6 +28,11 @@ The browser may skip stages when the server advances between observations. It ne
 
 ## Observation and recovery
 
-The observer uses bounded backoff between checks but has no client-side failure deadline. A status-request failure is a temporary observation problem and does not alter the last known server state. A running server lease remains running; failed or expired work becomes a focused recovery state. Refreshes and additional tabs observe the existing run and do not start another generation.
+The observer checks shortly after acceptance, then about every five seconds while
+work remains active, for at most five minutes of continuous foreground observation.
+A status-request failure is temporary and does not alter durable work. Hiding,
+leaving or closing the page does not stop execution; visibility return rechecks.
+Additional tabs and returning users observe the existing job rather than starting
+another provider generation.
 
 The “taking longer” message appears only after 30 seconds and only while the server still reports an active run. The threshold changes explanatory copy, never the underlying progress stage. No percentage or ETA is shown.

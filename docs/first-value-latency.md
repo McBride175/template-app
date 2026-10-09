@@ -1,11 +1,13 @@
 # First-value latency model
 
-This document defines the backend boundary used to measure Yuohme's first-value path. It does not include browser rendering.
+This document defines the backend boundary used to measure Yuohme's first-value
+path. It does not include browser rendering. Phase 7.5 moved provider execution
+behind durable acceptance; the browser no longer owns this sequence.
 
 ## Authoritative boundaries
 
 - **T0** — Xero OAuth callback or explicit organisation selection has resolved a usable tenant.
-- **T1** — the automatic generation sync is requested after entitlement and tenant-lock checks.
+- **T1** — durable onboarding refresh is accepted/coalesced and acknowledged.
 - **T2** — the fenced generation has been acquired and execution starts.
 - **T3** — Xero retrieval starts.
 - **T4** — the initial and catch-up Xero retrieval waves complete.
@@ -13,10 +15,14 @@ This document defines the backend boundary used to measure Yuohme's first-value 
 - **T6** — manifest and currency/readiness validation complete.
 - **T7** — the promotion transaction completes.
 - **T8** — the authoritative snapshot is resolvable. T7 and T8 share the successful promotion-RPC boundary because that transaction atomically updates the active generation pointer before returning.
-- **T9** — collections data reads start.
-- **T10** — the prioritised response, successful empty state, or explicit currency/plan block is ready for serialization.
+- **T9** — required customer features and both standard portfolio calculations are valid for current dependency identity; the durable job is complete.
+- **T10** — collections data reads start.
+- **T11** — the prioritised response, successful empty state, or explicit currency/plan block is ready for serialization.
 
-The primary metric is T0→T10. Import readiness is T0→T8 and result assembly is T8→T10. Controlled operators that do not execute OAuth must report T1→T8 instead of relabelling it as T0→T8.
+The primary first-value metric is T0→T11. Accounting publication is T0→T8,
+derivative readiness is T8→T9 and result assembly is T9→T11. Controlled operators
+that do not execute OAuth must report their actual starting boundary rather than
+relabelling it as T0.
 
 ## Minimum first-value dataset
 

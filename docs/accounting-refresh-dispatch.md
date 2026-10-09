@@ -1,5 +1,10 @@
 # Activity-driven dispatch — Phase 7.2
 
+> Historical phase record. Synthetic-only and future-phase statements describe
+> the Phase 7.2 certification boundary. The dispatcher is now connected to the
+> certified Xero and preparation workers in Test; final product policy lives in
+> `accounting-product-cutover.md`.
+
 Starting revision `7bb0d279232ccbedcd625835ab0f689d1dd333c9`, clean develop/origin/develop, Test ledger 26, exact Preview `template-2m25kmz81-james-mcbrides-projects.vercel.app`, arn1. Accepted baseline: 2,150 passed.
 
 ## Corrected launch policy

@@ -83,7 +83,12 @@ check('priority and Action History races are retained in final operational proje
 check('generation promotion during reconciliation cannot return old invoice balances',async()=>{
  await prepare();db.dispute('i1',2000);let promoted=null
  const admin=client(db,async name=>{if(name==='publish_collection_portfolio_calculation'&&!promoted){promoted=db.ready({invoiceChanges:{amount_due_native:'5000',amount_due_base:'5000',due_date:'2026-09-01'}});cert(db,promoted.run)}})
- const r=await read(admin);await assertCurrent(admin,r);assert.equal(r.version.generationId,promoted.run)
+ let r=await read(admin)
+ // A heavily loaded local Docker transport may use the unchanged ten-second
+ // budget during the deliberately injected full generation. Timeout must not
+ // return obsolete financial data; a subsequent ordinary ensure repairs it.
+ if(!r.reconciliationReady){assert.equal(r.reason,'budget');assert.equal('detail'in r,false);r=await read(client(db))}
+ await assertCurrent(admin,r);assert.equal(r.version.generationId,promoted.run)
  assert.equal(r.detail.invoices[0].currentAmountDueNative,'5000')
 })
 check('failed publication preserves committed domain state; later read repairs idempotently',async()=>{

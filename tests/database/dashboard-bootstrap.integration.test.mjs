@@ -69,10 +69,10 @@ check('generation promotion during bootstrap cannot relabel old recommendations 
  const r=await read(admin);assert.equal(r.collectionState,'ready');assert.equal(r.collection.version.accountingGenerationId,newRun.run)
  assert.equal(r.collection.rows[0].customer_to_chase_overdue_base,5000)
 })
-check('connection revocation during bootstrap discards financial payload',async()=>{
+check('connection revocation during bootstrap retains licensed promoted accounting',async()=>{
  await ready();let changed=false
  const admin=client(db,async(name)=>{if(name==='read_collection_access_context'&&admin.calls.filter(c=>c.name===name).length===2&&!changed){changed=true;db.psql(`update public.xero_connections_public set auth_state='reauth_required';`)}})
- const r=await read(admin);assert.equal(r.collectionState,'onboarding');assert.equal(r.status.needsReauth,true);assert.equal(r.collection,null)
+ const r=await read(admin);assert.equal(r.collectionState,'ready');assert.equal(r.status.needsReauth,true);assert.equal(r.collection.rows.length,1);assert.equal(r.status.canSync,false)
 })
 check('inconsistent active generation fails closed without legacy accounting fallback',async()=>{
  await ready();db.psql(`set session_replication_role=replica; update public.xero_sync_tenant_state set active_sync_run_id=gen_random_uuid(); set session_replication_role=origin;`)
@@ -80,11 +80,11 @@ check('inconsistent active generation fails closed without legacy accounting fal
  assert.equal(r.status.canSync,false);assert.ok(r.statusError)
 })
 
-check('first-value onboarding and insufficient permissions do not claim a free day',async()=>{
+check('first-value refresh has no claim; viewing retained accounting still claims product usage',async()=>{
  await read();assert.equal(db.psql('select count(*) from public.billing_usage_days;'),'0')
  await ready();db.psql("update public.xero_oauth_grants set scopes=array['offline_access'];")
- const r=await read();assert.equal(r.status.needsReauth,true);assert.equal(r.collectionState,'onboarding')
- assert.equal(db.psql('select count(*) from public.billing_usage_days;'),'0')
+ const r=await read();assert.equal(r.status.needsReauth,true);assert.equal(r.collectionState,'ready')
+ assert.equal(db.psql('select count(*) from public.billing_usage_days;'),'1')
 })
 
 check('readiness observation reads one scoped context with no ledger or financial population',async()=>{

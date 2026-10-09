@@ -1,5 +1,7 @@
 'use client'
 
+import { notifyAccountingScope, subscribeAccountingUpdates } from '@/lib/accounting/product-events'
+
 import { subscribePromiseActionability } from '@/lib/collections/promise-refresh'
 
 import Link from 'next/link'
@@ -604,6 +606,7 @@ export default function CollectionActionsClient({
     setReviewRequiredCustomers(payload.reviewRequiredCustomers ?? [])
     setExperience(payload.experience ?? null)
     setResolvedTenantId(payload.tenantId ?? tenantId)
+    notifyAccountingScope(payload.tenantId??tenantId)
     setFollowUpSchedule(payload.followUpSchedule ?? null)
     const nextRows = payload.rows ?? []
     const visibleRows = requestedOverdueOnly
@@ -725,6 +728,12 @@ export default function CollectionActionsClient({
     },
     [applyAuthoritativeProjection, dashboardRefresh, effectiveLoginNextPath, effectiveOverdueOnly, router, tenantId]
   )
+
+  useEffect(() => {
+    if (dashboardRefresh) return
+    const updated = () => { void loadRows(true) }
+    return subscribeAccountingUpdates(updated)
+  }, [loadRows, dashboardRefresh])
 
   useEffect(() => {
     const requests = loadRequestId

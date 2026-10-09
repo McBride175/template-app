@@ -1,3 +1,5 @@
+import { Suspense } from 'react'
+import AccountingActivityBoundary from './components/AccountingActivityBoundary'
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from 'next/font/google'
 import "./globals.css";
@@ -50,6 +52,7 @@ export default function RootLayout({
         <div className="min-h-screen flex flex-col">
           <Nav />
           <main className="max-w-4xl mx-auto px-6 py-8 flex-1 w-full">
+            <Suspense fallback={null}><AccountingActivityBoundary /></Suspense>
             {children}
           </main>
           <Footer />

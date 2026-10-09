@@ -19,7 +19,6 @@ import {
   type XeroConnectionStatus,
   type XeroSyncState,
 } from '@/lib/xero/account-status'
-import { triggerXeroAutoSyncOnEntry } from '@/lib/xero/auto-sync-client'
 import { getXeroCallbackNotice } from '@/lib/xero/oauth-return'
 
 interface SubscriptionData {
@@ -52,13 +51,6 @@ function parseTenantId(value: string | null) {
   return trimmed.length > 0 ? trimmed : null
 }
 
-interface XeroSyncCounts {
-  organisations: number
-  contacts: number
-  invoices: number
-  payments: number
-}
-
 interface XeroCanonicalMapCounts {
   customers: number
   invoices: number
@@ -88,9 +80,7 @@ export default function AccountPage() {
   const [xeroResultReason, setXeroResultReason] = useState<string | null>(null)
   const [xeroLoading, setXeroLoading] = useState(false)
   const [xeroDisconnectLoading, setXeroDisconnectLoading] = useState(false)
-  const [xeroSyncLoading, setXeroSyncLoading] = useState(false)
   const [xeroCanonicalMapLoading, setXeroCanonicalMapLoading] = useState(false)
-  const [xeroSyncCounts, setXeroSyncCounts] = useState<XeroSyncCounts | null>(null)
   const [xeroCanonicalMapCounts, setXeroCanonicalMapCounts] = useState<XeroCanonicalMapCounts | null>(null)
   const [xeroLastSyncedAt, setXeroLastSyncedAt] = useState<string | null>(null)
   const [xeroError, setXeroError] = useState<string | null>(null)
@@ -182,10 +172,7 @@ export default function AccountPage() {
           loadXeroStatus(initialTenantId),
           loadBillingEntitlement(initialTenantId),
         ])
-        void triggerXeroAutoSyncOnEntry({
-          surface: 'account',
-          tenantId: initialTenantId,
-        })
+
       } finally {
         setLoading(false)
       }
@@ -362,60 +349,6 @@ export default function AccountPage() {
     }
   }
 
-  const handleXeroSync = async () => {
-    if (!selectedTenantId) {
-      setXeroError('Select a Xero tenant first.')
-      return
-    }
-
-    setXeroError(null)
-    setXeroSyncLoading(true)
-    setXeroSyncCounts(null)
-
-    try {
-      const response = await fetch('/api/xero/sync', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          tenantId: selectedTenantId,
-        }),
-      })
-
-      if (!response.ok) {
-        let message = 'Failed to sync Xero data.'
-        try {
-          const payload = await response.json()
-          if (typeof payload?.error === 'string') {
-            message = payload.error
-          }
-        } catch {
-          // ignore parse failures
-        }
-        throw new Error(message)
-      }
-
-      const payload = (await response.json()) as {
-        counts?: XeroSyncCounts
-        syncedAt?: string
-      }
-
-      if (payload.counts) {
-        setXeroSyncCounts(payload.counts)
-      }
-      if (payload.syncedAt) {
-        setXeroLastSyncedAt(payload.syncedAt)
-      }
-      await loadXeroStatus(selectedTenantId)
-    } catch (error) {
-      setXeroError(error instanceof Error ? error.message : 'Failed to sync Xero data.')
-    } finally {
-      setXeroSyncLoading(false)
-    }
-  }
-
   const handleXeroMapCanonical = async () => {
     if (!selectedTenantId) {
       setXeroError('Select a Xero tenant first.')
@@ -467,7 +400,6 @@ export default function AccountPage() {
 
   const handleTenantSelection = async (tenantId: string) => {
     setSelectedTenantId(tenantId)
-    setXeroSyncCounts(null)
     setXeroCanonicalMapCounts(null)
     setXeroError(null)
     if (typeof window !== 'undefined') {
@@ -528,7 +460,7 @@ export default function AccountPage() {
     typeof xeroStatus?.syncMessage === 'string' ? xeroStatus.syncMessage : null
   const xeroCanAccessInternalTools = Boolean(xeroStatus?.canAccessInternalTools)
   const xeroSyncAvailable = Boolean(selectedTenantId) && (xeroStatus?.canSync ?? true)
-  const xeroActionsBusy = xeroSyncLoading || xeroCanonicalMapLoading || xeroDisconnectLoading
+  const xeroActionsBusy = xeroCanonicalMapLoading || xeroDisconnectLoading
   const xeroReconnectLabel = xeroNeedsReauth || xeroHasError ? 'Reconnect' : 'Refresh connection'
   const showXeroConnectCta = shouldShowXeroConnectCta(xeroStatusView)
   const showXeroConnectedControls =
@@ -740,8 +672,8 @@ export default function AccountPage() {
             <div className="space-y-3">
               <p className="text-sm text-gray-700">
                 {xeroNeedsReauth
-                  ? 'Reconnect to continue automatic sync.'
-                  : 'Reconnect to restore automatic sync.'}
+                  ? 'Reconnect to resume accounting refresh.'
+                  : 'Reconnect to restore accounting refresh.'}
               </p>
               <a
                 href="/api/xero/connect?returnTo=%2Faccount"
@@ -755,8 +687,8 @@ export default function AccountPage() {
           {showXeroConnectedControls && xeroStatus && (
             <div className="space-y-3">
               <p className="text-sm text-gray-600">
-                Sync runs automatically in the background. Use manual controls only when you need
-                an immediate refresh.
+                Accounting refreshes when you use Yuohme and new data is due. Use Refresh above
+                when you need an update sooner.
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <Link
@@ -774,17 +706,9 @@ export default function AccountPage() {
               </div>
               <div className="space-y-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                  Manual override
+                  Connection controls
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    onClick={handleXeroSync}
-                    variant="secondary"
-                    size="md"
-                    disabled={xeroActionsBusy || !xeroSyncAvailable}
-                  >
-                    {xeroSyncLoading ? 'Syncing now…' : 'Sync now'}
-                  </Button>
                   <a
                     href="/api/xero/connect?returnTo=%2Faccount"
                     className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-900 transition-colors hover:bg-gray-50 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
@@ -802,7 +726,7 @@ export default function AccountPage() {
                 </div>
                 {!xeroSyncAvailable && (
                   <p className="text-xs text-gray-600">
-                    Sync now is unavailable until this connection is ready.
+                    Refresh is unavailable until this connection is ready.
                   </p>
                 )}
               </div>
@@ -837,13 +761,7 @@ export default function AccountPage() {
                   Internal diagnostic code: {xeroStatus.diagnostics.refreshIssueCode}
                 </p>
               )}
-              {xeroSyncCounts && (
-                <p className="text-sm text-green-700">
-                  Synced Organisations: {xeroSyncCounts.organisations}, Contacts:{' '}
-                  {xeroSyncCounts.contacts}, Invoices: {xeroSyncCounts.invoices}, Payments:{' '}
-                  {xeroSyncCounts.payments}
-                </p>
-              )}
+
             </div>
           )}
 

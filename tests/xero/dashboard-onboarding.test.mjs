@@ -53,23 +53,22 @@ test('collections missing-tenant race and not-ready data render intentional reco
   assert.doesNotMatch(source, /Sync Xero to load and map customer and invoice data/)
 })
 
-test('Dashboard redirects unfinished first value to focused preparation and retains mature auto-sync', async () => {
+test('Dashboard redirects unfinished first value to focused preparation and signals durable activity after content', async () => {
   const [source, preparationSource] = await Promise.all([
     readFile(projectFile('app/dashboard/DashboardOnboardingClient.tsx'), 'utf8'),
     readFile(projectFile('app/start/FirstValuePreparation.tsx'), 'utf8'),
   ])
 
-  assert.match(source, /triggerXeroAutoSyncOnEntry\(\{/)
-  assert.match(source, /surface: 'dashboard'/)
+  assert.match(source, /accounting-product-ready/)
   assert.match(source, /shouldObserveFirstXeroSync/)
   assert.match(source, /router\.replace\(/)
   assert.match(source, /`\/start\?tenantId=/)
   assert.match(source, /controller\.abort\(\)/)
   assert.doesNotMatch(source, /api\/xero\/sync/)
   assert.doesNotMatch(source, /setInterval/)
-  assert.match(preparationSource, /observeFirstXeroSyncCompletion/)
+  assert.match(preparationSource, /useAccountingRefresh/)
   assert.match(preparationSource, /Preparing your chase priorities/)
-  assert.match(preparationSource, /Retry preparation/)
+  assert.match(preparationSource, /Check status/)
   assert.doesNotMatch(preparationSource, /Check again|Review Xero connection|href=.*account/)
 })
 
@@ -86,8 +85,8 @@ test('first-value preparation keeps focused chrome and uses only server-backed p
     footerSource,
     /pathname === '\/start' \|\| pathname\.startsWith\('\/start\/'\)/
   )
-  assert.match(preparationSource, /status\.preparation\?\.active/)
-  assert.match(preparationSource, /PROLONGED_PREPARATION_MS = 30_000/)
+  assert.match(preparationSource, /accountingFirstValueReady/)
+  assert.match(preparationSource, /background/)
   assert.doesNotMatch(preparationSource, /setInterval|progressPercent|estimated time|% complete/i)
 })
 
@@ -119,11 +118,11 @@ test('cancelled Checkout is non-blocking and leaves a route back to Pricing', as
   assert.match(source, /url\.searchParams\.delete\('checkout'\)/)
 })
 
-test('Account retains manual sync and its Xero connections return to Account', async () => {
+test('Account uses shared durable refresh and its Xero connections return to Account', async () => {
   const source = await readFile(projectFile('app/account/page.tsx'), 'utf8')
 
-  assert.match(source, /Sync now/)
-  assert.match(source, /api\/xero\/sync/)
+  assert.match(source, /Use Refresh above/)
+  assert.doesNotMatch(source, /api\/xero\/sync/)
   assert.match(source, /\/api\/xero\/connect\?returnTo=%2Faccount/)
   assert.match(source, /getXeroCallbackNotice/)
 })

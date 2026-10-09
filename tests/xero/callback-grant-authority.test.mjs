@@ -4,7 +4,7 @@ import {NextRequest} from 'next/server.js'
 import {loadTypeScriptModule} from './test-helpers/ts-module-loader.mjs'
 
 test('OAuth relink invalidates old token CAS and scopes removal to the returned grant',async()=>{
- const user='00000000-0000-4000-8000-000000000011',grant='00000000-0000-4000-8000-000000000012',calls=[]
+ const user='00000000-0000-4000-8000-000000000011',grant='00000000-0000-4000-8000-000000000012',calls=[],accepted=[]
  const stored=[{tenant_id:'retained',grant_id:grant},{tenant_id:'removed',grant_id:grant},{tenant_id:'unrelated',grant_id:'other-grant'}]
  const admin={from(table){let op='read',payload=null;const filters={};const query={
    select(){return query},eq(k,v){filters[k]=v;return query},in(k,v){filters[k]=v;return query},
@@ -13,6 +13,7 @@ test('OAuth relink invalidates old token CAS and scopes removal to the returned 
    then(resolve){calls.push({table,op,payload,filters:{...filters}});resolve({data:op==='read'?stored.filter(row=>!filters.grant_id||row.grant_id===filters.grant_id):null,error:null})},
  };return query}}
  const api=loadTypeScriptModule('app/api/xero/callback/route.ts',{mocks:{
+  '@/lib/accounting/product-refresh-server':{signalOwnedProductAccountingRefresh:async params=>{accepted.push(params);return {outcome:'started'}}},
   '@/lib/supabase-admin':{createSupabaseAdminClient:()=>admin},
   '@/lib/supabase-server':{createServerSupabaseClient:async()=>({auth:{getUser:async()=>({data:{user:{id:user}},error:null})}})},
   '@/lib/xero/secrets':{encryptXeroToken:()=> 'local-fixture-ciphertext'},
@@ -23,6 +24,7 @@ test('OAuth relink invalidates old token CAS and scopes removal to the returned 
  try {
   const r=await api.GET(new NextRequest('https://fixture.invalid/api/xero/callback?code=fixture&state=valid',{headers:{cookie:`state=valid; state-user=${user}`}}))
   assert.equal(r.status,307)
+  assert.equal(accepted.length,1);assert.equal(accepted[0].authenticatedOwnerId,user);assert.equal(accepted[0].trigger,'reconnect');assert.deepEqual(accepted[0].selection,{provider:'xero',providerOrganisationId:'retained'})
   const relink=calls.find(c=>c.table==='xero_oauth_grants'&&c.op==='upsert')
   assert.match(relink.payload.authorization_revision,/^[0-9a-f-]{36}$/);assert.equal(Object.hasOwn(relink.payload,'refresh_lock_id'),false);assert.equal(Object.hasOwn(relink.payload,'refresh_lock_expires_at'),false)
   const removed=calls.find(c=>c.table==='xero_connections_public'&&c.op==='update')

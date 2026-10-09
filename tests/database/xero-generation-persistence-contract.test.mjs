@@ -96,7 +96,7 @@ test('legacy-only compatibility paths still exclude generated rows', async () =>
   const generationAwareFiles = [
     '../../lib/collections/customer-summary.ts',
     '../../lib/collections/currency-context-server.ts',
-    '../../app/api/xero/sync/auto/route.ts',
+    '../../lib/accounting/connection-server.ts',
     '../../app/api/xero/status/route.ts',
     '../../app/xero/canonical/customers/page.tsx',
     '../../app/xero/canonical/invoices/page.tsx',

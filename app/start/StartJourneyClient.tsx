@@ -59,11 +59,6 @@ export default function StartJourneyClient({
   useEffect(() => {
     if (!decision) return
 
-    if (decision.kind === 'continue') {
-      router.replace(`/start/result?tenantId=${encodeURIComponent(decision.tenantId)}`)
-      return
-    }
-
     if (decision.kind === 'connect' && xeroResult !== 'error') {
       window.location.replace(buildXeroConnectPath('/start'))
     }
@@ -105,11 +100,11 @@ export default function StartJourneyClient({
     return <FocusedState title="We could not check Xero" message={statusError} actionLabel="Try again" onAction={() => window.location.reload()} />
   }
 
-  if (!decision || decision.kind === 'continue') {
+  if (!decision) {
     return <FocusedState title="Preparing your next step" message="Checking your secure Xero connection…" />
   }
 
-  if (decision.kind === 'prepare') {
+  if (decision.kind === 'prepare' || decision.kind === 'continue') {
     return status ? (
       <FirstValuePreparation tenantId={decision.tenantId} initialStatus={status} />
     ) : (

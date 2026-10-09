@@ -1,5 +1,7 @@
 'use client'
 
+import { subscribeAccountingUpdates } from '@/lib/accounting/product-events'
+
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { InvoiceDisputeList } from '@/app/collections/customers/CustomerInvoiceDisputes'
@@ -57,6 +59,11 @@ export default function DisputesClient({ tenantId, query }: {
   }, [reload])
 
   const resolvedTenantId = data?.tenantId ?? tenantId
+  useEffect(() => {
+    const updated = () => { void reload(true) }
+    return subscribeAccountingUpdates(updated)
+  }, [reload])
+
   const blocked = loading || mutating || Boolean(outcome?.stale)
   const shownQuery = data?.query ?? query
   return (

@@ -137,9 +137,9 @@ test('epoch and activity wrappers preserve full scope; worker updates use captur
  for(const call of calls){assert.equal(call.args.p_user_id,user);assert.equal(call.args.p_provider,'xero');assert.equal(call.args.p_provider_organisation_id,'tenant-a')}
  assert.equal(calls[0].args.p_expected_epoch,'1');assert.equal(calls[2].args.p_attempt_id,conn);assert.equal(calls[3].args.p_failure_code,'unknown_failure')
 })
-test('Phase 7.4 preserves compatibility triggers, billing, collections and configuration',()=>{
- const base='4d72baa9d25e897622daff04b876d6c9f530d06e'
- const adapted=new Set()
+test('Phase 7.5 preserves the financial core and configuration outside explicit product cutover',()=>{
+ const base='23d0037193ee004cc1058d28d9cb84b7fc98f993'
+ const adapted=new Set(['app/layout.tsx', 'app/account/page.tsx', 'app/dashboard/DashboardOnboardingClient.tsx', 'app/start/FirstValuePreparation.tsx', 'app/start/StartJourneyClient.tsx', 'app/api/xero/callback/route.ts', 'app/api/xero/select-organisation/route.ts', 'app/api/xero/sync/route.ts', 'app/api/xero/sync/auto/route.ts', 'app/collections/customers/CustomerCollectionsClient.tsx', 'app/collections/actions/CollectionActionsClient.tsx', 'app/disputes/DisputesClient.tsx','lib/xero/first-sync-feedback.ts','lib/xero/auto-sync-client.ts','lib/collections/access-context-server.ts','lib/dashboard/bootstrap-server.ts'])
  const files=execFileSync('git',['ls-tree','-r','--name-only',base],{encoding:'utf8'}).trim().split('\n')
  for(const file of files.filter(f=>f.startsWith('app/')||f.startsWith('lib/xero/')||f.startsWith('lib/collections/')||f.startsWith('lib/billing/')||f==='vercel.json'||f==='proxy.ts')) {
    if(adapted.has(file))continue

@@ -1,3 +1,4 @@
+import { signalOwnedProductAccountingRefresh } from '@/lib/accounting/product-refresh-server'
 import { randomUUID } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
@@ -347,6 +348,13 @@ export async function GET(request: NextRequest) {
     clearStateCookies(response)
 
     if (hasRequiredProductCapabilities && intendedTenantId) {
+      // Connection authority is already committed; accounting retrieval is durable.
+      try {
+        await signalOwnedProductAccountingRefresh({admin:supabaseAdmin,authenticatedOwnerId:user.id,
+          selection:{provider:'xero',providerOrganisationId:intendedTenantId},trigger:'reconnect'})
+      } catch {
+        console.warn('[accounting.refresh]',{event:'reconnect_acceptance_deferred'})
+      }
       recordFirstValueLatency({
         stage: 'T0',
         outcome: 'succeeded',

@@ -5,6 +5,7 @@ import {JSDOM} from 'jsdom'
 import {loadTypeScriptModule} from './test-helpers/ts-module-loader.mjs'
 const dom=new JSDOM('<!doctype html><html><body></body></html>',{url:'http://localhost/dashboard',pretendToBeVisual:true})
 for(const key of ['window','document','HTMLElement','Event','CustomEvent','StorageEvent'])globalThis[key]=dom.window[key]
+globalThis.requestAnimationFrame=fn=>fn()
 Object.defineProperty(globalThis,'navigator',{configurable:true,value:dom.window.navigator});globalThis.IS_REACT_ACT_ENVIRONMENT=true
 const {createRoot}=await import('react-dom/client')
 const G='00000000-0000-4000-8000-000000000001'
@@ -17,13 +18,12 @@ const body=(name='Alpha',F='1',P='1',Gid=G,extra={})=>({ok:true,status:{connecte
  currencyHealth:{status:'healthy',failureReasons:{}},organisationBaseCurrency:'GBP',reviewRequiredCustomers:[],experience:{hasPriorCollectionActivity:true},
  version:{accountingGenerationId:Gid,financialEpoch:F,projectionRevision:P,financialCalculationId:'calc-'+F,evaluationDate:'2026-10-03'}},...extra})
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve}}
-async function render(handler,auto=()=>new Promise(()=>{})){
+async function render(handler){
  const requests=[],router={replace:path=>requests.push({redirect:path}),push(){}}
  const {default:Component}=loadTypeScriptModule('app/dashboard/DashboardOnboardingClient.tsx',{mocks:{
   'next/navigation':{useRouter:()=>router,useSearchParams:()=>new URLSearchParams()},
   'next/link':{__esModule:true,default:({children,...props})=>React.createElement('a',props,children)},
   '@/lib/supabase':{supabase:{auth:{onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}})}}},
-  '@/lib/xero/auto-sync-client':{triggerXeroAutoSyncOnEntry:args=>{requests.push({sync:args});return auto(args)}},
   '@/app/components/SubscriptionStatus':{__esModule:true,default:()=>null},
  }})
  globalThis.fetch=async(url,init)=>{requests.push({url,init});return handler(url,init)}
@@ -32,12 +32,12 @@ async function render(handler,auto=()=>new Promise(()=>{})){
  return {el,requests,close:async()=>{await act(async()=>root.unmount());el.remove()}}
 }
 const response=b=>new Response(JSON.stringify(b),{status:200})
-test('one bootstrap renders useful interactive cards before auto-sync settles; no status/queue GET waterfall',async()=>{
+test('one bootstrap renders useful interactive cards before activity signalling; no status/queue GET waterfall',async()=>{
  const sync=deferred();let calls=0
  const ui=await render(async url=>{assert.equal(url,'/api/dashboard/bootstrap');return response(body(++calls===1?'Alpha':'Beta',''+calls,''+calls))},()=>sync.promise)
  assert.match(ui.el.textContent,/Alpha/);assert.match(ui.el.textContent,/Next to chase/)
- assert.equal(ui.requests.filter(r=>r.url).length,1);assert.equal(ui.requests.filter(r=>r.sync).length,1)
- await act(async()=>sync.resolve({state:'completed',triggered:true,syncSucceeded:true,reason:null}))
+ assert.equal(ui.requests.filter(r=>r.url).length,1);assert.equal(ui.requests.filter(r=>r.sync).length,0)
+ await act(async()=>window.dispatchEvent(new Event('accounting-updated')))
  assert.match(ui.el.textContent,/Beta/);assert.equal(ui.requests.filter(r=>r.url).length,2)
  assert.equal(ui.requests.some(r=>/api\/xero\/status|api\/collections\/actions/.test(r.url??'')),false)
  await ui.close()
@@ -93,10 +93,10 @@ test('preparing financial state is recoverable without false empty-queue state o
  assert.equal(n,2);await ui.close()
 })
 
-test('uncertain auto-sync response checks committed generation without repeating the provider trigger',async()=>{
+test('completion event checks committed generation without repeating provider work',async()=>{
  let n=0;const sync=deferred(),nextG='00000000-0000-4000-8000-000000000002'
  const ui=await render(async()=>response(n++?body('Published','2','2',nextG):body()),()=>sync.promise)
- await act(async()=>sync.resolve({state:'request_failed',triggered:false,syncSucceeded:false,reason:'request_failed'}))
- assert.match(ui.el.textContent,/Published/);assert.equal(ui.requests.filter(r=>r.sync).length,1);assert.equal(n,2)
+ await act(async()=>window.dispatchEvent(new Event('accounting-updated')))
+ assert.match(ui.el.textContent,/Published/);assert.equal(ui.requests.filter(r=>r.sync).length,0);assert.equal(n,2)
  await ui.close()
 })

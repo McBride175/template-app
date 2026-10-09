@@ -47,7 +47,7 @@ for(const change of [{latestRun:{id:'new',status:'running',lease_expires_at:'209
 for(const [name,ctx,state] of [
  ['disconnected',context({connection:null,grantScopes:null,snapshot:null,lastSyncedAt:null,claim:null}),'onboarding'],
  ['first-sync',context({snapshot:{mode:'legacy',syncRunId:null},lastSyncedAt:null}),'onboarding'],
- ['revoked',context({connection:{...context().connection,auth_state:'reauth_required'},claim:null}),'onboarding'],
+ ['revoked-without-accounting',context({connection:{...context().connection,auth_state:'reauth_required'},snapshot:null,lastSyncedAt:null,claim:null}),'onboarding'],
  ['exhausted',context({claim:{allowed:false,usage_days_consumed:5,usage_date_already_recorded:false}}),'blocked'],
  ['invalid-generation',context({invalidSnapshot:true,snapshot:null,lastSyncedAt:null}),'unavailable']]) {
  test(`${name} keeps its authoritative access/onboarding result without reading scores`,async()=>{
@@ -94,9 +94,19 @@ test('free allowance retains complete multi-currency access; paid Basic retains 
   assert.equal(r.collection.code,'MULTI_CURRENCY_REQUIRES_PRO');assert.deepEqual(r.collection.rows,[])
  }finally{delete process.env.STRIPE_PRICE_ID_BASIC}
 })
-test('permission recovery and first value consume no usage day; ready free access uses locked claim once',async()=>{
- for(const ctx of [context({lastSyncedAt:null}),context({grantScopes:['offline_access']})]){
+test('permission recovery without accounting and first value consume no usage day; product access claims once',async()=>{
+ for(const ctx of [context({lastSyncedAt:null}),context({grantScopes:['offline_access'],snapshot:null,lastSyncedAt:null})]){
   const s=setup({ctx});await s.read();assert.equal(s.calls.some(c=>c.name==='claim_billing_usage_day'),false)
  }
  const s=setup();await s.read();assert.equal(s.calls.filter(c=>c.name==='claim_billing_usage_day').length,1)
+})
+
+for(const state of ['reauth_required','error']) test(`retained promoted accounting stays usable during ${state}, with product entitlement intact`,async()=>{
+ const s=setup({ctx:context({connection:{...context().connection,auth_state:state}})}),r=await s.read()
+ assert.equal(r.collectionState,'ready');assert.equal(r.collection.version.accountingGenerationId,G);assert.equal(r.status.canSync,false)
+ assert.ok(s.calls.some(c=>c.name==='claim_billing_usage_day'));assert.equal(r.collection.entitlement.usageDaysConsumed,1)
+})
+test('exhausted free account cannot use retained reconnect accounting',async()=>{
+ const s=setup({ctx:context({connection:{...context().connection,auth_state:'reauth_required'},claim:{allowed:false,usage_days_consumed:5,usage_date_already_recorded:false}})}),r=await s.read()
+ assert.equal(r.collectionState,'blocked');assert.equal(r.collection.code,'ACTION_USAGE_LIMIT_REACHED');assert.equal(s.projects(),0)
 })

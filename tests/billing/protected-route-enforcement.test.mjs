@@ -138,40 +138,14 @@ test('direct customer-data API request is rejected before aggregation', async ()
   assert.equal(payload.code, 'ACTION_USAGE_LIMIT_REACHED')
 })
 
-test('direct manual Xero sync request is rejected before lock or provider work', async () => {
-  let syncCalled = false
-  const route = loadTypeScriptModule(projectFile('app/api/xero/sync/route.ts'), {
-    mocks: {
-      ...commonMocks(),
-      '@/lib/xero/tenant-sync-lock': {
-        async acquireXeroTenantSyncLock() {
-          throw new Error('sync lock must not be acquired')
-        },
-        async releaseXeroTenantSyncLock() {},
-      },
-      '@/lib/xero/sync': {
-        parseTenantId(value) {
-          return typeof value === 'string' ? value : null
-        },
-      },
-      '@/lib/xero/generation-sync': {
-        async syncXeroAuthoritatively() {
-          syncCalled = true
-        },
-      },
-    },
-  })
-
-  const response = await route.POST({
-    async json() {
-      return { tenantId: 'tenant_test' }
-    },
-  })
-  const payload = await response.json()
-
-  assert.equal(response.status, 402)
-  assert.equal(payload.code, 'ACTION_USAGE_LIMIT_REACHED')
-  assert.equal(syncCalled, false)
+test('exhausted free users can request accounting maintenance without collection access', async () => {
+  const calls=[]
+  const route=loadTypeScriptModule(projectFile('app/api/xero/sync/route.ts'),{mocks:{
+    '@/lib/accounting/product-refresh-http':{accountingRefreshPost:async(request,trigger)=>{calls.push(trigger);return new Response(JSON.stringify({ok:true,outcome:'started',phase:'queued'}),{status:202})}},
+    '@/lib/billing/entitlements':{claimActionsEntitlementStatus(){throw new Error('maintenance must never claim usage')}},
+  }})
+  const response=await route.POST(new Request('https://test.example/api/xero/sync',{method:'POST'}))
+  assert.equal(response.status,202);assert.deepEqual(calls,['manual']);assert.equal(exhaustedEntitlement.hasActionsAccess,false)
 })
 
 test('every directly callable billable surface uses the common claim boundary', async () => {
@@ -182,8 +156,6 @@ test('every directly callable billable surface uses the common claim boundary', 
     'app/api/collections/customers/route.ts',
     'app/api/collections/override/route.ts',
     'app/api/xero/raw/route.ts',
-    'app/api/xero/sync/route.ts',
-    'app/api/xero/sync/auto/route.ts',
     'app/api/xero/map-canonical/route.ts',
     'app/xero/canonical/customers/page.tsx',
     'app/xero/canonical/invoices/page.tsx',
@@ -198,6 +170,9 @@ test('every directly callable billable surface uses the common claim boundary', 
 
 test('auth, billing management, OAuth callbacks, and Stripe webhooks stay outside the paywall', async () => {
   const legitimatePublicOrManagementFiles = [
+    'app/api/xero/sync/route.ts',
+    'app/api/xero/sync/auto/route.ts',
+    'lib/accounting/product-refresh-server.ts',
     'app/api/webhooks/stripe/route.ts',
     'app/auth/callback/route.ts',
     'app/api/xero/connect/route.ts',

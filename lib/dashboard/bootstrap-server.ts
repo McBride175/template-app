@@ -1,5 +1,5 @@
 import 'server-only'
-import { readCollectionAccessDatabaseContext, CollectionAccessSchemaUnavailable, type CollectionAccessDatabaseContext } from '@/lib/collections/access-context-server'
+import { hasReadableCollectionConnection, readCollectionAccessDatabaseContext, CollectionAccessSchemaUnavailable, type CollectionAccessDatabaseContext } from '@/lib/collections/access-context-server'
 import type { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import { FREE_USAGE_DAYS } from '@/lib/billing/config'
 import { getConfiguredPaidPriceIds, isSubscriptionPaid, resolveConfiguredPaidPlan } from '@/lib/billing/policy'
@@ -80,13 +80,15 @@ export async function readDashboardBootstrap(params: {
     const held = await context(), status = dashboardConnectionStatus(held, now)
     const paid = isSubscriptionPaid({ subscription: held.subscription, now, paidPriceIds: getConfiguredPaidPriceIds() })
     if (paid !== held.paid) throw new Error('Dashboard entitlement mismatch')
-    const tenantId = held.connection?.auth_state === 'active' && (!params.tenantId || params.tenantId === held.connection.tenant_id)
+    const retainedAccounting = hasReadableCollectionConnection(held) && held.snapshot?.mode === 'generation' && !held.invalidSnapshot
+    const readableAccounting = status.connected || retainedAccounting
+    const tenantId = hasReadableCollectionConnection(held) && held.connection && (!params.tenantId || params.tenantId === held.connection.tenant_id)
       ? held.connection.tenant_id : null
     let claim: BillingClaim | null = null
     // Match the previous queue-mount boundary: no free-day claim during
     // first-value onboarding, permission recovery, or invalid accounting.
-    if (!paid && tenantId && status.connected && !held.invalidSnapshot && !shouldObserveFirstXeroSync(status) &&
-      held.connection?.auth_state === 'active') {
+    if (!paid && tenantId && readableAccounting && !held.invalidSnapshot && !shouldObserveFirstXeroSync(status) &&
+      hasReadableCollectionConnection(held)) {
       const { data, error } = await admin.rpc('claim_billing_usage_day', {
         p_user_id: params.userId, p_tenant_id: tenantId,
         p_usage_date: date, p_free_usage_days_limit: FREE_USAGE_DAYS,
@@ -106,7 +108,7 @@ export async function readDashboardBootstrap(params: {
       collectionState = 'unavailable'
       collection = { ok: false, code: 'NO_XERO_TENANT', entitlement }
     }
-    if (status.connected && tenantId && (held.invalidSnapshot || !shouldObserveFirstXeroSync(status))) {
+    if (readableAccounting && tenantId && (held.invalidSnapshot || !shouldObserveFirstXeroSync(status))) {
       if (held.invalidSnapshot) collectionState = 'unavailable'
       else if (!entitlement.hasActionsAccess) {
         collectionState = 'blocked'

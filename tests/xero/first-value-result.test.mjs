@@ -255,7 +255,7 @@ test('first-result surface has a focused hierarchy and transitions into the matu
   assert.doesNotMatch(client, /authoritative (?:Xero snapshot|result)/i)
   assert.match(preparation, /\/start\/result\?tenantId=/)
   assert.doesNotMatch(preparation, /fenced attempt/i)
-  assert.match(journey, /\/start\/result\?tenantId=/)
+  assert.match(journey, /<FirstValuePreparation/)
   assert.match(nav, /pathname\.startsWith\('\/start\/'\)/)
   assert.match(footer, /pathname\.startsWith\('\/start\/'\)/)
 })

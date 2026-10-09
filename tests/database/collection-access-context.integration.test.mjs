@@ -98,3 +98,13 @@ check('RPC is stable, fixed search path and service-only; unsupported provider r
  const p=JSON.parse(db.psql("select jsonb_build_object('stable',provolatile='s','path',proconfig,'definer',prosecdef)from pg_proc where oid='public.read_collection_access_context(uuid,text,date,text[],timestamptz,text)'::regprocedure;"))
  assert.equal(p.stable,true);assert.equal(p.definer,true);assert.deepEqual(p.path,['search_path=pg_catalog'])
 })
+check('reconnect retains licensed promoted reads; exhausted allowance still blocks product use',async()=>{
+ const run=db.ready()
+ for(const state of ['reauth_required','error']){
+  db.psql(`update public.xero_connections_public set auth_state=${db.quote(state)} where user_id='${db.user}' and tenant_id='tenant-a';`)
+  const c=await read();assert.equal(c.snapshot.syncRunId,run.run);assert.equal(access.hasReadableCollectionConnection(c),true)
+  const r=await access.claimCollectionAccess(args());assert.equal(r.entitlement.hasActionsAccess,true);assert.equal(r.entitlement.tenantId,'tenant-a')
+ }
+ db.psql(`delete from public.billing_usage_days;insert into public.billing_usage_days(user_id,tenant_id,usage_date)select '${db.user}','tenant-a',current_date-s from generate_series(1,5)s;`)
+ const exhausted=await access.claimCollectionAccess(args());assert.equal(exhausted.entitlement.hasActionsAccess,false);assert.equal(db.psql('select count(*) from public.billing_usage_days;'),'5')
+})

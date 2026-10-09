@@ -705,5 +705,6 @@ test('importer remains promotion-free while normal routes use the authoritative 
 
   assert.doesNotMatch(source, /promote_xero_sync_run|promoteXero/)
   assert.ok(routes.every((route) => !route.includes('importXeroGeneration')))
-  assert.ok(routes.slice(0, 3).every((route) => route.includes('syncXeroAuthoritatively')))
+  assert.ok(routes.slice(0, 2).every((route) => route.includes('accountingRefreshPost') && !route.includes('syncXeroAuthoritatively')))
+  assert.ok(routes[2].includes('syncXeroAuthoritatively'))
 })

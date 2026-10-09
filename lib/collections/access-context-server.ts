@@ -44,6 +44,16 @@ export async function readCollectionAccessDatabaseContext(params: {
   return data as CollectionAccessDatabaseContext
 }
 
+/** Provider authentication controls refresh, not retained accounting reads.
+ * Explicit disconnect remains separate; only a proven promoted snapshot permits
+ * reconnect/temporary-auth recovery to keep ordinary licensed collections usable. */
+export function hasReadableCollectionConnection(context: CollectionAccessDatabaseContext) {
+ const connection=context.connection
+ if(!connection || connection.auth_state==='disconnected')return false
+ if(connection.auth_state==='active')return true
+ return !context.invalidSnapshot && context.snapshot?.mode==='generation' && Boolean(context.snapshot.syncRunId && context.lastSyncedAt)
+}
+
 export function collectionAccessCurrencyContext(context: CollectionAccessDatabaseContext): CollectionsCurrencyContext {
   const p = context.currencyPopulation
   if (context.invalidSnapshot || !p || !Array.isArray(p.invoicedCurrencies) ||
@@ -70,7 +80,7 @@ export async function claimCollectionAccess(params: {
   }
   const paid = isSubscriptionPaid({ subscription: context.subscription, now, paidPriceIds: getConfiguredPaidPriceIds() })
   if (paid !== context.paid) throw new Error('Collection entitlement mismatch')
-  const tenantId = context.connection?.auth_state === 'active' &&
+  const tenantId = hasReadableCollectionConnection(context) && context.connection &&
     (!params.tenantId || params.tenantId === context.connection.tenant_id) ? context.connection.tenant_id : null
   let claim: { allowed: boolean; usage_days_consumed: number; usage_date_already_recorded: boolean } | null = null
   if (!paid && tenantId) {

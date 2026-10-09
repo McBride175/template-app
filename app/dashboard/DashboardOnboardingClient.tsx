@@ -14,7 +14,6 @@ import {
   XERO_STATUS_UNAVAILABLE_MESSAGE,
   type XeroConnectionStatus,
 } from '@/lib/xero/account-status'
-import { triggerXeroAutoSyncOnEntry } from '@/lib/xero/auto-sync-client'
 import { shouldObserveFirstXeroSync } from '@/lib/xero/first-sync-feedback'
 import { getXeroCallbackNotice } from '@/lib/xero/oauth-return'
 import { fetchDashboardBootstrap, fetchDashboardReadiness, DashboardRequestError, dashboardResponseStamp,
@@ -45,6 +44,7 @@ export default function DashboardOnboardingClient() {
   const activeTenant = useRef(tenantId)
   activeTenant.current = tenantId
   const loadDashboard = useCallback(async (signal?: AbortSignal) => {
+    const contentStartedAt = performance.now()
     const sequence = ++requestSequence.current
     const requestedTenant = tenantId
     setXeroStatusError(null)
@@ -55,6 +55,7 @@ export default function DashboardOnboardingClient() {
       if (!shouldApplyDashboardResponse(latestStamp.current, stamp)) return null
       latestStamp.current = stamp
       setBootstrap(payload)
+      requestAnimationFrame(() => console.info('[accounting.refresh.client]',{event:'dashboard_content',durationMs:Math.round(performance.now()-contentStartedAt)}))
       setXeroStatus(payload.status)
       setXeroStatusError(payload.statusError)
       return payload
@@ -98,20 +99,16 @@ export default function DashboardOnboardingClient() {
         router.replace(preparationTenantId ? `/start?tenantId=${encodeURIComponent(preparationTenantId)}` : '/start')
         return
       }
-      // The bootstrap has already rendered current data. Preserve the existing
-      // guarded entry refresh policy and observe completion without blocking UI.
-      void triggerXeroAutoSyncOnEntry({ surface: 'dashboard', tenantId }).then(result => {
-        if (!controller.signal.aborted && (result.triggered || result.reason === 'auto_sync_in_progress' || result.state === 'request_failed')) {
-          void loadDashboard(controller.signal)
-        }
-      })
+      requestAnimationFrame(() => window.dispatchEvent(new window.CustomEvent('accounting-product-ready',{detail:{organisationId:initialStatus.tenantId??tenantId}})))
     }
     void run()
     const onVisible = () => { if (document.visibilityState === 'visible') void loadDashboard(controller.signal) }
     document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('accounting-updated', onVisible)
     return () => {
       controller.abort(); sequences.current++
       document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('accounting-updated', onVisible)
       sub.subscription.unsubscribe()
     }
   }, [loadDashboard, router, tenantId])

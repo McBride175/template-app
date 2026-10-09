@@ -36,6 +36,8 @@ function loadRoute({ authenticated = true, ownedTenantId = 'tenant-owned' } = {}
 
   const route = loadTypeScriptModule(ROUTE_PATH, {
     mocks: {
+      '@/lib/supabase-admin':{createSupabaseAdminClient:()=>({})},
+      '@/lib/accounting/product-refresh-server':{signalOwnedProductAccountingRefresh:async()=>({outcome:'started'})},
       'next/server': nextServerMock(),
       '@/lib/supabase-server': {
         async createServerSupabaseClient() {

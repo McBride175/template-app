@@ -1,3 +1,5 @@
+import { createSupabaseAdminClient } from '@/lib/supabase-admin'
+import { signalOwnedProductAccountingRefresh } from '@/lib/accounting/product-refresh-server'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { recordFirstValueLatency } from '@/lib/observability/first-value-latency'
@@ -57,6 +59,9 @@ export async function POST(request: NextRequest) {
   if (!connection) {
     return NextResponse.json({ error: 'Organisation is not connected' }, { status: 404 })
   }
+
+  await signalOwnedProductAccountingRefresh({admin:createSupabaseAdminClient(),authenticatedOwnerId:user.id,
+    selection:{provider:'xero',providerOrganisationId:connection.tenant_id},trigger:'onboarding'})
 
   recordFirstValueLatency({
     stage: 'T0',

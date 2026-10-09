@@ -13,8 +13,10 @@ fences. See [dispatch](docs/accounting-refresh-dispatch.md) and
 [Xero execution](docs/accounting-xero-worker.md).
 
 `lib/accounting/` and service-only control tables provide provider-neutral
-coalescing, retries, reservations and attempts. Ordinary product triggers and
-refresh/billing routes retain their compatibility path pending Phase 7.5. OAuth
+coalescing, retries, reservations and attempts. Phase 7.5 product activity/manual/onboarding/reconnect use provider-neutral durable
+acceptance and status; compatibility auto/manual URLs delegate to that service.
+Accounting maintenance/status do not claim a free-use day. Product entitlement
+remains unchanged. See [the product cutover](docs/accounting-product-cutover.md). OAuth
 relink/disconnect now fence publication transactionally. A committed durable
 accounting result enters `preparing`. Phase 7.4 reuses existing feature and portfolio
 ensures, verifies both ordinary collection variants against current G/F/UTC date/

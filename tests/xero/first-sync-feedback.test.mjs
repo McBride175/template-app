@@ -1,269 +1,43 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { loadTypeScriptModule } from './test-helpers/ts-module-loader.mjs'
-
-const FEEDBACK_PATH = new URL('../../lib/xero/first-sync-feedback.ts', import.meta.url)
-const AUTO_SYNC_PATH = new URL('../../lib/xero/auto-sync-client.ts', import.meta.url)
-
-function status(overrides = {}) {
-  return {
-    connected: true,
-    needsReauth: false,
-    hasError: false,
-    hasTemporaryIssue: false,
-    syncState: 'active',
-    syncMessage: 'Xero is connected.',
-    canSync: true,
-    authState: 'active',
-    tenantId: 'tenant-1',
-    tenantName: 'Test tenant',
-    lastSyncedAt: null,
-    snapshot: { mode: 'legacy', syncRunId: null },
-    grantClassification: 'granular_ready',
-    latestSyncAttempt: null,
-    connections: [],
-    ...overrides,
-  }
+import React,{act} from 'react'
+import {JSDOM} from 'jsdom'
+import {loadTypeScriptModule} from './test-helpers/ts-module-loader.mjs'
+const dom=new JSDOM('<!doctype html><html><body></body></html>',{url:'https://test.example/dashboard',pretendToBeVisual:true})
+for(const key of ['window','document','HTMLElement','Event','CustomEvent'])globalThis[key]=dom.window[key]
+Object.defineProperty(globalThis,'navigator',{configurable:true,value:dom.window.navigator});globalThis.IS_REACT_ACT_ENVIRONMENT=true
+const {createRoot}=await import('react-dom/client')
+const status=(phase='complete',options={})=>({connection:{provider:'xero',providerOrganisationId:'org',displayName:'Xero',health:'healthy'},accounting:{state:'valid',activeGenerationId:'G1',accountingObservedAt:'2026-10-08T12:00:00Z',derivatives:{state:'ready'},ageSeconds:100,freshness:'fresh'},work:{phase,stage:phase==='preparing'?'derivatives':'accounting',jobId:'job',requestedAt:'2026-10-08T12:00:00Z'},failure:null,...options})
+const response=payload=>Response.json({ok:true,...payload})
+async function observer(handler,org='org'){
+ const calls=[],timers=[],saved={fetch:globalThis.fetch,setTimeout:globalThis.setTimeout,clearTimeout:globalThis.clearTimeout},api=loadTypeScriptModule('app/components/accounting-refresh-client.ts')
+ let hook
+ globalThis.fetch=async(url,init)=>{calls.push({url,init});return handler(url,init)}
+ globalThis.setTimeout=(fn,ms,...args)=>[2000,5000].includes(ms)?(timers.push({fn,ms,cleared:false}),timers.length):saved.setTimeout(fn,ms,...args)
+ globalThis.clearTimeout=id=>{if(typeof id==='number'&&timers[id-1])timers[id-1].cleared=true;else saved.clearTimeout(id)}
+ const el=document.createElement('div');document.body.append(el);const root=createRoot(el)
+ function Observer(){hook=api.useAccountingRefresh(org);return React.createElement('p',{},hook.status?.work.phase??'loading')}
+ await act(async()=>root.render(React.createElement(Observer)))
+ return {api,calls,timers,el,get hook(){return hook},close:async()=>{await act(async()=>root.unmount());Object.assign(globalThis,saved);el.remove()}}
 }
-
-const successfulAutoSync = {
-  state: 'completed',
-  triggered: true,
-  syncSucceeded: true,
-  reason: null,
-  syncStatus: 200,
-}
-
-test('new tenant first sync observes promotion and returns the generation snapshot', async () => {
-  const feedback = loadTypeScriptModule(FEEDBACK_PATH)
-  const initial = status()
-  assert.equal(feedback.shouldObserveFirstXeroSync(initial), true)
-
-  let statusLoads = 0
-  const result = await feedback.observeFirstXeroSyncCompletion({
-    autoSyncResult: successfulAutoSync,
-    signal: new AbortController().signal,
-    async loadStatus() {
-      statusLoads += 1
-      return status({
-        lastSyncedAt: '2026-09-17T10:00:00Z',
-        snapshot: { mode: 'generation', syncRunId: 'generation-a' },
-        latestSyncAttempt: { runId: 'generation-a', state: 'promoted' },
-      })
-    },
-  })
-
-  assert.equal(statusLoads, 1)
-  assert.equal(result.state, 'ready')
-  assert.deepEqual(result.status.snapshot, {
-    mode: 'generation',
-    syncRunId: 'generation-a',
-  })
+test('concurrent/repeated activity signals share one POST; throttle is organisation scoped',async()=>{
+ const old=globalThis.fetch,calls=[],api=loadTypeScriptModule('app/components/accounting-refresh-client.ts');let release
+ globalThis.fetch=async(url,init)=>{calls.push({url,init});await new Promise(r=>release=r);return response({outcome:'not_due',phase:'idle',jobId:null})}
+ try{const a=api.signalProductAccountingActivity('org','dashboard',100000),b=api.signalProductAccountingActivity('org','customers',100001);assert.equal(calls.length,1);release();assert.equal(await a,await b);assert.equal(await api.signalProductAccountingActivity('org','disputes',129999),null);const c=api.signalProductAccountingActivity('other-org','customers',130000);release();await c;assert.equal(calls.length,2)}finally{globalThis.fetch=old}
 })
-
-test('failed first sync terminates preparation with a recoverable failure state', async () => {
-  const feedback = loadTypeScriptModule(FEEDBACK_PATH)
-  const result = await feedback.observeFirstXeroSyncCompletion({
-    autoSyncResult: {
-      ...successfulAutoSync,
-      syncSucceeded: false,
-      syncStatus: 502,
-    },
-    signal: new AbortController().signal,
-    async loadStatus() {
-      return status({
-        syncState: 'temporary_sync_issue',
-        latestSyncAttempt: { runId: 'generation-failed', state: 'failed' },
-      })
-    },
-  })
-
-  assert.equal(result.state, 'failed')
+test('status observation never posts activity or refresh intent',async()=>{const ui=await observer(async()=>response({status:status()}));try{assert.equal(ui.calls.length,1);assert.ok(ui.calls.every(c=>c.url.startsWith('/api/accounting/refresh-status')));assert.equal(ui.timers.length,0)}finally{await ui.close()}})
+test('manual POST acknowledges immediately, then status observation starts after two seconds and settles to five',async()=>{
+ let phase='complete';const ui=await observer(async(url)=>url.includes('refresh-status')?response({status:status(phase)}):response({outcome:'started',phase:'queued',jobId:'new'}))
+ try{await act(async()=>ui.hook.request('manual','account'));assert.equal(ui.hook.status.work.phase,'queued');assert.equal(ui.timers.at(-1).ms,2000);phase='running';await act(async()=>ui.timers.at(-1).fn());assert.equal(ui.hook.status.work.phase,'running');assert.equal(ui.timers.at(-1).ms,5000);phase='complete';await act(async()=>ui.timers.at(-1).fn());assert.equal(ui.hook.status.work.phase,'complete');assert.ok(ui.timers.at(-1).cleared)}finally{await ui.close()}
 })
-
-test('reauthentication and permission upgrade have distinct first-sync outcomes', () => {
-  const feedback = loadTypeScriptModule(FEEDBACK_PATH)
-
-  assert.equal(
-    feedback.resolveXeroFirstSyncFeedback({
-      autoSyncResult: successfulAutoSync,
-      status: status({
-        connected: false,
-        needsReauth: true,
-        authState: 'reauth_required',
-        syncState: 'reconnect_required',
-      }),
-    }),
-    'reconnect_required'
-  )
-  assert.equal(
-    feedback.resolveXeroFirstSyncFeedback({
-      autoSyncResult: successfulAutoSync,
-      status: status({
-        connected: false,
-        syncState: 'permission_upgrade_required',
-        grantClassification: 'permission_upgrade_required',
-      }),
-    }),
-    'permission_upgrade_required'
-  )
+test('five minute observation cap leaves durable work active; visibility return rechecks',async()=>{
+ const dateNow=Date.now;let now=100000;Date.now=()=>now
+ const ui=await observer(async()=>response({status:status('running')}))
+ try{const count=ui.timers.length;now+=300001;await act(async()=>ui.timers.at(-1).fn());assert.equal(ui.timers.length,count);assert.equal(ui.hook.status.work.phase,'running');await act(async()=>document.dispatchEvent(new Event('visibilitychange')));assert.equal(ui.calls.length,3);assert.equal(ui.timers.length,count+1)}finally{Date.now=dateNow;await ui.close()}
 })
-
-test('an existing active generation preserves normal Dashboard behavior', () => {
-  const feedback = loadTypeScriptModule(FEEDBACK_PATH)
-  assert.equal(
-    feedback.shouldObserveFirstXeroSync(
-      status({
-        lastSyncedAt: '2026-09-17T10:00:00Z',
-        snapshot: { mode: 'generation', syncRunId: 'generation-a' },
-      })
-    ),
-    false
-  )
+test('unmount cancels polling and GET observation, not already accepted server work',async()=>{const ui=await observer(async()=>response({status:status('running')}));const signal=ui.calls[0].init.signal;await ui.close();assert.equal(signal.aborted,true);assert.ok(ui.timers.every(t=>t.cleared))})
+test('older status response cannot replace a newer generation',async()=>{
+ let n=0,older,newer;const ui=await observer(async()=>++n===1?response({status:status()}):n===2?new Promise(r=>older=r):new Promise(r=>newer=r))
+ try{await act(async()=>{document.dispatchEvent(new Event('visibilitychange'));document.dispatchEvent(new Event('visibilitychange'))});await act(async()=>newer(response({status:status('complete',{accounting:{...status().accounting,activeGenerationId:'G2'}})})));await act(async()=>older(response({status:status()})));assert.equal(ui.hook.status.accounting.activeGenerationId,'G2')}finally{await ui.close()}
 })
-
-test('concurrent and repeated auto-sync triggers share one request and one result', async () => {
-  const autoSync = loadTypeScriptModule(AUTO_SYNC_PATH)
-  let requestCount = 0
-  let resolveRequest
-  const responsePromise = new Promise((resolve) => {
-    resolveRequest = resolve
-  })
-  const fetcher = async () => {
-    requestCount += 1
-    return responsePromise
-  }
-  const params = { surface: 'dashboard', tenantId: 'tenant-dedupe', fetcher }
-
-  const first = autoSync.triggerXeroAutoSyncOnEntry(params)
-  const second = autoSync.triggerXeroAutoSyncOnEntry(params)
-  assert.equal(first, second)
-  assert.equal(requestCount, 1)
-
-  resolveRequest({
-    ok: true,
-    status: 200,
-    async json() {
-      return { triggered: true, syncSucceeded: true, syncStatus: 200 }
-    },
-  })
-  const [firstResult, secondResult] = await Promise.all([first, second])
-  const repeatedResult = await autoSync.triggerXeroAutoSyncOnEntry(params)
-
-  assert.deepEqual(firstResult, secondResult)
-  assert.deepEqual(repeatedResult, firstResult)
-  assert.equal(requestCount, 1)
-})
-
-test('an explicit recovery retry bypasses only the browser debounce and marks the server request', async () => {
-  const autoSync = loadTypeScriptModule(AUTO_SYNC_PATH)
-  const bodies = []
-  const fetcher = async (_url, init) => {
-    bodies.push(JSON.parse(init.body))
-    return {
-      ok: true,
-      status: 200,
-      async json() {
-        return { triggered: true, syncSucceeded: true, syncStatus: 200 }
-      },
-    }
-  }
-  const params = { surface: 'start', tenantId: 'tenant-retry', fetcher }
-
-  await autoSync.triggerXeroAutoSyncOnEntry(params)
-  await autoSync.triggerXeroAutoSyncOnEntry({ ...params, retry: true })
-
-  assert.equal(bodies.length, 2)
-  assert.equal(bodies[0].retry, false)
-  assert.equal(bodies[1].retry, true)
-})
-
-test('component abort stops cross-tab status polling without another request loop', async () => {
-  const feedback = loadTypeScriptModule(FEEDBACK_PATH)
-  const controller = new AbortController()
-  let statusLoads = 0
-  let waits = 0
-
-  const result = await feedback.observeFirstXeroSyncCompletion({
-    autoSyncResult: {
-      ...successfulAutoSync,
-      triggered: false,
-      syncSucceeded: null,
-      reason: 'auto_sync_in_progress',
-    },
-    signal: controller.signal,
-    async loadStatus() {
-      statusLoads += 1
-      return status({
-        syncState: 'sync_in_progress',
-        latestSyncAttempt: { runId: 'generation-running', state: 'running' },
-      })
-    },
-    async wait() {
-      waits += 1
-      controller.abort()
-    },
-  })
-
-  assert.equal(result.state, 'cancelled')
-  assert.equal(statusLoads, 1)
-  assert.equal(waits, 1)
-})
-
-test('active server work keeps polling until authoritative promotion without a client timeout failure', async () => {
-  const feedback = loadTypeScriptModule(FEEDBACK_PATH)
-  let statusLoads = 0
-  const result = await feedback.observeFirstXeroSyncCompletion({
-    autoSyncResult: {
-      ...successfulAutoSync,
-      triggered: false,
-      syncSucceeded: null,
-      reason: 'auto_sync_in_progress',
-    },
-    signal: new AbortController().signal,
-    async loadStatus() {
-      statusLoads += 1
-      if (statusLoads === 6) {
-        return status({
-          lastSyncedAt: '2026-09-17T10:00:00Z',
-          snapshot: { mode: 'generation', syncRunId: 'generation-running' },
-          latestSyncAttempt: { runId: 'generation-running', state: 'promoted' },
-        })
-      }
-      return status({
-        syncState: 'sync_in_progress',
-        latestSyncAttempt: { runId: 'generation-running', state: 'running' },
-      })
-    },
-    async wait() {},
-  })
-
-  assert.equal(result.state, 'ready')
-  assert.equal(statusLoads, 6)
-})
-
-test('transient status failures are reported but do not become generation failure', async () => {
-  const feedback = loadTypeScriptModule(FEEDBACK_PATH)
-  const observations = []
-  let statusLoads = 0
-  const result = await feedback.observeFirstXeroSyncCompletion({
-    autoSyncResult: successfulAutoSync,
-    signal: new AbortController().signal,
-    async loadStatus() {
-      statusLoads += 1
-      if (statusLoads <= 2) throw new Error('temporary network failure')
-      return status({
-        lastSyncedAt: '2026-09-17T10:00:00Z',
-        snapshot: { mode: 'generation', syncRunId: 'generation-after-reconnect' },
-        latestSyncAttempt: { runId: 'generation-after-reconnect', state: 'promoted' },
-      })
-    },
-    onObservation(observation) {
-      observations.push(observation.state)
-    },
-    async wait() {},
-  })
-
-  assert.equal(result.state, 'ready')
-  assert.deepEqual(observations, ['status_unavailable', 'status_unavailable', 'ready'])
-})
+test('first-value admission hint never invents successful accounting',()=>{const api=loadTypeScriptModule('lib/xero/first-sync-feedback.ts');assert.equal(api.shouldObserveFirstXeroSync({connected:true,lastSyncedAt:null}),true);assert.equal(api.shouldObserveFirstXeroSync({connected:true,lastSyncedAt:'date'}),false);assert.equal(api.shouldObserveFirstXeroSync({connected:false,lastSyncedAt:null}),false)})

@@ -1,5 +1,7 @@
 'use client'
 
+import { notifyAccountingScope, subscribeAccountingUpdates } from '@/lib/accounting/product-events'
+
 import type { FinancialMutationReconciliation } from '@/lib/collections/financial-mutation-reconciliation-server'
 import { shouldApplyCustomerFinancialResponse, type CustomerFinancialStamp } from '@/lib/collections/financial-mutation-response'
 import { notifyPromiseActionabilityChanged } from '@/lib/collections/promise-refresh'
@@ -337,6 +339,7 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
           return patch && requestId <= patch.throughRequest ? (patch.row ? [patch.row] : []) : [row]
         }))
         setResolvedTenantId(payload.tenantId ?? null)
+        notifyAccountingScope(payload.tenantId)
         setOrganisationBaseCurrency(payload.organisationBaseCurrency ?? null)
         setCurrencyContext(payload.currencyContext ?? null)
         setCurrencyAccess(payload.currencyAccess ?? null)
@@ -391,6 +394,7 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
         financialStamps.current.set(customerSourceId, stamp)
       }
       setResolvedTenantId(payload.tenantId ?? null)
+        notifyAccountingScope(payload.tenantId)
       setDetail(payload)
       return true
     } catch (cause) {
@@ -494,6 +498,11 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
   useEffect(() => {
     void loadRows(false)
   }, [loadRows])
+
+  useEffect(() => {
+    const updated = () => { void loadRows(true); if (expandedCustomerSourceId) void loadDetail(expandedCustomerSourceId) }
+    return subscribeAccountingUpdates(updated)
+  }, [loadRows, loadDetail, expandedCustomerSourceId])
 
   useEffect(() => {
     if (!expandedCustomerSourceId || detailLoading ||

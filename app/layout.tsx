@@ -3,8 +3,7 @@ import AccountingActivityBoundary from './components/AccountingActivityBoundary'
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from 'next/font/google'
 import "./globals.css";
-import Nav from './components/Nav'
-import Footer from './components/Footer'
+import ApplicationFrame from './components/shell/ApplicationFrame'
 import { getSiteUrl } from '@/lib/site-url'
 
 const siteUrl = getSiteUrl()
@@ -53,14 +52,10 @@ export default function RootLayout({
   return (
     <html lang="en" className={plusJakartaSans.variable}>
       <body className="antialiased bg-page">
-        <div className="min-h-screen flex flex-col">
-          <Nav />
-          <main className="max-w-4xl mx-auto px-6 py-8 flex-1 w-full">
-            <Suspense fallback={null}><AccountingActivityBoundary /></Suspense>
-            {children}
-          </main>
-          <Footer />
-        </div>
+        <ApplicationFrame>
+          <Suspense fallback={null}><AccountingActivityBoundary /></Suspense>
+          {children}
+        </ApplicationFrame>
       </body>
     </html>
   );

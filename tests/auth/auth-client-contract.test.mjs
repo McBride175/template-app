@@ -154,7 +154,7 @@ test('both signed-in password entry points update the authenticated user directl
 })
 
 test('global sign-out performs a hard redirect after clearing the session', async () => {
-  const source = await readFile(projectFile('app/components/Nav.tsx'), 'utf8')
+  const source = await readFile(projectFile('app/components/useNavigationSession.ts'), 'utf8')
 
   assert.match(source, /await supabase\.auth\.signOut\(\)/)
   assert.match(source, /window\.location\.replace\('\/login\?status=signed_out'\)/)

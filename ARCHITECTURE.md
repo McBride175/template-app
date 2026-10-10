@@ -2,6 +2,23 @@
 
 This document is the high-level source of truth for environments, deployment, database workflow, security boundaries, and external integrations. Read it before making architecture, database, authentication, or deployment changes.
 
+## Shared application shell
+
+Phase 5A keeps the existing App Router URLs and page hierarchy. Root layout
+delegates presentation to `ApplicationFrame`: existing protected page prefixes
+use `ProductWorkspace`/`ProductShell`, while public/auth/start journeys retain
+the existing public Nav/Footer/container. This classification reuses the current
+protected-path helper and grants no access; proxy and feature authorisation
+remain unchanged. The shared navigation-session hook preserves the existing
+getUser/subscription/sign-out behaviour, without a new auth or theme provider.
+
+Product navigation is Priorities (`/dashboard`), Customers and Disputes, with
+Account/Connections and supporting links. A 240px rail begins at 1024px; smaller
+screens use a full-H3 compact header and accessible modal menu. Operational
+content is wide, account/settings retain readable widths, and legacy feature
+landmarks/inner containers are preserved. No feature/data workflow was migrated.
+See [the shell implementation and local certification](docs/product-shell.md).
+
 ## Accounting refresh architecture
 
 The Preview/Test accounting-refresh programme is complete. Meaningful product

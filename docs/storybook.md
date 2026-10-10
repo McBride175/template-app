@@ -25,6 +25,15 @@ with the existing `Field` component. All examples are fictional and deterministi
 | Checkbox | Unchecked, checked, disabled unchecked/checked, validation error, focus |
 | Select | Empty, selected, disabled, validation error, focus |
 | Card | Default, subtle, long content at mobile width |
+| ProductShell | Eight simulated desktop/active/loading/error/mobile/open-menu/narrow/tablet states |
+
+The shell stories import only its pure presentation component, not
+ApplicationFrame, ProductWorkspace, session hooks or feature providers. Their
+fictional display props are not an authenticated session. Fullscreen stories
+bypass only the padded preview wrapper. `pnpm test:shell` uses the existing
+Playwright Test dependency with an isolated loopback-only config for repeatable
+shell interactions; it does not bypass application E2E preflights or certify
+private workflows. See [the shell record](product-shell.md).
 
 Change props in Controls and use real pointer/keyboard interaction to inspect
 hover, focus and native input states. The loading example composes `Spinner` and

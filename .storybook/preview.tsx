@@ -18,7 +18,8 @@ const preview: Preview = {
       },
     },
   },
-  decorators: [(Story) => <main className="w-full max-w-lg font-sans"><Story /></main>],
+  decorators: [(Story, context) => context.parameters.layout === 'fullscreen'
+    ? <Story /> : <main className="w-full max-w-lg font-sans"><Story /></main>],
 }
 
 export default preview

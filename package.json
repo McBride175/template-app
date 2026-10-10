@@ -27,6 +27,7 @@
     "typecheck:storybook": "tsc --noEmit --project .storybook/tsconfig.json",
     "test:e2e": "playwright test",
     "test:e2e:smoke": "playwright test --grep @smoke",
+    "test:shell": "playwright test --config playwright.shell.config.ts",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:report": "playwright show-report",
     "test:e2e:auth": "tsx scripts/e2e-auth.ts"

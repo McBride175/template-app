@@ -6,6 +6,7 @@ export const isWorkspacePath = isProtectedPagePath
 export const workspaceLinks = [
   { label: 'Priorities', href: '/dashboard', prefixes: ['/dashboard', '/collections'] },
   { label: 'Customers', href: '/customers', prefixes: ['/customers'] },
+  { label: 'Promises', href: '/promises', prefixes: ['/promises'], prefetch: false },
   { label: 'Disputes', href: '/disputes', prefixes: ['/disputes'] },
 ] as const
 

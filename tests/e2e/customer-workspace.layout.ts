@@ -24,7 +24,7 @@ for (const width of [320,390,768,1440]) {
     await expect(overview.getByText('£14,120.00',{exact:true})).toBeVisible()
     await expect(page.getByRole('link',{name:'Back to Priorities'})).toHaveAttribute('href','/dashboard?tenantId=synthetic#collection-actions')
     await expect(overview.getByRole('link',{name:'View history'})).toHaveAttribute('href','/customers/synthetic-1/history?tenantId=synthetic')
-    await page.getByRole('link',{name:'Promises',exact:true}).click()
+    await page.getByRole('navigation',{name:'Customer views'}).getByRole('link',{name:'Promises',exact:true}).click()
     const commitments=page.getByRole('region',{name:'Customer promises'})
     await expect(commitments).toBeVisible()
     await commitments.getByRole('listitem').filter({hasText:'Invoice INV-1048'}).getByRole('link',{name:'Manage promise with invoice'}).click()

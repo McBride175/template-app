@@ -188,3 +188,11 @@ rows, one management disclosure, grouped Promise/dispute tools and quieter bulk
 actions. Financial and mutation contracts remain unchanged. See
 [the measurements, screenshots and local certification](invoice-density-correction.md).
 The next official programme phase remains Phase 5E — Global Promises Workspace.
+
+## Phase 5E integration clarification
+
+The later [Global Promises Workspace](global-promises-workspace.md) now provides
+a cross-customer read worklist. Earlier “no global worklist” statements above
+describe the Phase 5C checkpoint. Invoice management remains here. Promises
+origin links preserve same-tenant filters/page through selected invoice and
+customer history, with Back to Promises; existing queue origin is unchanged.

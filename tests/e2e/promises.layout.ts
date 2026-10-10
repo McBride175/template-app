@@ -1,0 +1,77 @@
+import { test, expect } from '@playwright/test'
+// Synthetic Storybook fixtures; never authenticate or call accounting/mutation APIs.
+test.beforeEach(async ({ context }) => {
+  await context.route('**/*', async route => {
+    const request = route.request(), url = new URL(request.url())
+    if (url.origin === 'http://127.0.0.1:6006' && ['GET','HEAD'].includes(request.method())) await route.continue()
+    else await route.abort('blockedbyclient')
+  })
+})
+const story = (name: string) => `/iframe.html?id=yuohme-promises--${name}&viewMode=story`
+for (const width of [320,390,768,1440]) test(`compact Promises worklist at ${width}px`, async ({ page }, info) => {
+  await page.setViewportSize({width,height:900})
+  await page.goto(story('active'))
+  const list=page.getByRole('list',{name:'Promise commitments'}), rows=list.getByRole('listitem')
+  await expect(rows).toHaveCount(4)
+  if (width < 640) expect((await rows.first().boundingBox())!.y).toBeLessThan(440)
+  await expect(rows.nth(0)).toContainText('Date passed · Still active')
+  await expect(rows.nth(1)).toContainText('Due today')
+  await expect(rows.nth(2)).toContainText('Upcoming')
+  await expect(rows.nth(0)).toContainText('£4,000.00')
+  await expect(rows.nth(1)).toContainText('€2,750.50')
+  await expect(list).not.toContainText('Promise missed')
+  const manage=rows.nth(0).getByRole('link',{name:/Manage promise/})
+  expect((await manage.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  const url=new URL((await manage.getAttribute('href'))!,'http://localhost')
+  expect(url.pathname).toBe('/customers');expect(url.searchParams.get('tenantId')).toBe('synthetic')
+  expect(url.searchParams.get('customerSourceId')).toBe('customer-0');expect(url.hash).toBe('#invoice-invoice-0')
+  expect(new URL(url.searchParams.get('promisesReturn')!,'http://localhost').pathname).toBe('/promises')
+  if(width<1024){
+    await page.getByRole('button',{name:'Open navigation'}).click()
+    const dialog=page.getByRole('dialog');const nav=dialog.getByRole('navigation',{name:'Primary navigation'})
+    await expect(nav.getByRole('link')).toHaveText(['Priorities','Customers','Promises','Disputes'])
+    await expect(nav.getByRole('link',{name:'Promises'})).toHaveAttribute('aria-current','page')
+    await page.keyboard.press('Escape');await expect(dialog).not.toBeVisible()
+  }else await expect(page.getByRole('navigation',{name:'Primary navigation'}).getByRole('link',{name:'Promises'})).toHaveAttribute('aria-current','page')
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+  await info.attach(`promises-${width}`,{body:await page.screenshot({fullPage:true}),contentType:'image/png'})
+  const details=rows.nth(0).locator('summary');await details.focus();await page.keyboard.press('Enter')
+  await expect(rows.nth(0)).toContainText('Qualifying payment recorded: £1,250.00')
+  await expect(rows.nth(0).getByText(/Accounts team expects/)).toBeVisible()
+  await expect(details).toBeFocused()
+})
+test('search/date/history filters, clear and bounded page navigation',async({page})=>{
+  await page.setViewportSize({width:390,height:844});await page.goto(story('active'))
+  const form=page.getByRole('form',{name:'Promise filters'})
+  await form.getByRole('searchbox').fill('Cedar');await form.getByRole('button',{name:/^Apply/}).click()
+  await expect(page.getByRole('listitem')).toHaveCount(1)
+  await form.getByRole('button',{name:'Clear',exact:true}).click();await expect(page.getByRole('listitem')).toHaveCount(4)
+  await form.getByRole('button',{name:/Filters ·/}).click()
+  await form.getByLabel('Promise date',{exact:true}).selectOption('passed');
+  await form.getByRole('button',{name:/Filters ·/}).click()
+  await expect(form.getByLabel('Promise date',{exact:true})).toBeHidden()
+  await form.getByRole('button',{name:/Filters ·/}).click()
+  await expect(form.getByLabel('Promise date',{exact:true})).toHaveValue('passed')
+  await form.getByRole('button',{name:/^Apply/}).click()
+  await expect(page.getByRole('listitem')).toHaveCount(1);await expect(page.getByRole('listitem')).toContainText('Still active')
+  await form.getByRole('button',{name:/Filters ·/}).click()
+  await form.getByLabel('Commitments').selectOption('history');await form.getByRole('button',{name:/^Apply/}).click()
+  await expect(form.getByLabel('Promise date',{exact:true})).toBeDisabled();await expect(page.getByRole('listitem')).toHaveCount(4)
+  for(const label of ['Promise kept','Promise missed','Promise outcome unclear','Promise cancelled'])await expect(page.getByRole('list')).toContainText(label)
+  await page.goto(story('pagination'));await page.getByRole('navigation',{name:'Promise pages'}).getByRole('button',{name:'Next'}).click()
+  await expect(page.getByRole('navigation',{name:'Promise pages'})).toContainText('Page 2 of 3')
+})
+test('long identities, unavailable evidence, loading, error and empty states',async({page},info)=>{
+  await page.setViewportSize({width:320,height:844})
+  for(const name of ['long-values','unavailable','loading','error','empty','history']){
+    await page.goto(story(name))
+    if(name==='long-values')await expect(page.getByRole('list')).toContainText('£9,999,999,999,999,999.99')
+    if(name==='unavailable'){await expect(page.getByText(/Organisation date context is unavailable/)).toBeVisible();await expect(page.getByRole('list')).toContainText('Date context unavailable')}
+    if(name==='loading')await expect(page.getByRole('status').filter({hasText:'Loading commitments…'})).toBeVisible()
+    if(name==='error'){await expect(page.getByRole('alert')).toBeVisible();await page.getByRole('button',{name:'Retry promises'}).click();await expect(page.getByTestId('promise-preview-event')).toContainText('retry')}
+    if(name==='history'){await expect(page.getByRole('listitem')).toHaveCount(4);await expect(page.getByRole('list')).toContainText('Promise outcome unclear')}
+    if(name==='empty')await expect(page.getByRole('heading',{name:'No active promises'})).toBeVisible()
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+    await info.attach(name,{body:await page.screenshot({fullPage:true}),contentType:'image/png'})
+  }
+})

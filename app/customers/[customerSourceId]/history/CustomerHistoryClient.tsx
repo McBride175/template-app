@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { promisesReturnHref } from '@/lib/collections/promise-worklist'
 import { queueCustomerId } from '@/app/collections/actions/queue-navigation-context'
 import type { CustomerHistoryEvent } from '@/lib/collections/customer-history'
 import CustomerHistoryView from '@/app/collections/customers/CustomerHistoryView'
@@ -22,8 +23,9 @@ export default function CustomerHistoryClient({ tenantId, customerSourceId, cust
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
+  const [originPromises, setOriginPromises] = useState<string | null>(null)
   const [originQueueCustomer, setOriginQueueCustomer] = useState<string | null>(null)
-  useEffect(() => { setOriginQueueCustomer(queueCustomerId(new URL(window.location.href).searchParams.get('queueCustomerSourceId'))) }, [])
+  useEffect(() => { const params = new URL(window.location.href).searchParams; setOriginQueueCustomer(queueCustomerId(params.get('queueCustomerSourceId'))); setOriginPromises(promisesReturnHref(params.get('promisesReturn'), tenantId)) }, [tenantId])
   const requestInFlight = useRef(false)
 
   async function readPage(cursor: string | null) {
@@ -81,7 +83,7 @@ export default function CustomerHistoryClient({ tenantId, customerSourceId, cust
     } finally { requestInFlight.current = false; setBusy(false) }
   }
 
-  return <CustomerHistoryView originQueueCustomer={originQueueCustomer} tenantId={tenantId} customerSourceId={customerSourceId} customerName={customerName}
+  return <CustomerHistoryView originPromises={originPromises} originQueueCustomer={originQueueCustomer} tenantId={tenantId} customerSourceId={customerSourceId} customerName={customerName}
     events={events} busy={busy} feedback={feedback} error={error} hasMore={Boolean(nextCursor)}
     onDelete={event => void deleteAction(event)} onMore={() => void loadMore()} />
 }

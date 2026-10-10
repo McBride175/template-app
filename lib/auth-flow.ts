@@ -10,6 +10,7 @@ const PROTECTED_PAGE_PREFIXES = [
   '/customers',
   '/dashboard',
   '/disputes',
+  '/promises',
   '/settings',
   '/xero',
 ]

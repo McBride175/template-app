@@ -12,7 +12,7 @@ protected-path helper and grants no access; proxy and feature authorisation
 remain unchanged. The shared navigation-session hook preserves the existing
 getUser/subscription/sign-out behaviour, without a new auth or theme provider.
 
-Product navigation is Priorities (`/dashboard`), Customers and Disputes, with
+Product navigation is Priorities (`/dashboard`), Customers, Promises and Disputes, with
 Account/Connections and supporting links. A 240px rail begins at 1024px; smaller
 screens use a full-H3 compact header and accessible modal menu. Operational
 content is wide, account/settings retain readable widths, and legacy feature
@@ -639,3 +639,18 @@ Explicit unmigrated/legacy compatibility preserves current authoritative reads;
 it is not the certified fast path. See `docs/performance/dashboard-bootstrap.md`
 for contracts, security, request counts, testing and measurement limits. No hosted
 programme migration or refresh-policy rollout is implied by this change.
+
+### Global Promises read workspace (UI Phase 5E)
+
+`/promises` is protected and non-indexable. Its read-only
+`/api/collections/promises` endpoint reuses the established verified collection
+access, tenant/currency entitlement and held accounting snapshot boundary.
+It reads a bounded Promise page with batched current customer/invoice labels,
+exact decimal strings and an explicit public-field projection. Active date
+categories use authoritative organisation timezone context; elapsed Active
+commitments remain Active. The worklist never runs reconciliation, scoring or
+accounting refresh. Management links reuse the customer invoice editor with
+validated same-tenant return context. No migration or privileged function is
+added. Earlier Promise stages above describe their historical boundaries; the
+editor and this global worklist now exist. See
+[the Phase 5E contract and certification](docs/global-promises-workspace.md).

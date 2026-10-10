@@ -7,8 +7,8 @@ import { loadTypeScriptModule } from './test-helpers/ts-module-loader.mjs'
 const { customerFixtures, invoiceFixture } = loadTypeScriptModule('stories/ui/customerFixture.ts')
 const runtime = await import('react/jsx-runtime')
 
-async function setup({ hash = '', invoices = [], originQueueCustomer = null } = {}) {
-  const dom=new JSDOM('<!doctype html><div id="root"></div>',{url:`http://localhost/customers?tenantId=synthetic&customerSourceId=synthetic-1${originQueueCustomer ? '&queueCustomerSourceId='+originQueueCustomer : ''}${hash}`,pretendToBeVisual:true})
+async function setup({ hash = '', invoices = [], originQueueCustomer = null, originPromises = null } = {}) {
+  const dom=new JSDOM('<!doctype html><div id="root"></div>',{url:`http://localhost/customers?tenantId=synthetic&customerSourceId=synthetic-1${originQueueCustomer ? '&queueCustomerSourceId='+originQueueCustomer : ''}${originPromises ? '&promisesReturn='+encodeURIComponent(originPromises) : ''}${hash}`,pretendToBeVisual:true})
   const keys=['window','document','HTMLElement','HTMLInputElement','Event','CustomEvent','StorageEvent','fetch','IS_REACT_ACT_ENVIRONMENT']
   const previous=Object.fromEntries(keys.map(key=>[key,globalThis[key]]))
   for(const key of keys)if(key in dom.window)globalThis[key]=dom.window[key]
@@ -105,5 +105,18 @@ test('customer deep dive and history retain originating queue identity while bro
     await ui.click(customer)
     assert.equal(new URL(back().href).searchParams.get('queueCustomerSourceId'),'synthetic-2')
     assert.equal(ui.requests.length,3)
+  }finally{await ui.cleanup()}
+})
+
+test('Promises deep dive preserves list filters and invoice focus through customer/history links without extra reads',async()=>{
+  const origin='/promises?status=active&date=passed&page=2&pageSize=25&tenantId=synthetic&q=Northbridge'
+  const ui=await setup({hash:'#invoice-synthetic-invoice-1',invoices:[invoiceFixture],originPromises:origin})
+  try{
+    const links=[...ui.container.querySelectorAll('a')]
+    assert.equal(links.find(x=>x.textContent==='Back to Promises').getAttribute('href'),origin)
+    const history=new URL(links.find(x=>x.textContent==='View history').getAttribute('href'),'http://localhost')
+    assert.equal(history.searchParams.get('promisesReturn'),origin)
+    assert.equal(ui.requests.length,2)
+    assert.equal(ui.dom.window.document.activeElement.id,'invoice-synthetic-invoice-1')
   }finally{await ui.cleanup()}
 })

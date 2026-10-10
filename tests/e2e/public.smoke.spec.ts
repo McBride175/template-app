@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures'
 
 test('protected collection journeys preserve their destination at sign-in @smoke', async ({ page }) => {
-  for (const destination of ['/dashboard', '/collections/actions', '/customers?customerSourceId=e2e-unowned', '/customers/e2e-unowned/history', '/disputes']) {
+  for (const destination of ['/dashboard', '/collections/actions', '/customers?customerSourceId=e2e-unowned', '/customers/e2e-unowned/history', '/disputes', '/promises?status=active&date=passed']) {
     await page.goto(destination)
     await expect(page).toHaveURL(url => url.pathname === '/login' && (url.searchParams.get('next') ?? '/dashboard') === destination)
     await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
@@ -43,7 +43,7 @@ test('collection API reads reject signed-out access without leaking customer dat
   // Valid request shapes reach the authentication boundary instead of failing
   // earlier parameter validation. All identities are deliberately unowned.
   for (const path of ['/api/collections/actions',
-    '/api/collections/customer-history?tenantId=e2e-unowned&sourceSystem=xero&customerSourceId=e2e-unowned', '/api/collections/disputes',
+    '/api/collections/customer-history?tenantId=e2e-unowned&sourceSystem=xero&customerSourceId=e2e-unowned', '/api/collections/disputes', '/api/collections/promises?tenantId=e2e-unowned',
     '/api/collections/invoice-disputes?tenantId=e2e-unowned&customerSourceId=e2e-unowned',
     '/api/collections/invoice-promises?tenantId=e2e-unowned&invoiceSourceId=e2e-unowned']) {
     const response = await request.get(path, { maxRedirects: 0 })

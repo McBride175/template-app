@@ -11,15 +11,16 @@ const render = (props = {}, children = createElement('h1', null, 'Example worksp
   new JSDOM(renderToStaticMarkup(createElement(Shell, { pathname: '/dashboard', ...props }, children))).window.document
 
 test('workspace presentation follows existing protected prefixes without capturing public journeys', () => {
-  for (const path of ['/dashboard', '/customers', '/customers/example/history', '/disputes', '/account', '/settings/integrations', '/collections/actions', '/admin', '/xero/raw']) assert.equal(nav.isWorkspacePath(path), true, path)
+  for (const path of ['/dashboard', '/customers', '/customers/example/history', '/disputes', '/promises', '/account', '/settings/integrations', '/collections/actions', '/admin', '/xero/raw']) assert.equal(nav.isWorkspacePath(path), true, path)
   for (const path of ['/', '/pricing', '/blog', '/guides/example', '/contact', '/login', '/signup', '/start', '/start/result', '/reset-password', '/legal/privacy', '/dashboard-help']) assert.equal(nav.isWorkspacePath(path), false, path)
-  assert.deepEqual(nav.workspaceLinks.map(x => [x.label, x.href]), [['Priorities','/dashboard'],['Customers','/customers'],['Disputes','/disputes']])
+  assert.deepEqual(nav.workspaceLinks.map(x => [x.label, x.href]), [['Priorities','/dashboard'],['Customers','/customers'],['Promises','/promises'],['Disputes','/disputes']])
+  assert.equal(nav.workspaceLinks.find(link => link.href === '/promises').prefetch, false, 'the shell does not prefetch Promise work')
   assert.equal(nav.pageProvidesMain('/customers/example/history'), true)
   assert.equal(nav.pageProvidesMain('/customers'), false)
 })
 
 test('rail navigation has one active section, real destinations and named decorative branding', () => {
-  for (const [pathname, href] of [['/dashboard','/dashboard'],['/collections/actions','/dashboard'],['/customers/example/history','/customers'],['/disputes','/disputes'],['/settings/integrations','/settings/integrations']]) {
+  for (const [pathname, href] of [['/dashboard','/dashboard'],['/collections/actions','/dashboard'],['/customers/example/history','/customers'],['/disputes','/disputes'],['/promises','/promises'],['/settings/integrations','/settings/integrations']]) {
     const document=render({ pathname }), rail=document.querySelector('aside')
     assert.equal(rail.querySelectorAll('[aria-current="page"]').length,1)
     assert.equal(rail.querySelector('[aria-current="page"]').getAttribute('href'),href)

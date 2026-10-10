@@ -53,10 +53,10 @@ export default function ProductShell({
     }
   }, [])
 
-  function links(items: readonly { label: string; href: string; prefixes: readonly string[] }[]) {
+  function links(items: readonly { label: string; href: string; prefixes: readonly string[]; prefetch?: boolean }[]) {
     return items.map(item => {
       const active = sectionMatches(pathname, item.prefixes)
-      return <Link key={item.href} href={item.href} onClick={followLink}
+      return <Link key={item.href} href={item.href} prefetch={item.prefetch} onClick={followLink}
         aria-current={active ? 'page' : undefined}
         className={cn('flex min-h-11 items-center rounded-control border-l-2 px-3 text-sm font-medium transition-colors motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
           active ? 'border-selected-accent bg-selected text-on-selected font-semibold' : 'border-transparent text-text-secondary hover:bg-surface-subtle hover:text-text-primary')}>

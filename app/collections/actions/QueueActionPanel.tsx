@@ -43,14 +43,15 @@ export interface QueueActionPanelProps {
 export default function QueueActionPanel(props: QueueActionPanelProps) {
   const dateId = useId(), noteId = useId(), choicesId = useId()
   const locked = props.disabled || props.uncertain
-  return <section aria-label="Record collection outcome" className="space-y-3">
+  return <section aria-label="Record collection outcome" className="flex flex-col gap-3">
     {props.firstActionGuidance && <Alert variant="info">
-      <p className="font-semibold">Work the priority, then record what happened.</p>
-      <p>Recording an outcome sets the next follow-up date and updates the active queue.</p>
+      <p className="hidden font-semibold sm:block">Work the priority, then record what happened.</p>
+      <p className="sm:hidden">Record an outcome to update the queue and set the next follow-up.</p>
+      <p className="hidden sm:block">Recording an outcome sets the next follow-up date and updates the active queue.</p>
     </Alert>}
     <div>
-      <h3 className="text-lg font-semibold">What happened?</h3>
-      <p className="mt-1 text-sm text-text-secondary">Record the outcome after working this customer.</p>
+      <h3 className="text-base font-semibold sm:text-lg">What happened?</h3>
+      <p className="mt-1 hidden text-sm text-text-secondary sm:block">Record the outcome after working this customer.</p>
     </div>
     <div className="border-y border-border-default py-1">
       <Button variant="ghost" className="min-h-11 w-full justify-between gap-3 px-0 text-left font-normal"
@@ -73,9 +74,9 @@ export default function QueueActionPanel(props: QueueActionPanelProps) {
         </Field>}
       </div>
     </div>
-    {!props.showNote ? <Button variant="ghost" className="min-h-11 px-0" onClick={props.onShowNote} disabled={locked}>Add note</Button>
+    {!props.showNote ? <Button variant="ghost" className="order-2 min-h-11 self-start px-0 sm:order-none" onClick={props.onShowNote} disabled={locked}>Add note</Button>
       : <Field id={noteId} label="Note (optional)" hint={`${props.note.length}/2,000 characters`}>
-        {control => <Textarea {...control} rows={3} maxLength={2000} value={props.note}
+        {control => <Textarea {...control} autoFocus rows={3} maxLength={2000} value={props.note}
           onChange={event => props.onNote(event.target.value)} disabled={locked} placeholder="What should you remember next time?" />}
       </Field>}
     <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label="Record outcome">

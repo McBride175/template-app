@@ -218,6 +218,55 @@ test('queue-order selection keeps server ranking, resets the customer draft and 
   } finally { await app.cleanup() }
 })
 
+test('Back to #1 preserves chosen timing, clears only the customer note and makes no queue request', async () => {
+  const app = setup({ withProjection: true })
+  try {
+    await app.render()
+    assert.equal(app.button('Back to #1'), undefined)
+    await app.click('Next')
+    await act(async () => app.container.querySelector('button[aria-expanded]')
+      .dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    await app.click('Choose date')
+    const date = app.container.querySelector('input[type="date"]')
+    await act(async () => {
+      const propsKey = Object.keys(date).find(key => key.startsWith('__reactProps$'))
+      date[propsKey].onChange({ target: { value: '2026-10-06' } })
+    })
+    await app.click('Add note')
+    await app.click('Back to #1')
+    const customer = app.container.querySelector('article')
+    assert.equal(customer.querySelector('h2').textContent, 'alpha Ltd')
+    assert.match(customer.textContent, /Priority 1 of 2/)
+    assert.equal(customer.querySelector('input[type="date"]').value, '2026-10-06')
+    assert.equal(customer.querySelector('textarea'), null)
+    assert.equal(app.button('Back to #1'), undefined)
+    assert.equal(app.getCount(), 1)
+    assert.equal(app.postCount(), 0)
+    assert.equal(document.activeElement, customer)
+    await app.click('Message sent')
+    const created = app.requests.find(request => request.method === 'POST')
+    assert.equal(created.body.customer_source_id, 'alpha')
+    assert.equal(created.body.next_action_date, '2026-10-06')
+    assert.equal(created.body.note, undefined)
+  } finally { await app.cleanup() }
+})
+
+test('Back to #1 uses the latest authoritative order after a priority update', async () => {
+  const app = setup({ withProjection: true })
+  try {
+    await app.render()
+    await app.click('Next')
+    await app.click('Make Priority')
+    await app.click('Next')
+    assert.equal(app.container.querySelector('article h2').textContent, 'alpha Ltd')
+    const requestCount = app.requests.length
+    await app.click('Back to #1')
+    assert.equal(app.container.querySelector('article h2').textContent, 'beta Ltd')
+    assert.equal(app.requests.length, requestCount)
+    assert.equal(app.getCount(), 1)
+  } finally { await app.cleanup() }
+})
+
 test('server-provided custom timing, optional note, and authoritative Undo', async () => {
   const app = setup()
   try {

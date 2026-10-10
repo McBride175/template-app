@@ -64,11 +64,17 @@ test('auth cards retain the approved stack and focused onboarding uses H3 @smoke
   await page.setViewportSize({ width: 768, height: 900 })
   await page.goto('/start')
   await containedLogo(page.locator(`header img[src="${horizontal}"]`), 292 / 90)
-  await expect(page.getByRole('img', { name: 'Yuohme', exact: true })).toHaveCount(1)
+  const home = page.getByRole('link', { name: 'Yuohme home', exact: true })
+  await expect(home).toHaveAttribute('href', '/')
+  await expect(page.getByRole('img', { name: 'Yuohme', exact: true })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Sign in with password' })).toHaveAttribute('href', /\/login\?next=/)
   await expect(page.locator('nav')).toHaveCount(0)
   await expect(page.locator('footer')).toHaveCount(0)
   await noOverflow(page)
+  await home.focus()
+  await expect(home).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(url => url.pathname === '/')
 })
 
 test('canonical assets and icons are served exactly and SVG loading reserves space @smoke', async ({ page, request }) => {

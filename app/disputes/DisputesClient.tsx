@@ -3,6 +3,7 @@
 import { subscribeAccountingUpdates } from '@/lib/accounting/product-events'
 
 import Link from 'next/link'
+import DisputesFilters from './DisputesFilters'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { InvoiceDisputeList } from '@/app/collections/customers/CustomerInvoiceDisputes'
 import { disputeWorklistUrl, type DisputeWorklistQuery, type DisputeWorklistResponse } from '@/lib/collections/dispute-worklist'
@@ -67,47 +68,17 @@ export default function DisputesClient({ tenantId, query }: {
   const blocked = loading || mutating || Boolean(outcome?.stale)
   const shownQuery = data?.query ?? query
   return (
-    <main className="mx-auto max-w-5xl space-y-5 px-4 py-8 sm:px-6">
+    <main className="mx-auto max-w-5xl space-y-3 px-0 py-0 sm:space-y-5 sm:px-6 sm:py-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">Disputes</h1>
-          <p className="mt-1 text-sm text-gray-600">Review disputed invoices and the debt that remains to chase.</p>
+          <p className="mt-1 hidden text-sm text-gray-600 sm:block">Review disputed invoices and the debt that remains to chase.</p>
         </div>
         <button type="button" className="min-h-11 rounded-md border px-4 text-sm" disabled={loading || mutating}
           onClick={() => void reload(true)}>{loading ? 'Refreshing…' : 'Refresh disputes'}</button>
       </div>
-      <form key={`${url}:${data?.tenantId ?? 'pending'}`} action="/disputes" method="get" className="rounded-lg border border-gray-200 bg-white p-4">
-        {resolvedTenantId && <input type="hidden" name="tenantId" value={resolvedTenantId} />}
-        <input type="hidden" name="pageSize" value={query.pageSize} />
-        <fieldset disabled={blocked} className="flex flex-wrap items-end gap-3 text-sm disabled:opacity-60">
-          <legend className="sr-only">Filter and sort disputes</legend>
-          <label className="flex flex-col gap-1">Status
-            <select name="status" defaultValue={query.status} className="min-h-11 rounded-md border px-2">
-              <option value="active">Active</option><option value="needs_review">Needs review</option>
-              <option value="resolved">Resolved by user</option><option value="settled">Settled in accounting</option>
-              <option value="unavailable">Invoice unavailable</option><option value="all">All disputes</option>
-            </select>
-          </label>
-          <label className="flex flex-col gap-1">Customer
-            <select name="customer" defaultValue={query.customer} className="min-h-11 max-w-64 rounded-md border px-2">
-              <option value="">All customers</option>
-              {data?.customers.map((customer) => <option key={customer.sourceId} value={customer.sourceId}>{customer.name}</option>)}
-            </select>
-          </label>
-          <label className="flex flex-1 flex-col gap-1">Search customer or invoice
-            <input name="q" type="search" maxLength={200} defaultValue={query.q} className="min-h-11 min-w-48 rounded-md border px-3" />
-          </label>
-          <label className="flex flex-col gap-1">Sort
-            <select name="sort" defaultValue={query.sort} className="min-h-11 rounded-md border px-2">
-              <option value="amount_desc">Highest effective disputed amount</option>
-              <option value="amount_asc">Lowest effective disputed amount</option>
-              <option value="oldest">Oldest invoice overdue age</option>
-              <option value="newest">Newest dispute</option><option value="customer">Customer name</option>
-            </select>
-          </label>
-          <button type="submit" className="min-h-11 rounded-md bg-gray-900 px-4 text-white">Apply filters</button>
-        </fieldset>
-      </form>
+      <DisputesFilters key={`${url}:${data?.tenantId ?? 'pending'}`} query={query} tenantId={resolvedTenantId}
+        customers={data?.customers ?? []} blocked={blocked} />
       {outcome && <p role={outcome.stale ? 'alert' : 'status'} className="rounded-md bg-amber-50 p-3 text-sm text-gray-900">
         {outcome.message}
         {outcome.stale && <button type="button" disabled={loading || mutating} className="ml-2 underline"

@@ -26,7 +26,8 @@ with the existing `Field` component. All examples are fictional and deterministi
 | Select | Empty, selected, disabled, validation error, focus |
 | Card | Default, subtle, long content at mobile width |
 | ProductShell | Eight simulated desktop/active/loading/error/mobile/open-menu/narrow/tablet states |
-| CollectionQueue | Eleven synthetic focused/ranked/long-name/large-amount/adjustment/loading/empty/error/saving/retry states |
+| CollectionQueue | Fifteen synthetic focused/ranked/long-name/large-amount/adjustment/loading/empty/error/saving/retry/mobile-dashboard/first-action/return-to-first/refresh-warning states |
+| DisputesFilters | Collapsed, expanded, applied filters and disabled states |
 
 The shell stories import only its pure presentation component, not
 ApplicationFrame, ProductWorkspace, session hooks or feature providers. Their
@@ -42,6 +43,9 @@ DashboardOnboardingClient, service clients or authenticated fixtures. The same
 isolated `pnpm test:shell` configuration covers queue presentation and responsive
 interactions. See [the queue record](collection-queue.md) for financial boundaries
 and the distinction between simulated and real application certification.
+The 56-story catalogue and responsive mobile refinement checks are recorded in
+[Phase 5B.1](mobile-refinement.md). Filter stories use a fictional worklist for
+spacing; they do not certify invoice actions or financial mutations.
 
 Change props in Controls and use real pointer/keyboard interaction to inspect
 hover, focus and native input states. The loading example composes `Spinner` and

@@ -34,6 +34,7 @@ test('mobile controls are connected to a closed native dialog and content has a 
   assert.equal(dialog.tagName,'DIALOG')
   assert.equal(dialog.hasAttribute('open'),false)
   assert.equal(button.getAttribute('aria-expanded'),'false')
+  assert.equal(button.textContent.trim(),'Menu')
   assert.equal(document.getElementById(dialog.getAttribute('aria-labelledby')).textContent,'Navigation')
   assert.equal(document.querySelector('a[href="#workspace-content"]').textContent,'Skip to workspace')
   assert.equal(document.querySelector('#workspace-content').tagName,'MAIN')

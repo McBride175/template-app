@@ -100,10 +100,11 @@ export default function ProductShell({
 
       <header className="flex items-center justify-between border-b border-border-default bg-surface px-4 lg:hidden">
         <Link href="/dashboard" aria-label="Yuohme workspace" className="inline-flex shrink-0 rounded-control focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"><Logo decorative /></Link>
-        <span ref={menuButton} className="inline-flex shrink-0"><Button variant="ghost" className="min-h-11 min-w-11 px-0" aria-label="Open navigation"
+        <span ref={menuButton} className="inline-flex shrink-0"><Button variant="secondary" className="min-h-11 min-w-11 gap-2 px-3" aria-label="Open navigation"
           aria-expanded={menuOpen} aria-controls={dialogId} aria-haspopup="dialog"
           onClick={() => { dialog.current?.showModal(); setMenuOpen(true) }}>
           <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+          <span>Menu</span>
         </Button></span>
       </header>
 

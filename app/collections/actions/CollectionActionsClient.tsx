@@ -21,6 +21,7 @@ import Alert from '@/app/components/ui/Alert'
 import QueueCustomer from './QueueCustomer'
 import QueueOrder from './QueueOrder'
 import QueueState from './QueueState'
+import QueueNavigation, { revealPriority } from './QueueNavigation'
 import QueueActionPanel, { OUTCOME_OPTIONS, type FollowUpChoice } from './QueueActionPanel'
 import MultiCurrencyPlanGate from '@/app/collections/MultiCurrencyPlanGate'
 import DashboardXeroConnectionCard from '@/app/dashboard/DashboardXeroConnectionCard'
@@ -560,6 +561,8 @@ export default function CollectionActionsClient({
     setShowNote(false)
     setActionNote('')
   }, [])
+  const returnToFirst = useRef<string | null>(null)
+  const focusedPriority = useRef<HTMLElement>(null)
 
   const loadRequestId = useRef(0)
   const projectionRequestSequence = useRef(0)
@@ -830,6 +833,15 @@ export default function CollectionActionsClient({
   }, [queueRows, restoreCustomerSourceId, rows])
 
   useEffect(() => {
+    if (returnToFirst.current === currentQueueRow?.customer_source_id) {
+      returnToFirst.current = null
+      // Retain chosen timing; a note belongs to its original customer.
+      setShowNote(false)
+      setActionNote('')
+      revealPriority(focusedPriority.current)
+      return
+    }
+    returnToFirst.current = null
     resetActionPanel()
   }, [currentQueueRow?.customer_source_id, resetActionPanel])
 
@@ -1184,6 +1196,14 @@ export default function CollectionActionsClient({
       currentQueueRow && updatingOverrideByCustomerId[currentQueueRow.customer_source_id]
     )
 
+  const backToFirst = () => {
+    if (queueCardIndex === 0 || !queueRows[0] || disableQueueActions) return
+    returnToFirst.current = queueRows[0].customer_source_id
+    setQueueCardIndex(0)
+  }
+  const queueNavigation = <QueueNavigation index={queueCardIndex} count={queueRows.length} disabled={disableQueueActions}
+    onPrevious={() => moveQueueCard('prev')} onNext={() => moveQueueCard('next')} onFirst={backToFirst} />
+
   if (xeroConnectionMissing) {
     return (
       <section id={embedded ? 'collection-actions' : undefined} className="space-y-6">
@@ -1302,15 +1322,16 @@ export default function CollectionActionsClient({
       )}
 
       {showQueueSection && !usageLimitReached && !multiCurrencyPlanRequired && (
-        <div className="space-y-5">
+        <div className="space-y-3 sm:space-y-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h1 className="text-2xl font-semibold text-text-primary">Priorities</h1>
-              <p className="mt-1 text-sm text-text-secondary">{queueRows.length > 0
+              <h1 className="text-xl font-semibold text-text-primary sm:text-2xl">Priorities</h1>
+              <p className={`mt-1 text-sm text-text-secondary ${currentQueueRow ? 'hidden sm:block' : ''}`}>{queueRows.length > 0
                 ? `Next to chase · ${queueRows.length} remaining in your queue`
                 : 'Work through your actionable collection queue.'}</p>
             </div>
-            {showManualQueueRefresh && <Button onClick={() => void loadRows(true)} variant="ghost" className="min-h-11" disabled={refreshing}>
+            {currentQueueRow && <div className="sm:hidden">{queueNavigation}</div>}
+            {showManualQueueRefresh && <Button onClick={() => void loadRows(true)} variant="ghost" className={`min-h-11 ${currentQueueRow && !refreshing ? 'hidden sm:inline-flex' : ''}`} disabled={refreshing}>
               {refreshing ? 'Refreshing…' : 'Refresh priorities'}
             </Button>}
           </div>
@@ -1319,17 +1340,12 @@ export default function CollectionActionsClient({
             : currentQueueRow ? (
             <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_16rem]">
               <Card className="min-w-0 space-y-5 shadow-none sm:p-6">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-default pb-3">
+                <div className="hidden flex-wrap items-center justify-between gap-2 border-b border-border-default pb-3 sm:flex">
                   <p className="hidden text-xs text-text-secondary sm:block">Ranked by Yuohme · choose the appropriate contact method</p>
-                  <div className="flex gap-2" aria-label="Queue navigation" role="group">
-                    <Button variant="secondary" size="sm" className="min-h-11" onClick={() => moveQueueCard('prev')}
-                      disabled={queueCardIndex === 0 || disableQueueActions}>Previous</Button>
-                    <Button variant="secondary" size="sm" className="min-h-11" onClick={() => moveQueueCard('next')}
-                      disabled={queueCardIndex >= queueRows.length - 1 || disableQueueActions}>Next</Button>
-                  </div>
+                  {queueNavigation}
                 </div>
                 <div key={currentQueueRow.customer_source_id} onTouchStart={handleQueueCardTouchStart} onTouchEnd={handleQueueCardTouchEnd}>
-                  <QueueCustomer position={queuePosition} count={queueRows.length}
+                  <QueueCustomer focusRef={focusedPriority} position={queuePosition} count={queueRows.length}
                     name={currentQueueRow.customer_name} email={currentQueueRow.customer_email}
                     amount={formatMoney(currentQueueRow.customer_to_chase_overdue_base, organisationBaseCurrency)}
                     equivalent={showMultiCurrencyAmounts}
@@ -1344,6 +1360,7 @@ export default function CollectionActionsClient({
                     breakdown={currentQueueRow.score_breakdown_lines} score={currentQueueRow.priority_score.toFixed(1)}
                     adjustment={currentQueueRow.override_level} invoicesHref={customerInvoicesHref(currentQueueRow.customer_source_id)}
                     historyHref={resolvedTenantId ? customerHistoryUrl(currentQueueRow.customer_source_id, resolvedTenantId) : undefined}
+                    detailActions={showManualQueueRefresh ? <div className="sm:hidden"><Button onClick={() => void loadRows(true)} variant="secondary" className="min-h-11" disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh priorities'}</Button></div> : undefined}
                     recentActivity={recentActivity ? <div className="pt-1 text-xs text-text-muted">
                         <p>
                           Last activity:{' '}

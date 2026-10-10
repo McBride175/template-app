@@ -14,7 +14,7 @@ export default function Nav() {
     return (
       <header className="border-b border-gray-200 bg-white/95">
         <div className="mx-auto flex max-w-4xl items-center px-6 py-4">
-          <Logo />
+          <Link href="/" aria-label="Yuohme home" className="inline-flex rounded-control focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"><Logo decorative /></Link>
         </div>
       </header>
     )

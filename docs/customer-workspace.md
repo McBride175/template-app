@@ -180,3 +180,11 @@ Phase 5F work. No later phase has begun.
 Phase 5D now implements this invoice-context and return-navigation handoff; see
 [Priority Invoice Intelligence](priority-invoice-intelligence.md). The Phase 5C
 certification above remains the historical local checkpoint.
+
+## Invoice density presentation correction
+
+Hosted review prompted a focused Phase 5C correction: compact collapsed invoice
+rows, one management disclosure, grouped Promise/dispute tools and quieter bulk
+actions. Financial and mutation contracts remain unchanged. See
+[the measurements, screenshots and local certification](invoice-density-correction.md).
+The next official programme phase remains Phase 5E — Global Promises Workspace.

@@ -6,7 +6,6 @@ import CustomerPromises from '@/app/collections/customers/CustomerPromises'
 import CustomerBrowser from '@/app/collections/customers/CustomerBrowser'
 import CustomerSelectionPanel from '@/app/collections/customers/CustomerSelectionPanel'
 import InvoiceFrame from '@/app/collections/customers/InvoiceFrame'
-import InvoiceDetails from '@/app/collections/customers/InvoiceDetails'
 import InvoicePromisePanel from '@/app/collections/customers/InvoicePromisePanel'
 import CustomerTimeline from '@/app/collections/customers/CustomerTimeline'
 import CustomerHistoryView from '@/app/collections/customers/CustomerHistoryView'
@@ -45,8 +44,8 @@ function InvoicePreview({ invoices = invoiceFixtures, failed = false }: { invoic
   return <section id="customer-invoices" aria-label="Customer invoice workspace" className="min-w-0 space-y-3">
     <h3 className="text-base font-semibold">Invoices ({invoices.length})</h3><p className="text-xs text-text-secondary">Amounts use invoice currency. Customer To chase includes applicable customer credit.</p>
     {!invoices.length && <EmptyState title="No invoices to review" description="No current or previously disputed invoices are available for this customer." />}
-    {invoices.map(invoice => <InvoiceFrame key={invoice.invoiceSourceId} invoice={invoice}>
-      <InvoiceDetails compact><p className="text-sm text-text-secondary">Reference: {invoice.reference || '—'}</p><p className="mt-2 text-sm text-text-secondary">{invoice.note}</p><Button variant="secondary" className="mt-2 min-h-11">{invoice.isActive ? 'Edit dispute' : invoice.isResolved ? 'Edit note' : 'Mark disputed'}</Button></InvoiceDetails>
+    {invoices.map(invoice => <InvoiceFrame key={invoice.invoiceSourceId} invoice={invoice} selection={invoice.invoiceState === 'open' && !invoice.isResolved ? <label className="flex min-h-11 min-w-11 items-center justify-center"><input type="checkbox" className="h-5 w-5 accent-action-primary" aria-label={`Select invoice ${invoice.invoiceNumber} for full dispute`} /></label> : undefined}>
+      <section aria-label="Dispute management"><h5 className="font-semibold">Dispute</h5><Button variant="secondary" className="mt-2 min-h-11">{invoice.isActive ? 'Edit dispute' : invoice.isResolved ? 'Edit note' : 'Mark disputed'}</Button><details className="mt-2"><summary className="min-h-11 cursor-pointer py-3 text-xs text-text-secondary">Dispute record & note</summary><p className="text-sm text-text-secondary">{invoice.note}</p></details></section>
       <PromisePreview invoice={invoice} failed={failed} />
     </InvoiceFrame>)}
   </section>
@@ -115,3 +114,14 @@ export const TerminalPromises: Story = { args: { invoices: (['kept','missed','un
   effectiveDisputedAmountNative: '0', activePromisedCoverageAmountNative: '0', activePromise: null,
   latestPromise: { id: `synthetic-terminal-promise-${index}`, status, promisedAmountNative: '1000', promisedDate: '2026-10-01', qualifyingPaidAmountNative: status === 'kept' ? '1000' : '0' },
 })) } }
+
+/** Density regression fixtures: all amounts/states are supplied, never calculated here. */
+export const InvoiceDensity: Story = { args: { invoices: [
+  { ...invoiceFixtures[1], invoiceSourceId: 'density-open', invoiceNumber: 'INV-OPEN' },
+  { ...invoiceFixtures[1], invoiceSourceId: 'density-promise', invoiceNumber: 'INV-PROMISE', activePromise: invoiceFixture.activePromise, activePromisedCoverageAmountNative: '750' },
+  { ...invoiceFixture, invoiceSourceId: 'density-dispute', invoiceNumber: 'INV-DISPUTE', activePromise: null, activePromisedCoverageAmountNative: '0' },
+  { ...invoiceFixture, invoiceSourceId: 'density-both', invoiceNumber: 'INV-BOTH' },
+  { ...invoiceFixture, invoiceSourceId: 'density-review', invoiceNumber: 'INV-REVIEW', needsReview: true },
+  { ...invoiceFixture, invoiceSourceId: 'density-unavailable', invoiceNumber: 'INV-UNAVAILABLE', invoiceState: 'unavailable', currencyCode: null, currentAmountDueNative: null, activePromise: null },
+] } }
+export const TenInvoices: Story = { args: { invoices: Array.from({ length: 10 }, (_, index) => ({ ...invoiceFixtures[1], invoiceSourceId: `density-${index}`, invoiceNumber: `INV-${1100 + index}` })) } }

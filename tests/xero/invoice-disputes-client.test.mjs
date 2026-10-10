@@ -397,7 +397,7 @@ test('known customer detail loads without the list and late customer responses c
     const props = { tenantId: 'tenant-a', initialCustomerSourceId: 'customer-a' }
     h.render(Parent, props)
     h.effects[0]() // selected detail
-    h.effects[3]() // independent list
+    h.effects[4]() // independent list (after queue-return URL context)
     assert.equal(pending.length, 2)
     assert.match(pending[0].url, /customer-detail.*customer-a/)
     assert.match(pending[1].url, /\/api\/collections\/customers\?/)

@@ -24,8 +24,8 @@ export interface InvoicePromisePanelProps {
 export default function InvoicePromisePanel({ id, invoice, active, current, editing, cancellation, eligible, locked, saving,
   amount, date, note, setAmount, setDate, setNote, fieldErrors, error, message, refreshNeeded, historyOpen,
   historyLoading, historyError, eventLoading, history, formRef, actionRef, open, save, close, showHistory, loadEvents, refreshSaved }: InvoicePromisePanelProps) {
-  return <section aria-label={`Invoice promise for ${invoice.invoiceNumber || invoice.reference || invoice.invoiceSourceId}`} className="mt-3 min-w-0 space-y-2 border-t border-border-default pt-3 text-sm">
-    <PromiseCommitment invoice={invoice} current={current} editing={editing} />
+  return <section aria-label={`Invoice promise for ${invoice.invoiceNumber || invoice.reference || invoice.invoiceSourceId}`} className="min-w-0 space-y-2 text-sm">
+    <h5 className="font-semibold text-text-primary">Promise</h5>
     {editing ? <form ref={formRef} onSubmit={save} noValidate aria-busy={saving} className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2 sm:max-w-xl">
         <div><label htmlFor={`${id}-amount`} className="mb-1 block font-medium">Promise amount ({invoice.currencyCode})</label>
@@ -50,6 +50,10 @@ export default function InvoicePromisePanel({ id, invoice, active, current, edit
       {(active || eligible) && <button ref={actionRef} type="button" className={buttonClass} onClick={open} disabled={locked || Boolean(active && !active.revision)}>{active ? 'Edit promise' : current || history.length ? 'Record new promise' : 'Record promise'}</button>}
       <button type="button" className={buttonClass} onClick={() => void showHistory()} aria-expanded={historyOpen} aria-controls={`${id}-history`} disabled={saving || historyLoading}>Promise history</button>
     </div>}
+    {current?.status === 'active' ? <details className="border-t border-border-default">
+      <summary className="min-h-11 cursor-pointer py-3 text-xs font-medium text-text-secondary focus-visible:outline-2 focus-visible:outline-focus">Commitment details & note</summary>
+      <PromiseCommitment invoice={invoice} current={current} editing={editing} />
+    </details> : <PromiseCommitment invoice={invoice} current={current} editing={editing} />}
     {error && <p role="alert" className="text-feedback-error">{error}</p>}
     {message && <p role="status" aria-live="polite" className="text-text-secondary">{message}</p>}
     {refreshNeeded && <button type="button" className={buttonClass} disabled={saving} onClick={() => void refreshSaved()}>Refresh invoice details</button>}

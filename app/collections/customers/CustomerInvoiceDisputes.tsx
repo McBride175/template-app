@@ -243,7 +243,7 @@ export function InvoiceDisputeList({
       ) : (
         <>
           {showBulkActions && bulkEligibleInvoices.length > 0 && (
-            <InvoiceDetails compact={workspace} label={`Bulk invoice disputes (${eligibleSelectedIds.length} selected)`}><div className="flex flex-wrap items-center gap-2 pb-3">
+            <InvoiceDetails compact label={eligibleSelectedIds.length ? `Bulk actions · ${eligibleSelectedIds.length} selected` : 'Bulk actions'}><div className="flex flex-wrap items-center gap-2 pb-3">
               <button type="button" className={actionClass} disabled={saving || disabled || eligibleSelectedIds.length === 0}
                 onClick={() => void mutate('bulk_full', { customerSourceId, invoiceSourceIds: eligibleSelectedIds,
                   expectedRevisions: revisionEntries(eligibleSelectedIds) }, `${eligibleSelectedIds.length} invoice disputes saved.`)}>
@@ -257,21 +257,18 @@ export function InvoiceDisputeList({
               </button>
             </div></InvoiceDetails>
           )}
-          <div className="space-y-3">
+          <div className="min-w-0 border-t border-border-default">
             {invoices.map((invoice) => (
-              <InvoiceFrame key={invoice.invoiceSourceId} invoice={invoice} selection={showBulkActions && isBulkEligible(invoice) ?
-                <label className="flex min-h-11 min-w-11 cursor-pointer items-start justify-center"><input type="checkbox" className="mt-1 h-5 w-5 shrink-0 accent-action-primary focus-visible:outline-2 focus-visible:outline-focus"
+              <InvoiceFrame key={invoice.invoiceSourceId} invoice={invoice} defaultExpanded={!workspace} selection={showBulkActions && isBulkEligible(invoice) ?
+                <label className="flex min-h-11 min-w-11 cursor-pointer items-center justify-center"><input type="checkbox" className="h-5 w-5 shrink-0 accent-action-primary focus-visible:outline-2 focus-visible:outline-focus"
                   aria-label={`Select invoice ${invoice.invoiceNumber || invoice.invoiceSourceId} for full dispute`}
                   checked={selectedIds.includes(invoice.invoiceSourceId)} disabled={saving || disabled}
                   onChange={event => setSelectedIds(current => event.target.checked ? [...current, invoice.invoiceSourceId] : current.filter(id => id !== invoice.invoiceSourceId))} /></label> : undefined}>
+                <section aria-label="Dispute management" className="min-w-0 text-sm">
+                <h5 className="font-semibold text-text-primary">Dispute</h5>
                 {showBulkActions && invoice.invoiceState === 'open' && invoice.isResolved && (
                   <p className="mt-2 text-xs text-text-secondary">Resolved — reactivate before disputing again.</p>
                 )}
-                <InvoiceDetails compact={workspace}>
-                {invoice.disputeId && (
-                  <p className="mt-2 text-xs text-text-secondary">Recorded dispute: {amount(invoice.recordedDisputedAmountNative, invoice.currencyCode)}{invoice.disputeMode === 'full' ? ' (full amount intent)' : ''}</p>
-                )}
-                {invoice.note && editingId !== invoice.invoiceSourceId && noteEditingId !== invoice.invoiceSourceId && <p className="mt-2 whitespace-pre-wrap text-text-primary">Note: {invoice.note}</p>}
                 {noteEditingId === invoice.invoiceSourceId ? (
                   <div className="mt-3 space-y-2 border-t border-border-default pt-3">
                     <label className="flex max-w-xl flex-col gap-1">Dispute note
@@ -327,7 +324,13 @@ export function InvoiceDisputeList({
                     )}
                   </div>
                 )}
-                </InvoiceDetails>
+                {(invoice.disputeId || invoice.note) && <details className="mt-2"><summary className="min-h-11 cursor-pointer py-3 text-xs text-text-secondary focus-visible:outline-2 focus-visible:outline-focus">Dispute record & note</summary>
+                {invoice.disputeId && (
+                  <p className="mt-2 text-xs text-text-secondary">Recorded dispute: {amount(invoice.recordedDisputedAmountNative, invoice.currencyCode)}{invoice.disputeMode === 'full' ? ' (full amount intent)' : ''}</p>
+                )}
+                {invoice.note && editingId !== invoice.invoiceSourceId && noteEditingId !== invoice.invoiceSourceId && <p className="mt-2 whitespace-pre-wrap text-text-primary">Note: {invoice.note}</p>}
+                </details>}
+                </section>
                 {onPromiseRefresh && <InvoicePromise invoice={invoice} tenantId={tenantId} onRefresh={onPromiseRefresh} onReconciled={onReconciled} onMutationStarted={onMutationStarted} onReconciliationUnavailable={() => onMutationResult(false, 'Promise saved, but current balances are not ready. Refresh the details before making further changes.')} disabled={disabled || saving} />}
               </InvoiceFrame>
             ))}

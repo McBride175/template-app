@@ -80,7 +80,9 @@ test('first-value preparation keeps focused chrome and uses only server-backed p
   ])
 
   assert.match(navSource, /pathname === '\/start'/)
-  assert.match(navSource, />YUOHME</)
+  // The focused header now uses the approved shared artwork, not typed branding.
+  assert.match(navSource, /import Logo from '\.\/ui\/Logo'/)
+  assert.match(navSource, /<header[\s\S]*?<Logo\s*\/>[\s\S]*?<\/header>/)
   assert.match(
     footerSource,
     /pathname === '\/start' \|\| pathname\.startsWith\('\/start\/'\)/

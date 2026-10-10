@@ -2,7 +2,7 @@
 
 All eight variants are **APPROVED FINAL**, including the square icon, yo micro-mark and favicon derivatives. The user's Phase 1 instruction on **9 October 2026** confirms that approval. Geometry is unchanged from the approved pack.
 
-Start with the existing [brand usage guide](docs/usage-guide.md): the authoritative asset-use reference for subsequent implementation. The established v1 foundation/semantic source remains [app/theme.css](../app/theme.css); font loading remains [app/layout.tsx](../app/layout.tsx). The original Phase 4A approved foundation brief was recovered from “Audit Frontend Styling Architecture”. A standalone comprehensive **Visual Identity Specification v1** was not located; full reconciliation with that document remains open. This guide does not claim to replace an unavailable specification.
+Start with the existing [brand usage guide](docs/usage-guide.md): the authoritative asset-use reference for subsequent implementation. The established v1 foundation/semantic source remains [app/theme.css](../app/theme.css); font loading remains [app/layout.tsx](../app/layout.tsx). The original Phase 4A approved foundation brief was recovered from “Audit Frontend Styling Architecture”. The original comprehensive **Visual Identity Specification v1** was authored in an earlier ChatGPT conversation; no separately saved original has been confirmed. The Phase 4E instruction authorises the reconciled guide and theme as implementation references. No missing original specification is reconstructed.
 
 ## Canonical files
 
@@ -44,4 +44,4 @@ The full original pack, ZIP, original source copies, 38 unnecessary web PNGs, hi
 
 Run `python3 brand/scripts/validate.py` for portable structural, approved-geometry/hash, manifest, relative-link, raster/ICO-header and duplicate checks. It uses Python's standard library and writes no files. Inkscape 1.4.4 rendering/font-resolution checks are documented in the consolidation record; temporary render outputs are external.
 
-Phase 1 does not activate these assets. Navigation, components, design tokens, interface typography and the existing `app/favicon.ico` are unchanged. No push/deployment, hosted schema change or environment-variable change is authorised by this checkpoint.
+Phase 1 (`d5af0e5`) consolidated these assets without activating them. [Phase 4E](docs/phase4e-implementation.md) integrates them through `app/components/ui/Logo.tsx`, the existing shared navigation/auth/footer surfaces, the filesystem favicon and Apple icon metadata. Design tokens, interface typography and master artwork remain unchanged. Local implementation does not certify hosted Preview or authorise a push/deployment.

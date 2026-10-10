@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import Button from './ui/Button'
+import Logo from './ui/Logo'
 
 export default function Nav() {
   const pathname = usePathname()
@@ -56,7 +57,7 @@ export default function Nav() {
     return (
       <header className="border-b border-gray-200 bg-white/95">
         <div className="mx-auto flex max-w-4xl items-center px-6 py-4">
-          <span className="text-sm font-semibold tracking-wide text-gray-900">YUOHME</span>
+          <Logo />
         </div>
       </header>
     )
@@ -69,6 +70,10 @@ export default function Nav() {
       <div className="mx-auto flex max-w-4xl flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
         {/* Left side */}
         <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 sm:w-auto sm:gap-x-6">
+          <Link href="/" aria-label="Yuohme home" className="inline-flex shrink-0 rounded-control focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
+            <Logo variant="micro" decorative className="lg:hidden" />
+            <Logo decorative className="hidden lg:inline-flex" />
+          </Link>
           <Link href="/" className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
             Home
           </Link>
@@ -129,7 +134,7 @@ export default function Nav() {
           {user ? (
             <>
               <span className="hidden text-sm text-gray-600 sm:inline">{user.email}</span>
-              <Button onClick={() => void signOut()} variant="secondary" size="sm" disabled={signingOut}>
+              <Button onClick={() => void signOut()} variant="secondary" size="sm" disabled={signingOut} className="shrink-0 whitespace-nowrap">
                 {signingOut ? 'Signing out…' : 'Sign out'}
               </Button>
               {signOutError && (

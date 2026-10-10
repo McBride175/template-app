@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import Logo from './ui/Logo'
 
 export default function Footer() {
   const pathname = usePathname()
@@ -29,6 +30,9 @@ export default function Footer() {
   return (
     <footer className="border-t border-gray-200 bg-white/80">
       <div className="max-w-4xl mx-auto px-6 py-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-gray-500">
+        <Link href="/" aria-label="Yuohme home" className="inline-flex shrink-0 rounded-control focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
+          <Logo decorative />
+        </Link>
         <Link href="/" className="hover:text-gray-700">
           Home
         </Link>

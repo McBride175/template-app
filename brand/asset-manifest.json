@@ -2,7 +2,7 @@
   "date": "2026-10-09",
   "status": "APPROVED FINAL \u2014 all eight variants and retained derivatives",
   "authoritative_asset_usage": "brand/docs/usage-guide.md",
-  "standalone_comprehensive_v1_reconciliation": "Open: specification not located; implemented/recovered v1 foundations checked without creating a substitute specification.",
+  "standalone_comprehensive_v1_reconciliation": "Original authored in an earlier ChatGPT conversation; no separately saved original confirmed. The reconciled usage guide and existing theme are authorised Phase 4E implementation references; no reconstructed specification.",
   "archive_record": "brand/sources/provenance.json",
   "cleanup": {
     "before_files": 119,
@@ -13,7 +13,8 @@
     "web_pngs_after": 6,
     "original_files_archived_externally": 91,
     "original_files_relocated": 3,
-    "original_files_retained": 25
+    "original_files_retained": 25,
+    "note": "Historical Phase 4D consolidation measurements at d5af0e5; current inventory includes subsequent Phase 4E documentation."
   },
   "intentional_duplicate_pairs": [
     [
@@ -30,15 +31,27 @@
       "path": "brand/README.md",
       "category": "documentation",
       "intended_use": "Canonical index/usage guidance/Phase 1 closeout",
-      "bytes": 4974,
-      "sha256": "06e6a6f17b1a7b157008c2d0734f0b2af8e6bcea675e087fc6a5584502cd83b7"
+      "bytes": 5255,
+      "sha256": "01bbd51f95d8c96af83b4b4035287e370d5c6b47487ce7d2f49557c2a3d803e7"
+    },
+    {
+      "path": "brand/asset-manifest.json",
+      "category": "documentation",
+      "intended_use": "Canonical inventory; self hash omitted to avoid recursion"
     },
     {
       "path": "brand/docs/phase1-consolidation.md",
       "category": "documentation",
       "intended_use": "Canonical index/usage guidance/Phase 1 closeout",
-      "bytes": 8228,
-      "sha256": "81c306a824e41ee49f7df907264f34b211bd415110c089c7497b2b79ea48a5dc"
+      "bytes": 8599,
+      "sha256": "481b9d6ac8c3a166c1699124862f849146e96983366719eec99acfbcdbac9d2f"
+    },
+    {
+      "path": "brand/docs/phase4e-implementation.md",
+      "category": "documentation",
+      "intended_use": "Phase 4E implementation, local validation and hosted certification record",
+      "bytes": 8548,
+      "sha256": "631b809ec68a5b36d8db024ba46009dd26160df429e0e2651805a2b007d27229"
     },
     {
       "path": "brand/docs/usage-guide.md",
@@ -140,8 +153,8 @@
       "path": "brand/sources/provenance.json",
       "category": "essential source record",
       "intended_use": "Original source/provenance evidence; historical geometry labels are superseded",
-      "bytes": 15712,
-      "sha256": "cd1739293cbf73eef9d290df97e8c44c598c9d77a194b2713b3a17a5e18d922a"
+      "bytes": 15796,
+      "sha256": "2e53d32c405dc2b522a302fd9b4e4bc28de0e432e9d61e63ecfe1a50e7dd11c4"
     },
     {
       "path": "public/brand/icons/favicon-yo.ico",
@@ -271,11 +284,18 @@
         512,
         158
       ]
-    },
-    {
-      "path": "brand/asset-manifest.json",
-      "category": "documentation",
-      "intended_use": "Canonical inventory; self hash omitted to avoid recursion"
     }
-  ]
+  ],
+  "implementation": {
+    "component": "app/components/ui/Logo.tsx",
+    "record": "brand/docs/phase4e-implementation.md",
+    "favicon": "app/favicon.ico (byte-identical to canonical public ICO)",
+    "apple_icon": "public/brand/icons/logo-square-180.png",
+    "approved_artwork_unchanged": true,
+    "scope": "Local implementation; hosted Preview certification pending"
+  },
+  "current_inventory": {
+    "files": 32,
+    "bytes": 1021578
+  }
 }

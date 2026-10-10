@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { ReactNode } from 'react'
 import Alert from './ui/Alert'
+import Logo from './ui/Logo'
 
 interface AuthScaffoldProps {
   title: string
@@ -33,6 +34,7 @@ export default function AuthScaffold({
     <div className="min-h-[calc(100vh-10rem)] py-8 sm:py-12">
       <section className="mx-auto w-full max-w-4xl rounded-3xl border border-gray-200 bg-white p-5 shadow-sm sm:p-8">
         <header className="text-center">
+          <Logo variant="stacked" width={80} className="mb-2" />
           <h1 className="text-4xl font-semibold tracking-tight text-gray-900 sm:text-5xl">
             {title}
           </h1>

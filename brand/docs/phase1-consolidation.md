@@ -1,6 +1,6 @@
 # Phase 1 consolidation record — 9 October 2026
 
-**Asset checkpoint complete; comprehensive standards reconciliation remains open.** All eight approved SVGs, four definitive masters, editing font/licence and essential provenance are consolidated. The standalone comprehensive “Visual Identity Specification v1” could not be located and its location was requested. The existing usage guide was reconciled with the recovered approved Phase 4A foundations and implemented v1 theme; no substitute comprehensive specification was invented.
+**Asset checkpoint complete. Standards provenance clarified by the Phase 4E instruction.** All eight approved SVGs, four definitive masters, editing font/licence and essential provenance were consolidated in `d5af0e52afd6e145ef521e44ab139eec38e1b414`. The original comprehensive “Visual Identity Specification v1” was authored in an earlier ChatGPT conversation; no separately saved original file has been confirmed. The existing usage guide was reconciled with the recovered approved foundations and current theme. The user authorises [the guide](usage-guide.md) and `app/theme.css` as Phase 4E implementation references. No missing original document was invented or reconstructed.
 
 ## Preservation and cleanup
 
@@ -20,7 +20,7 @@ All eight production SVGs remain. Six useful PNGs and one six-resolution ICO rem
 
 Counts/storage are recorded in the manifest: initially **119 files / 5,337,669 bytes (~5.34 MB)** across `brand/` and `public/brand/`; the final consolidated inventory is **31 files / approximately 1.01 MB**, an **81.1%** reduction in repository asset bytes. The root `.gitignore` addition is excluded from the asset-folder count. Archive preservation uses local storage outside Git and is not a global disk-space saving.
 
-## Existing architecture and references
+## Existing architecture and references at the Phase 1 checkpoint
 
 `app/theme.css` already defines approved palette, neutral/status foundations, typography, radius and semantic mappings. `app/layout.tsx` loads Plus Jakarta Sans 400/500/600/700 through `next/font/google`; bespoke logo glyphs independently use the preserved ExtraBold face and custom paths. `app/components/ui/` already contains semantic Button/Input/Card/Badge/feedback recipes. None was modified or duplicated.
 
@@ -51,4 +51,4 @@ Historical comparison PNGs retain original labels as source-selection evidence; 
 | Later browser/favicon phase | yo SVG, 32px PNG, ICO | Keep active favicon until authorised integration |
 | Later touch/app/social phase | Square SVG / 180,192,512px PNGs | Review platform masks; no maskable certification inferred |
 
-No Logo component, metadata/navigation change or application reference was implemented. The comprehensive v1 document still needs to be supplied/located to close full standards reconciliation before implementation beyond the verified asset guide and existing foundations.
+No Logo component, metadata/navigation change or application reference was implemented in this Phase 1 checkpoint. The subsequent Phase 4E instruction confirms the original v1 conversation provenance and authorises implementation using the existing guide and theme; an unconfirmed standalone original is not a blocker. Subsequent integration is documented separately in [the Phase 4E record](phase4e-implementation.md).

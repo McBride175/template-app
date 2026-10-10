@@ -27,6 +27,10 @@ export const metadata: Metadata = {
   alternates: {
     canonical: '/',
   },
+  // Browser ICO is discovered from app/favicon.ico. Do not declare it twice.
+  icons: {
+    apple: [{ url: '/brand/icons/logo-square-180.png', sizes: '180x180', type: 'image/png' }],
+  },
   openGraph: {
     title: 'Yuohme',
     description,

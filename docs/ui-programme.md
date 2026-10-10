@@ -3,15 +3,15 @@
 The consolidated numbering below is authoritative for new records and handoffs.
 Historical checkpoint names remain valid descriptions of work completed then.
 
-| Phase | Official name | Status at Phase 5E |
+| Phase | Official name | Status at Phase 5F |
 | --- | --- | --- |
 | 5A | Global Product Shell & Navigation | Complete |
 | 5B | Priorities & Collection Queue | Complete |
 | 5B.1 | Mobile UX Refinement | Complete |
 | 5C | Customer Workspace | Complete |
 | 5D | Priority Invoice Intelligence | Complete |
-| 5E | Global Promises Workspace | Complete locally; hosted certification pending |
-| 5F | Disputes Workspace Redesign | Future |
+| 5E | Global Promises Workspace | Complete; in-place correction locally committed at 15288d3 |
+| 5F | Disputes Workspace Redesign | Complete locally; hosted certification pending |
 | 5G | Account, Connections & Onboarding | Future |
 | 5H | Marketing Website | Future |
 | 5I | Guides & Supporting Content | Future |
@@ -24,4 +24,5 @@ clarifies scope; it does not rename historical commits or certification evidence
 
 See [Phase 5D implementation and local certification](priority-invoice-intelligence.md).
 See [Phase 5E implementation and local certification](global-promises-workspace.md).
-Phase 5F and later phases remain future work.
+See [Phase 5F implementation and certification](disputes-workspace.md).
+Phase 5G and later phases remain future work.

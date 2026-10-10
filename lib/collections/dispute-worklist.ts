@@ -110,3 +110,24 @@ export function selectDisputeWorklistRows(rows: DisputeWorklistRow[], query: Dis
   return { rows: selected.slice((page - 1) * query.pageSize, page * query.pageSize),
     total: selected.length, pageCount, query: { ...query, page } }
 }
+
+/** Safe, same-tenant investigation context. No scores/amounts are carried in URLs. */
+export function disputesReturnHref(value: string | null | undefined, tenantId: string | null) {
+  if (!value || value.length > 2000 || !tenantId) return null
+  try {
+    const url = new URL(value, 'http://navigation.local')
+    if (url.origin !== 'http://navigation.local' || url.pathname !== '/disputes' || url.hash || url.searchParams.get('tenantId') !== tenantId) return null
+    return disputeWorklistUrl(parseDisputeWorklistQuery(url.searchParams), tenantId)
+  } catch { return null }
+}
+export function withDisputesOrigin(href: string, origin: string | null, tenantId: string | null) {
+  const validated = disputesReturnHref(origin, tenantId)
+  if (!validated) return href
+  const url = new URL(href, 'http://navigation.local')
+  url.searchParams.set('disputesReturn', validated)
+  return `${url.pathname}${url.search}${url.hash}`
+}
+export function disputeCustomerHref(row: DisputeWorklistRow, tenantId: string, returnHref: string) {
+  if (!row.customerSourceId || !row.customerHref) return null
+  return withDisputesOrigin(`/customers?${new URLSearchParams({ tenantId, customerSourceId: row.customerSourceId })}#invoice-${encodeURIComponent(row.invoiceSourceId)}`, returnHref, tenantId)
+}

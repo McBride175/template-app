@@ -14,16 +14,24 @@ export interface DisputesFiltersProps {
   customers: readonly { sourceId: string; name: string }[]
   blocked: boolean
   initialExpanded?: boolean
+  onNavigate?: (query: DisputeWorklistQuery) => void
 }
 
 // Only disclosure state lives here. The existing GET form still applies the query.
-export default function DisputesFilters({ query, tenantId, customers, blocked, initialExpanded = false }: DisputesFiltersProps) {
+export default function DisputesFilters({ query, tenantId, customers, blocked, initialExpanded = false, onNavigate }: DisputesFiltersProps) {
   const [expanded, setExpanded] = useState(initialExpanded)
   const controlsId = useId(), searchId = useId(), statusId = useId(), customerId = useId(), sortId = useId()
   const activeCount = Number(query.status !== 'active') + Number(Boolean(query.customer)) + Number(Boolean(query.q))
+  const statusLabel = { active: 'Active', needs_review: 'Needs review', resolved: 'Resolved by user', settled: 'Settled in accounting', unavailable: 'Invoice unavailable', all: 'All disputes' }[query.status]
   const changed = activeCount > 0 || query.sort !== 'amount_desc'
   const resetHref = disputeWorklistUrl({ ...query, status: 'active', customer: '', q: '', sort: 'amount_desc', page: 1 }, tenantId)
-  return <form action="/disputes" method="get" className="rounded-lg border border-border-default bg-surface p-3 sm:p-4">
+  return <form aria-label="Dispute filters" onSubmit={event => {
+    if (!onNavigate) return
+    event.preventDefault()
+    if (blocked) return
+    const input = new FormData(event.currentTarget)
+    onNavigate({ ...query, q: String(input.get('q') ?? '').trim(), status: String(input.get('status') ?? 'active') as DisputeWorklistQuery['status'], customer: String(input.get('customer') ?? ''), sort: String(input.get('sort') ?? 'amount_desc') as DisputeWorklistQuery['sort'], page: 1 })
+  }} action="/disputes" method="get" className="min-w-0">
     {tenantId && <input type="hidden" name="tenantId" value={tenantId} />}
     <input type="hidden" name="pageSize" value={query.pageSize} />
     <fieldset disabled={blocked} className="flex min-w-0 flex-wrap items-end gap-3 text-sm disabled:opacity-60">
@@ -34,7 +42,7 @@ export default function DisputesFilters({ query, tenantId, customers, blocked, i
       <Button type="submit" className="order-2 min-h-11"><span className="sm:hidden">Apply</span><span className="hidden sm:inline">Apply filters</span></Button>
       <Button variant="ghost" className="order-3 min-h-11 w-full justify-between px-0 sm:hidden"
         aria-expanded={expanded} aria-controls={controlsId} onClick={() => setExpanded(value => !value)}>
-        <span>Filters{activeCount ? ` · ${activeCount} active` : query.sort !== 'amount_desc' ? ' · Custom sort' : ' · Active'}</span><span>{expanded ? 'Close' : 'Show'}</span>
+        <span>Filters · {statusLabel}{activeCount ? ` · ${activeCount} active` : query.sort !== 'amount_desc' ? ' · Custom sort' : ''}</span><span>{expanded ? 'Close' : 'Show'}</span>
       </Button>
       <div id={controlsId} className={`${expanded ? 'flex' : 'hidden'} order-4 w-full flex-wrap items-end gap-3 sm:contents`}>
         <Field id={statusId} label="Status" className="min-w-0 w-full sm:order-3 sm:w-auto">
@@ -57,7 +65,7 @@ export default function DisputesFilters({ query, tenantId, customers, blocked, i
         </Field>
       </div>
       {changed && <Link href={resetHref} aria-disabled={blocked || undefined} tabIndex={blocked ? -1 : undefined}
-        onClick={event => { if (blocked) event.preventDefault() }}
+        onClick={event => { if (blocked) event.preventDefault(); else if (onNavigate && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) { event.preventDefault(); onNavigate({ ...query, status: 'active', customer: '', q: '', sort: 'amount_desc', page: 1 }) } }}
         className="order-5 inline-flex min-h-11 items-center rounded-control font-medium text-link underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-focus sm:order-6">Clear filters</Link>}
       {!changed && expanded && <Button type="reset" variant="ghost" className="order-5 min-h-11 px-0 sm:hidden">Reset filters</Button>}
     </fieldset>

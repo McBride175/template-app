@@ -36,6 +36,7 @@ function harness() {
 
 function nodes(tree, predicate) {
   if (!tree || typeof tree !== 'object') return []
+  if (tree.type?.name === 'DisputeManagementPanel') return nodes(tree.type(tree.props), predicate)
   if (Array.isArray(tree)) return tree.flatMap((child) => nodes(child, predicate))
   return [
     ...(predicate(tree) ? [tree] : []),
@@ -137,7 +138,7 @@ test('a resolved-only customer has no ordinary bulk action and reactivation rest
     assert.equal(nodes(tree, (node) => node.type === 'input' && node.props.type === 'checkbox').length, 0)
     assert.equal(nodes(tree, (node) => node.type === 'button' &&
       JSON.stringify(node.props.children).includes('Dispute all')).length, 0)
-    assert.match(JSON.stringify(tree), /reactivate before disputing again/i)
+    assert.match(JSON.stringify(nodes(tree, () => true)), /reactivate before disputing again/i)
     button(tree, 'Reactivate dispute').props.onClick()
     for (let attempt = 0; attempt < 10 && h.states[0]; attempt++) await new Promise(setImmediate)
     assert.deepEqual(posts, [{ operation: 'reactivate', tenantId: 'tenant-a',
@@ -482,55 +483,7 @@ test('customer selection follows URL back/forward and closing detail preserves l
   } finally { globalThis.window = oldWindow }
 })
 
-test('worklist preserves successful-save state when refresh fails and restores controls after retry', async () => {
-  const h = harness()
-  const InvoiceControl = () => null
-  const { default: Worklist } = loadTypeScriptModule('app/disputes/DisputesClient.tsx', {
-    mocks: { react: h.react, 'react/jsx-runtime': h.jsxRuntime, 'next/link': 'a',
-      '@/app/collections/customers/CustomerInvoiceDisputes': { InvoiceDisputeList: InvoiceControl } },
-  })
-  const query = { status: 'active', customer: '', q: '', sort: 'amount_desc', page: 1, pageSize: 25 }
-  const row = { ...invoice, disputeId: 'dispute-a', revision: '4', isActive: true, disputeMode: 'full',
-    sourceSystem: 'xero', customerSourceId: 'customer-a', customerName: 'Customer A',
-    currentAmountDueNative: '10000', effectiveDisputedAmountNative: '10000', collectibleAmountNative: '0',
-    effectiveDisputedBase: null, overdueDays: 20, contextFromPreviousSnapshot: false, resolvedAt: null,
-    customerHref: '/customers?tenantId=tenant-a&customerSourceId=customer-a' }
-  let failRefresh = false
-  const originalFetch = globalThis.fetch
-  globalThis.fetch = async () => failRefresh
-    ? { ok: false, json: async () => ({ error: 'Temporary read failure' }) }
-    : { ok: true, json: async () => ({ ok: true, tenantId: 'tenant-a', organisationBaseCurrency: 'GBP',
-      rows: [row], customers: [{ sourceId: 'customer-a', name: 'Customer A' }], query, total: 1, pageCount: 1 }) }
-  try {
-    const props = { tenantId: 'tenant-a', query }
-    h.render(Worklist, props)
-    h.effects.forEach((effect) => effect())
-    await new Promise(setImmediate)
-    const loaded = h.render(Worklist, props)
-    assert.match(JSON.stringify(loaded), /Base valuation unavailable/)
-    const link = nodes(loaded, (node) => node.type === 'a' && node.props.href?.includes('customerSourceId'))[0]
-    assert.equal(link.props.href, '/customers?tenantId=tenant-a&customerSourceId=customer-a#invoice-invoice-a')
-    const control = nodes(loaded, (node) => node.type === InvoiceControl)[0]
-    assert.equal(control.props.showBulkActions, false)
-    control.props.onMutationStarted()
-    const pending = h.render(Worklist, props)
-    assert.equal(nodes(pending, (node) => node.type === InvoiceControl)[0].props.disabled, true)
-    control.props.onMutationPending('Dispute saved. Refreshing current balances…')
-    failRefresh = true
-    assert.equal(await control.props.reload(), false)
-    control.props.onMutationResult(false, 'Dispute saved, but current balances could not be refreshed. Refresh before making further changes.')
-    const failed = h.render(Worklist, props)
-    assert.equal(nodes(failed, (node) => node.type === InvoiceControl).length, 0)
-    assert.match(JSON.stringify(nodes(failed, (node) => node.props.role === 'alert')), /Dispute saved/)
-    assert.equal(nodes(failed, (node) => node.type?.name === 'DisputesFilters')[0].props.blocked, true)
-    failRefresh = false
-    await button(failed, 'Reload current disputes').props.onClick()
-    await new Promise(setImmediate)
-    const refreshed = h.render(Worklist, props)
-    assert.equal(nodes(refreshed, (node) => node.type === InvoiceControl).length, 1)
-    assert.equal(nodes(refreshed, (node) => node.type?.name === 'DisputesFilters')[0].props.blocked, false)
-  } finally { globalThis.fetch = originalFetch }
-})
+// Worklist integration coverage migrated to real React/JSDOM in disputes-workspace-client.test.mjs.
 
 test('shared worklist actions submit the displayed revision and withhold invalid state operations', async () => {
   const originalFetch = globalThis.fetch
@@ -569,42 +522,7 @@ test('shared worklist actions submit the displayed revision and withhold invalid
   } finally { globalThis.fetch = originalFetch }
 })
 
-test('a late mutation reload cannot replace a newly selected worklist URL with an old page', async () => {
-  const h = harness()
-  const InvoiceControl = () => null
-  const { default: Worklist } = loadTypeScriptModule('app/disputes/DisputesClient.tsx', {
-    mocks: { react: h.react, 'react/jsx-runtime': h.jsxRuntime, 'next/link': 'a',
-      '@/app/collections/customers/CustomerInvoiceDisputes': { InvoiceDisputeList: InvoiceControl } },
-  })
-  const query = { status: 'active', customer: '', q: '', sort: 'amount_desc', page: 1, pageSize: 25 }
-  const requests = []
-  const originalFetch = globalThis.fetch
-  globalThis.fetch = async (url) => {
-    requests.push(url)
-    const filtered = url.includes('customer=baker')
-    return { ok: true, json: async () => ({ ok: true, tenantId: 'tenant-a', organisationBaseCurrency: 'GBP',
-      rows: [{ ...invoice, disputeId: 'dispute-a', revision: '1', customerSourceId: filtered ? 'baker' : 'acme',
-        customerName: filtered ? 'Baker' : 'Acme', effectiveDisputedBase: '1000' }],
-      customers: [], query: { ...query, customer: filtered ? 'baker' : '' }, total: 1, pageCount: 1 }) }
-  }
-  try {
-    const props = { tenantId: 'tenant-a', query }
-    h.render(Worklist, props)
-    h.effects.forEach((effect) => effect())
-    await new Promise(setImmediate)
-    const original = h.render(Worklist, props)
-    const staleReload = nodes(original, (node) => node.type === InvoiceControl)[0].props.reload
-    const updatedProps = { ...props, query: { ...query, customer: 'baker' } }
-    h.render(Worklist, updatedProps)
-    h.effects.forEach((effect) => effect())
-    await new Promise(setImmediate)
-    const count = requests.length
-    assert.equal(await staleReload(), false)
-    assert.equal(requests.length, count)
-    const latest = h.render(Worklist, updatedProps)
-    assert.equal(nodes(latest, (node) => node.type === InvoiceControl)[0].props.customerName, 'Baker')
-  } finally { globalThis.fetch = originalFetch }
-})
+// Worklist integration coverage migrated to real React/JSDOM in disputes-workspace-client.test.mjs.
 
 for (const ready of [true,false]) test(`reconciled dispute ${ready?'ready':'committed not ready'} does not issue reloads`,async()=>{
  const h=harness(),calls=[],originalFetch=globalThis.fetch

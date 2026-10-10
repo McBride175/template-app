@@ -655,3 +655,14 @@ return context. No migration or privileged function is
 added. Earlier Promise stages above describe their historical boundaries; the
 editor and this global worklist now exist. See
 [the Phase 5E contract and certification](docs/global-promises-workspace.md).
+
+### Disputes workspace (UI Phase 5F)
+
+The existing aggregate Disputes read model, query and mutation APIs remain intact.
+Compact worklist rows open one detached manager using current selected-invoice
+context and the existing InvoiceDisputeList controller/reconciliation. Uncertain
+responses recover through authoritative reads, with no invented command-ID retry.
+Validated same-tenant investigation context preserves worklist filters/page through
+Customers and history. The shared modal shell retains Promise behaviour. No schema,
+authentication, financial/lifecycle or global navigation change is included. See
+[Phase 5F implementation and certification](docs/disputes-workspace.md).

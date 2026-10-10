@@ -26,6 +26,7 @@ import { InvoiceDisputeList } from '@/app/collections/customers/CustomerInvoiceD
 import type { InvoiceDisputeView } from '@/lib/collections/invoice-dispute-view'
 import MultiCurrencyPlanGate from '@/app/collections/MultiCurrencyPlanGate'
 import { buildLoginPath } from '@/lib/auth-flow'
+import { disputesReturnHref, withDisputesOrigin } from '@/lib/collections/dispute-worklist'
 import { promisesReturnHref, withPromisesOrigin } from '@/lib/collections/promise-worklist'
 import { prioritiesReturnHref, queueCustomerId, withQueueOrigin } from '../actions/queue-navigation-context'
 import { customerHistoryUrl } from '@/lib/collections/customer-history-url'
@@ -327,12 +328,14 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
   }, [initialCustomerSourceId])
 
   const [originPromises, setOriginPromises] = useState<string | null>(null)
+  const [originDisputes, setOriginDisputes] = useState<string | null>(null)
   const [originQueueCustomer, setOriginQueueCustomer] = useState<string | null>(null)
   useEffect(() => {
     const read = () => {
       const params = new URL(window.location.href).searchParams
       setOriginQueueCustomer(queueCustomerId(params.get('queueCustomerSourceId')))
       setOriginPromises(promisesReturnHref(params.get('promisesReturn'), params.get('tenantId')))
+      setOriginDisputes(disputesReturnHref(params.get('disputesReturn'), params.get('tenantId')))
     }
     read(); window.addEventListener('popstate', read)
     return () => window.removeEventListener('popstate', read)
@@ -694,7 +697,7 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
                   </p>
                   {resolvedTenantId && (
                     <div className="mt-2">
-                      <Link href={withQueueOrigin(customerHistoryUrl(customer.customer_source_id, resolvedTenantId), originQueueCustomer)}
+                      <Link href={withDisputesOrigin(withQueueOrigin(customerHistoryUrl(customer.customer_source_id, resolvedTenantId), originQueueCustomer), originDisputes, resolvedTenantId)}
                         className="mr-2 inline-flex min-h-11 items-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900">
                         View history
                       </Link>
@@ -728,7 +731,7 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
         <section ref={(element) => { invoiceSectionRef.current = element }}
           tabIndex={-1} aria-label="Selected customer detail" className="min-w-0 scroll-mt-4 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap gap-x-4">{originPromises && <Link href={originPromises} className={actionStyles({ variant: 'ghost', className: 'min-h-11 px-0' })}>Back to Promises</Link>}<Link href={prioritiesHref} className={actionStyles({ variant: 'ghost', className: 'min-h-11 px-0' })}>Back to Priorities</Link></div>
+            <div className="flex flex-wrap gap-x-4">{originDisputes && <Link href={originDisputes} className={actionStyles({ variant: 'ghost', className: 'min-h-11 px-0' })}>Back to Disputes</Link>}{originPromises && <Link href={originPromises} className={actionStyles({ variant: 'ghost', className: 'min-h-11 px-0' })}>Back to Promises</Link>}<Link href={prioritiesHref} className={actionStyles({ variant: 'ghost', className: 'min-h-11 px-0' })}>Back to Priorities</Link></div>
             <Button variant="ghost" className="min-h-11" onClick={() => selectCustomer(expandedCustomerSourceId)}>
               Close customer
             </Button>
@@ -741,7 +744,7 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
           {detail && detail.customerSourceId === expandedCustomerSourceId && (
             <div className="min-w-0 space-y-5">
               {detail.row ? <CustomerOverview row={{ ...detail.row, override_level: rows.find(row => row.customer_source_id === detail.row!.customer_source_id)?.override_level ?? detail.row.override_level }} currency={detail.organisationBaseCurrency ?? null}
-                equivalent={showMultiCurrencyAmounts} historyHref={detail.tenantId ? withPromisesOrigin(withQueueOrigin(customerHistoryUrl(expandedCustomerSourceId, detail.tenantId), originQueueCustomer), originPromises, detail.tenantId) : undefined}
+                equivalent={showMultiCurrencyAmounts} historyHref={detail.tenantId ? withDisputesOrigin(withPromisesOrigin(withQueueOrigin(customerHistoryUrl(expandedCustomerSourceId, detail.tenantId), originQueueCustomer), originPromises, detail.tenantId), originDisputes, detail.tenantId) : undefined}
                 contextControl={<>
                   <label className="sr-only" htmlFor={`customer-context-${detail.row.customer_source_id}`}>Customer context for {detail.row.customer_name}</label>
                   <Select id={`customer-context-${detail.row.customer_source_id}`} value={rows.find(row => row.customer_source_id === detail.row!.customer_source_id)?.override_level ?? detail.row.override_level}
@@ -753,7 +756,7 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
                 </>} /> : <div>
                   <h2 className="break-words text-xl font-semibold">{detail.reviewRequiredCustomer?.customer_name ?? 'Customer'}</h2>
                   <Alert variant="warning">Customer amounts cannot be valued reliably. Review currency evidence before deciding what to chase.</Alert>
-                  {detail.tenantId && <Link href={withPromisesOrigin(withQueueOrigin(customerHistoryUrl(expandedCustomerSourceId, detail.tenantId), originQueueCustomer), originPromises, detail.tenantId)} className={actionStyles({ variant: 'secondary', className: 'mt-2 min-h-11' })}>View history</Link>}
+                  {detail.tenantId && <Link href={withDisputesOrigin(withPromisesOrigin(withQueueOrigin(customerHistoryUrl(expandedCustomerSourceId, detail.tenantId), originQueueCustomer), originPromises, detail.tenantId), originDisputes, detail.tenantId)} className={actionStyles({ variant: 'secondary', className: 'mt-2 min-h-11' })}>View history</Link>}
                 </div>}
               <div id="customer-invoices" tabIndex={-1} className="min-w-0 scroll-mt-4">
               {(detail.currencyHealth?.status === 'unavailable' || !detail.organisationBaseCurrency) ?

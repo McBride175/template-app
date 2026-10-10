@@ -1,14 +1,15 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { compareDecimalValues, normalizeDecimalValue } from '@/lib/money/currency'
 import type { FinancialMutationReconciliation } from '@/lib/collections/financial-mutation-reconciliation-server'
 import { mountedFinancialQueueWindow } from '@/lib/collections/promise-refresh'
 
+import DisputeManagementPanel from './DisputeManagementPanel'
 import InvoiceFrame from './InvoiceFrame'
 import InvoiceDetails from './InvoiceDetails'
 import { actionStyles } from '@/app/components/ui/actionStyles'
-import { fieldStyles } from '@/app/components/ui/fieldStyles'
 import EmptyState from '@/app/components/ui/EmptyState'
 import Spinner from '@/app/components/ui/Spinner'
 import InvoicePromise from './InvoicePromise'
@@ -19,28 +20,15 @@ interface ApiResponse {
   invoices?: InvoiceRow[]
   error?: string
   code?: string
+  dispute?: { dispute_mode: 'full' | 'partial'; recorded_disputed_amount_native: string; note: string | null; is_active: boolean; revision: number | string }
   reconciliation?: FinancialMutationReconciliation
 }
 
-function amount(value: string | null, currencyCode: string | null) {
-  if (value === null) return 'Unavailable'
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric) || !currencyCode) return `${value} ${currencyCode ?? ''}`.trim()
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: 'currency', currency: currencyCode,
-      maximumFractionDigits: 8,
-    }).format(numeric)
-  } catch {
-    return `${value} ${currencyCode}`
-  }
-}
 
 function isBulkEligible(invoice: InvoiceRow) {
   return invoice.invoiceState === 'open' && !invoice.isResolved
 }
 
-const inputClass = fieldStyles('min-h-11 min-w-0 max-w-full')
 const actionClass = actionStyles({ variant: 'secondary', className: 'min-h-11 whitespace-normal text-left' })
 
 interface InvoiceDisputeListProps {
@@ -111,7 +99,7 @@ export default function CustomerInvoiceDisputes(props: InvoiceDisputeListProps) 
 export function InvoiceDisputeList({
   tenantId, customerSourceId, customerName, onChanged, onMutationStarted,
   onMutationPending, onMutationResult, invoices, loading = false, loadError = null,
-  reload, showBulkActions = true, disabled = false, onMutationError, onPromiseRefresh, onReconciled, workspace = false,
+  reload, showBulkActions = true, disabled = false, onMutationError, onPromiseRefresh, onReconciled, workspace = false, managementOnly = false, onInteractionChange, onCommitted,
 }: InvoiceDisputeListProps & {
   invoices: InvoiceRow[]
   loading?: boolean
@@ -121,6 +109,9 @@ export function InvoiceDisputeList({
   disabled?: boolean
   workspace?: boolean
   onPromiseRefresh?: (invoiceId: string) => Promise<boolean>
+  managementOnly?: boolean
+  onInteractionChange?: (state: { editing: boolean; saving: boolean; uncertain: boolean }) => void
+  onCommitted?: (record: { dispute_mode: 'full' | 'partial'; recorded_disputed_amount_native: string; note: string | null; is_active: boolean; revision: number | string }, operation: string) => void
 }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -131,10 +122,26 @@ export function InvoiceDisputeList({
   const [note, setNote] = useState('')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [editingRevision, setEditingRevision] = useState<string | null>(null)
+  const [uncertain, setUncertain] = useState(false)
+  const pending = useRef(false)
   useEffect(() => { setSelectedIds([]) }, [invoices])
+  useEffect(() => { onInteractionChange?.({ editing: Boolean(editingId || noteEditingId), saving, uncertain }) }, [editingId, noteEditingId, saving, uncertain, onInteractionChange])
+  async function checkCurrent() {
+    if (pending.current) return
+    pending.current = true; setSaving(true)
+    const refreshed = await reload().catch(() => false)
+    const summary = await onChanged().catch(() => false)
+    if (refreshed && summary) {
+      setUncertain(false); setEditingId(null); setNoteEditingId(null); setError(null)
+      onMutationResult(true, 'Current dispute loaded. Review its recorded state before making another change; the earlier response was not confirmed.')
+    } else onMutationPending('The earlier save is unconfirmed and current details could not be loaded. Check again before making another change.')
+    pending.current = false; setSaving(false)
+  }
 
   async function mutate(operation: string, fields: Record<string, unknown>, success: string) {
-    if (saving || disabled) return
+    if (pending.current || saving || disabled || uncertain) return
+    pending.current = true
+    let confirmed = false, unconfirmed = true
     const sequence = onMutationStarted()
     setSaving(true)
     setError(null)
@@ -154,12 +161,26 @@ export function InvoiceDisputeList({
         onMutationPending(message)
         setEditingId(null)
         setNoteEditingId(null)
-        const invoiceRefresh = await reload()
+        const invoiceRefresh = await reload().catch(() => false)
         const summaryRefresh = await onChanged().catch(() => false)
         onMutationResult(invoiceRefresh && summaryRefresh, message)
         return
       }
-      if (!response.ok || !body?.ok) throw new Error(body?.error || 'Could not save the dispute.')
+      unconfirmed = !body || response.status >= 500 || (response.ok && !body.ok)
+      if (!response.ok || !body?.ok) {
+        if (managementOnly && unconfirmed) {
+          setUncertain(true); onMutationPending('Save response unconfirmed. Check the current dispute before making another change.'); return
+        }
+        throw new Error(body?.error || 'Could not save the dispute.')
+      }
+      const record = body.dispute
+      if (managementOnly && (!record || !['full', 'partial'].includes(record.dispute_mode) ||
+        typeof record.is_active !== 'boolean' || typeof record.recorded_disputed_amount_native !== 'string' ||
+        normalizeDecimalValue(record.recorded_disputed_amount_native) === null || record.revision == null)) {
+        setUncertain(true); onMutationPending('Save response incomplete. Check the current dispute before making another change.'); return
+      }
+      confirmed = true
+      if (body.dispute) onCommitted?.(body.dispute, operation)
       setEditingId(null)
       setNoteEditingId(null)
       if (onReconciled && body.reconciliation) {
@@ -171,17 +192,21 @@ export function InvoiceDisputeList({
       onMutationPending('Dispute saved. Refreshing current balances…')
       setEditingId(null)
       setNoteEditingId(null)
-      const invoicesRefreshed = await reload()
+      const invoicesRefreshed = await reload().catch(() => false)
       const summaryRefreshed = await onChanged().catch(() => false)
       onMutationResult(invoicesRefreshed && summaryRefreshed,
         invoicesRefreshed && summaryRefreshed ? success :
           'Dispute saved, but current balances could not be refreshed. Refresh the page before making further changes.')
     } catch (cause) {
+      if (confirmed) { onMutationResult(false, 'Dispute saved, but current details could not be refreshed. Restore current details before another change.'); return }
+      if (managementOnly && unconfirmed) {
+        setUncertain(true); onMutationPending('Save response unconfirmed. Check the current dispute before making another change.'); return
+      }
       const message = cause instanceof Error ? cause.message : 'Could not save the dispute.'
       setError(message)
       onMutationError?.(message)
     } finally {
-      setSaving(false)
+      pending.current = false; setSaving(false)
     }
   }
 
@@ -205,10 +230,9 @@ export function InvoiceDisputeList({
 
   function save(invoice: InvoiceRow) {
     if (mode === 'partial') {
-      const entered = Number(partialAmount)
-      const current = Number(invoice.currentAmountDueNative)
-      if (!/^\d+(?:\.\d{1,8})?$/.test(partialAmount.trim()) || !Number.isFinite(entered) ||
-        entered <= 0 || entered > current) {
+      if (!/^\d+(?:\.\d{1,8})?$/.test(partialAmount.trim()) || compareDecimalValues(partialAmount.trim(), '0') !== 1 ||
+        compareDecimalValues(partialAmount.trim(), invoice.currentAmountDueNative) === null ||
+        compareDecimalValues(partialAmount.trim(), invoice.currentAmountDueNative) === 1) {
         setError('Enter a positive amount no greater than the current invoice balance.')
         return
       }
@@ -227,6 +251,12 @@ export function InvoiceDisputeList({
   const revisionEntries = (ids: string[]) => bulkEligibleInvoices
     .filter((invoice) => ids.includes(invoice.invoiceSourceId) && invoice.revision)
     .map((invoice) => ({ invoiceSourceId: invoice.invoiceSourceId, revision: invoice.revision }))
+
+  if (managementOnly) return <div className="min-w-0 space-y-3">
+    {(error || loadError) && <p role="alert" className="text-sm text-feedback-error">{error || loadError}</p>}
+    {invoices.map(invoice => <DisputeManagementPanel key={invoice.invoiceSourceId} {...{ invoice, showBulkActions: false, noteEditingId, editingId, mode, partialAmount, note, saving, disabled: disabled || uncertain, editingRevision, setMode, setPartialAmount, setNote, setNoteEditingId, setEditingId, startEdit, startNoteEdit, save, mutate }} />)}
+    {uncertain && <button type="button" className={actionClass} disabled={saving} onClick={() => void checkCurrent()}>Check current dispute</button>}
+  </div>
 
   return (
     <section aria-label={`Invoices for ${customerName}`} className={workspace ? 'min-w-0 space-y-3' : 'space-y-4 bg-gray-50 p-4'}>
@@ -264,73 +294,7 @@ export function InvoiceDisputeList({
                   aria-label={`Select invoice ${invoice.invoiceNumber || invoice.invoiceSourceId} for full dispute`}
                   checked={selectedIds.includes(invoice.invoiceSourceId)} disabled={saving || disabled}
                   onChange={event => setSelectedIds(current => event.target.checked ? [...current, invoice.invoiceSourceId] : current.filter(id => id !== invoice.invoiceSourceId))} /></label> : undefined}>
-                <section aria-label="Dispute management" className="min-w-0 text-sm">
-                <h5 className="font-semibold text-text-primary">Dispute</h5>
-                {showBulkActions && invoice.invoiceState === 'open' && invoice.isResolved && (
-                  <p className="mt-2 text-xs text-text-secondary">Resolved — reactivate before disputing again.</p>
-                )}
-                {noteEditingId === invoice.invoiceSourceId ? (
-                  <div className="mt-3 space-y-2 border-t border-border-default pt-3">
-                    <label className="flex max-w-xl flex-col gap-1">Dispute note
-                      <textarea className={inputClass} disabled={saving || disabled} maxLength={2000} rows={2} value={note} onChange={(event) => setNote(event.target.value)} />
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                      <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => void mutate('note', {
-                        disputeId: invoice.disputeId, expected_revision: editingRevision, note,
-                      }, 'Note saved.')}>Save note</button>
-                      <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => setNoteEditingId(null)}>Cancel</button>
-                    </div>
-                  </div>
-                ) : editingId === invoice.invoiceSourceId && invoice.invoiceState === 'open' ? (
-                  <div className="mt-3 space-y-3 border-t border-border-default pt-3">
-                    <fieldset disabled={saving || disabled} className="flex flex-wrap gap-4">
-                      <legend className="mb-1 font-medium">Disputed amount</legend>
-                      <label className="flex min-w-0 items-start gap-2"><input type="radio" name={`mode-${invoice.invoiceSourceId}`} checked={mode === 'full'} onChange={() => setMode('full')} />Dispute full outstanding amount ({amount(invoice.currentAmountDueNative, invoice.currencyCode)})</label>
-                      <label className="flex min-w-0 items-start gap-2"><input type="radio" name={`mode-${invoice.invoiceSourceId}`} checked={mode === 'partial'} onChange={() => setMode('partial')} />Dispute part</label>
-                    </fieldset>
-                    {mode === 'partial' && <label className="flex max-w-xs flex-col gap-1">Partial disputed amount ({invoice.currencyCode})
-                      <input className={inputClass} disabled={saving || disabled} type="text" inputMode="decimal" required value={partialAmount} onChange={(event) => setPartialAmount(event.target.value)} placeholder="0.00" />
-                    </label>}
-                    <label className="flex max-w-xl flex-col gap-1">Optional note
-                      <textarea className={inputClass} disabled={saving || disabled} maxLength={2000} rows={2} value={note} onChange={(event) => setNote(event.target.value)} />
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                      <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => save(invoice)}>{saving ? 'Saving…' : 'Save dispute'}</button>
-                      <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => setEditingId(null)}>Cancel</button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {invoice.invoiceState === 'open' && !invoice.isResolved && (
-                      <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => startEdit(invoice)}>{invoice.isActive ? 'Edit dispute' : 'Mark disputed'}</button>
-                    )}
-                    {invoice.isActive && invoice.disputeId && (
-                      <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => void mutate('resolve', {
-                        disputeId: invoice.disputeId, expected_revision: invoice.revision,
-                      }, 'Dispute resolved.')}>Resolve dispute</button>
-                    )}
-                    {invoice.needsReview && invoice.disputeId && (
-                      <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => void mutate('confirm', {
-                        disputeId: invoice.disputeId, expected_revision: invoice.revision,
-                      }, 'Dispute confirmed against the current balance.')}>Keep as is</button>
-                    )}
-                    {invoice.isResolved && invoice.invoiceState === 'open' && invoice.disputeId && (
-                      <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => void mutate('reactivate', {
-                        disputeId: invoice.disputeId, expected_revision: invoice.revision,
-                      }, 'Dispute reactivated.')}>Reactivate dispute</button>
-                    )}
-                    {invoice.disputeId && (
-                      <button type="button" className={actionClass} disabled={saving || disabled} onClick={() => startNoteEdit(invoice)}>Edit note</button>
-                    )}
-                  </div>
-                )}
-                {(invoice.disputeId || invoice.note) && <details className="mt-2"><summary className="min-h-11 cursor-pointer py-3 text-xs text-text-secondary focus-visible:outline-2 focus-visible:outline-focus">Dispute record & note</summary>
-                {invoice.disputeId && (
-                  <p className="mt-2 text-xs text-text-secondary">Recorded dispute: {amount(invoice.recordedDisputedAmountNative, invoice.currencyCode)}{invoice.disputeMode === 'full' ? ' (full amount intent)' : ''}</p>
-                )}
-                {invoice.note && editingId !== invoice.invoiceSourceId && noteEditingId !== invoice.invoiceSourceId && <p className="mt-2 whitespace-pre-wrap text-text-primary">Note: {invoice.note}</p>}
-                </details>}
-                </section>
+                <DisputeManagementPanel {...{ invoice, showBulkActions, noteEditingId, editingId, mode, partialAmount, note, saving, disabled, editingRevision, setMode, setPartialAmount, setNote, setNoteEditingId, setEditingId, startEdit, startNoteEdit, save, mutate }} />
                 {onPromiseRefresh && <InvoicePromise invoice={invoice} tenantId={tenantId} onRefresh={onPromiseRefresh} onReconciled={onReconciled} onMutationStarted={onMutationStarted} onReconciliationUnavailable={() => onMutationResult(false, 'Promise saved, but current balances are not ready. Refresh the details before making further changes.')} disabled={disabled || saving} />}
               </InvoiceFrame>
             ))}

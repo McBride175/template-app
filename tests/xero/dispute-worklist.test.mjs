@@ -236,3 +236,28 @@ test('worklist revisions drive the existing resolve/reactivate/review API and re
     operation: 'resolve', expected_revision: '1' })
   assert.equal(foreign.status, 403)
 })
+
+test('Disputes return links keep normalized tenant/filter/page context and reject foreign or arbitrary destinations',()=>{
+ const {disputesReturnHref,disputeCustomerHref,withDisputesOrigin}=loadTypeScriptModule('lib/collections/dispute-worklist.ts')
+ const query=parseDisputeWorklistQuery(new URLSearchParams('status=needs_review&sort=oldest&q=INV&customer=acme&page=3&pageSize=50'))
+ const origin=disputeWorklistUrl(query,'tenant-a')
+ const row={invoiceSourceId:'invoice/1',customerSourceId:'acme',customerHref:'/customers?tenantId=tenant-a&customerSourceId=acme'}
+ const link=new URL(disputeCustomerHref(row,'tenant-a',origin),'http://localhost');assert.equal(link.searchParams.get('disputesReturn'),origin);assert.equal(link.hash,'#invoice-invoice%2F1')
+ for(const value of ['https://evil.example/disputes?tenantId=tenant-a','//evil.example/disputes?tenantId=tenant-a','/promises?tenantId=tenant-a','/disputes?tenantId=foreign',origin+'#bad'])assert.equal(disputesReturnHref(value,'tenant-a'),null)
+ assert.equal(disputeCustomerHref({...row,customerSourceId:null},'tenant-a',origin),null)
+ assert.ok(withDisputesOrigin('/customers/acme/history?tenantId=tenant-a',origin,'tenant-a').includes('disputesReturn='))
+ assert.equal(withDisputesOrigin('/customers/acme/history?tenantId=tenant-a',origin,'foreign'),'/customers/acme/history?tenantId=tenant-a')
+})
+
+test('aggregate worklist scales in identity batches, not per-row reads; pagination keeps HTTP projection bounded',async t=>{
+ for(const count of [20,5000]){
+  const f=appFixture(),invoice=f.tables.canonical_invoices[0],dispute=f.tables.invoice_disputes[0]
+  f.tables.canonical_invoices=Array.from({length:count},(_,i)=>({...invoice,id:`current-${i}`,source_id:`measure-${i}`}))
+  f.tables.invoice_disputes=Array.from({length:count},(_,i)=>({...dispute,id:`dispute-${i}`,invoice_source_id:`measure-${i}`}))
+  const started=performance.now(),response=await f.get('tenantId=tenant-a&pageSize=25'),milliseconds=performance.now()-started
+  assert.equal(response.status,200);assert.equal(response.body.total,count);assert.equal(response.body.rows.length,Math.min(count,25))
+  const lookups=f.calls.filter(table=>table==='canonical_invoices').length;// Existing access currency context scans 1000-row pages, including the empty terminator; worklist identity reads batch 200.
+  assert.equal(lookups,Math.floor(count/1000)+1+Math.ceil(count/200))
+  t.diagnostic(`${count} aggregate disputes: ${milliseconds.toFixed(1)}ms synthetic query/projection, ${JSON.stringify(response.body).length}B HTTP page, ${lookups} total invoice reads (access currency population plus 200-ID worklist batches); no hosted latency claim.`)
+ }
+})

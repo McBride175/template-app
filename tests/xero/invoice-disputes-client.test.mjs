@@ -40,6 +40,7 @@ function nodes(tree, predicate) {
   return [
     ...(predicate(tree) ? [tree] : []),
     ...nodes(tree.props?.children, predicate),
+    ...nodes(tree.props?.selection, predicate),
   ]
 }
 
@@ -306,7 +307,7 @@ test('customer parent keeps invoice detail mounted with disabled actions after a
   h.states[4] = false // targeted detail load completed
   h.states[9] = false // independent customer list load completed
   const current = h.render(Parent, { tenantId: 'tenant-a', initialCustomerSourceId: 'customer-a' })
-  assert.ok(nodes(current, (node) => node.props?.href === '/customers/customer-a/history?tenantId=tenant-a').length)
+  assert.ok(nodes(current, (node) => node.props?.historyHref === '/customers/customer-a/history?tenantId=tenant-a').length)
   const control = nodes(current, (node) => node.type === InvoiceControl)[0]
   assert.ok(control)
   control.props.onMutationPending('Dispute saved. Refreshing current balances…')
@@ -315,7 +316,7 @@ test('customer parent keeps invoice detail mounted with disabled actions after a
   const failed = h.render(Parent, { tenantId: 'tenant-a', initialCustomerSourceId: 'customer-a' })
   assert.equal(nodes(failed, (node) => node.type === InvoiceControl).length, 1)
   assert.equal(nodes(failed, (node) => node.type === InvoiceControl)[0].props.disabled, true)
-  const alerts = nodes(failed, (node) => node.props?.role === 'alert')
+  const alerts = nodes(failed, (node) => node.props?.role === 'alert' || node.props?.variant === 'warning')
   assert.ok(alerts.some((node) => JSON.stringify(node.props.children).includes('Dispute saved')))
   assert.ok(nodes(failed, (node) => node.type === 'button' &&
     JSON.stringify(node.props.children).includes('Refresh page')).length > 0)
@@ -329,7 +330,7 @@ test('customer parent keeps invoice detail mounted with disabled actions after a
 })
 
 test('customer summary shows only canonical customer To chase when Xero credit is applied', () => {
-  for (const [creditState, applied, net, expected] of [
+  for (const [creditState, applied, net] of [
     ['ready', 0, 1000, null],
     ['unavailable', 0, 1000, null],
     ['unsupported_currency', 0, 1000, null],
@@ -365,16 +366,13 @@ test('customer summary shows only canonical customer To chase when Xero credit i
       has_active_dispute: false, override_level: 'normal' }]
     h.states[9] = false
     const tree = h.render(Parent, { tenantId: 'tenant-a' })
-    const cells = nodes(tree, node => node.type === 'td')
-    const totalCell = JSON.stringify(cells[1]?.props.children)
-    const overdueCell = JSON.stringify(cells[2]?.props.children)
-    assert.doesNotMatch(totalCell, /to chase/i)
-    if (expected) assert.match(overdueCell, new RegExp(expected))
-    else assert.doesNotMatch(overdueCell, /Xero credit|to chase/i)
-    if (applied > 0) {
-      assert.match(overdueCell, /Xero credit deducted/)
-      assert.doesNotMatch(overdueCell, /1,000.00 to chase/)
-    } else assert.doesNotMatch(overdueCell, /Xero credit/)
+    const browser = nodes(tree, node => node.type?.name === 'CustomerBrowser')[0]
+    assert.ok(browser, 'canonical rows are supplied to the controlled browser')
+    assert.equal(browser.props.rows[0].customer_to_chase_overdue_base, net)
+    assert.equal(browser.props.rows[0].customer_credit_applied_base, applied)
+    assert.equal(browser.props.rows[0].total_outstanding_base, 1000)
+    assert.equal(browser.props.rows[0].overdue_outstanding_base, 1000)
+
   }
 })
 
@@ -475,7 +473,7 @@ test('customer selection follows URL back/forward and closing detail preserves l
     assert.equal(h.states[2], 'customer-a')
     const tree = h.render(Parent, props)
     const close = nodes(tree, node => node.type === Button &&
-      JSON.stringify(node.props.children).includes('Hide invoices'))[0]
+      JSON.stringify(node.props.children).includes('Close customer'))[0]
     assert.ok(close)
     close.props.onClick()
     assert.equal(h.states[2], null)
@@ -524,13 +522,13 @@ test('worklist preserves successful-save state when refresh fails and restores c
     const failed = h.render(Worklist, props)
     assert.equal(nodes(failed, (node) => node.type === InvoiceControl).length, 0)
     assert.match(JSON.stringify(nodes(failed, (node) => node.props.role === 'alert')), /Dispute saved/)
-    assert.equal(nodes(failed, (node) => node.type === 'fieldset')[0].props.disabled, true)
+    assert.equal(nodes(failed, (node) => node.type?.name === 'DisputesFilters')[0].props.blocked, true)
     failRefresh = false
     await button(failed, 'Reload current disputes').props.onClick()
     await new Promise(setImmediate)
     const refreshed = h.render(Worklist, props)
     assert.equal(nodes(refreshed, (node) => node.type === InvoiceControl).length, 1)
-    assert.equal(nodes(refreshed, (node) => node.type === 'fieldset')[0].props.disabled, false)
+    assert.equal(nodes(refreshed, (node) => node.type?.name === 'DisputesFilters')[0].props.blocked, false)
   } finally { globalThis.fetch = originalFetch }
 })
 

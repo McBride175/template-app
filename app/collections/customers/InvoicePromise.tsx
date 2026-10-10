@@ -1,14 +1,13 @@
 'use client'
 
+import InvoicePromisePanel from './InvoicePromisePanel'
 import { useId, useRef, useState } from 'react'
 import type { InvoiceDisputeView } from '@/lib/collections/invoice-dispute-view'
 import { compareDecimalValues, normalizeDecimalValue } from '@/lib/money/currency'
-import { promiseDate, promiseEventText, promiseMoney, promiseOutcome, type PromiseView, type PromiseEventView } from '@/lib/collections/promise-presentation'
+import { promiseOutcome, type PromiseView, type PromiseEventView } from '@/lib/collections/promise-presentation'
 import type { FinancialMutationReconciliation } from '@/lib/collections/financial-mutation-reconciliation-server'
 import { mountedFinancialQueueWindow, notifyPromiseActionabilityChanged } from '@/lib/collections/promise-refresh'
 
-const inputClass = 'min-h-11 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900'
-const buttonClass = 'min-h-11 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50 disabled:opacity-50'
 type Body = { ok?: boolean; code?: string; error?: string; promise?: PromiseView; activePromise?: PromiseView | null; promises?: PromiseView[]; events?: PromiseEventView[]; reconciliation?: FinancialMutationReconciliation }
 const errorMessage = (body: Body | null) => body?.code === 'conflict' || body?.code === 'not_found'
   ? 'This invoice or promise changed. The latest details have been loaded; review them before saving again.'
@@ -163,53 +162,11 @@ export default function InvoicePromise({ invoice, tenantId, onRefresh, onReconci
     } catch { setHistoryError('Could not load these promise changes. Try again.') }
     finally { setEventLoading(null) }
   }
-  return <section aria-label="Invoice promise" className="mt-4 space-y-2 border-t border-gray-200 pt-3 text-sm">
-    {active && <div>
-      <p className="font-medium text-gray-900">{promiseMoney(active.promisedAmountNative, invoice.currencyCode)} promised by {promiseDate(active.promisedDate)} <span className="ml-2 text-xs font-normal text-gray-600">Active</span></p>
-      {compareDecimalValues(active.qualifyingPaidAmountNative, '0') === 1 && <p className="mt-1 text-gray-600">{promiseMoney(active.qualifyingPaidAmountNative, invoice.currencyCode)} received against this promise</p>}
-      {invoice.activePromisedCoverageAmountNative != null && normalizeDecimalValue(invoice.activePromisedCoverageAmountNative) !== normalizeDecimalValue(active.promisedAmountNative) && <p className="mt-1 text-gray-600">{promiseMoney(invoice.activePromisedCoverageAmountNative, invoice.currencyCode)} currently promised against outstanding debt</p>}
-      {active.note && !editing && <p className="mt-1 whitespace-pre-wrap text-gray-600">{active.note}</p>}
-    </div>}
-    {current && !active && <p className="text-gray-600">{promiseOutcome[current.status]} · {promiseMoney(current.promisedAmountNative, current.currencyCode ?? invoice.currencyCode)} by {promiseDate(current.promisedDate)}</p>}
-    {editing ? <form ref={formRef} onSubmit={save} noValidate aria-busy={saving} className="space-y-3">
-      <div className="grid gap-3 sm:grid-cols-2 sm:max-w-xl">
-        <div><label htmlFor={`${id}-amount`} className="mb-1 block font-medium">Promise amount ({invoice.currencyCode})</label>
-          <input id={`${id}-amount`} className={`${inputClass} w-full`} inputMode="decimal" autoComplete="off" maxLength={100} value={amount} onChange={event => setAmount(event.target.value)} disabled={saving}
-            aria-invalid={Boolean(fieldErrors.amount)} aria-describedby={fieldErrors.amount ? `${id}-amount-error` : undefined} />
-          {fieldErrors.amount && <p id={`${id}-amount-error`} className="mt-1 text-red-700">{fieldErrors.amount}</p>}
-        </div>
-        {!cancellation && <div><label htmlFor={`${id}-date`} className="mb-1 block font-medium">Promised date</label>
-          <input id={`${id}-date`} className={`${inputClass} w-full`} type="date" value={date} onChange={event => setDate(event.target.value)} disabled={saving}
-            aria-invalid={Boolean(fieldErrors.date)} aria-describedby={fieldErrors.date ? `${id}-date-error` : undefined} />
-          {fieldErrors.date && <p id={`${id}-date-error`} className="mt-1 text-red-700">{fieldErrors.date}</p>}
-        </div>}
-      </div>
-      {!cancellation && <div className="max-w-xl"><label htmlFor={`${id}-note`} className="mb-1 block">Optional promise note</label>
-        <textarea id={`${id}-note`} className={`${inputClass} w-full`} rows={2} maxLength={2000} value={note} onChange={event => setNote(event.target.value)} disabled={saving}
-          aria-invalid={Boolean(fieldErrors.note)} aria-describedby={fieldErrors.note ? `${id}-note-error` : undefined} />
-        {fieldErrors.note && <p id={`${id}-note-error`} className="mt-1 text-red-700">{fieldErrors.note}</p>}
-      </div>}
-      <div className="flex flex-wrap gap-2"><button type="submit" className={`${buttonClass} bg-gray-900 text-white hover:bg-gray-800`} disabled={locked}>{saving ? 'Saving…' : cancellation ? 'Cancel promise' : 'Save promise'}</button>
-        <button type="button" className={buttonClass} disabled={saving} onClick={() => { setEditing(false); actionRef.current?.focus() }}>Close</button></div>
-    </form> : <div className="flex flex-wrap gap-2">
-      {(active || eligible) && <button ref={actionRef} type="button" className={buttonClass} onClick={open} disabled={locked || Boolean(active && !active.revision)}>{active ? 'Edit promise' : current || history.length ? 'Record new promise' : 'Record promise'}</button>}
-      <button type="button" className={buttonClass} onClick={() => void showHistory()} aria-expanded={historyOpen} aria-controls={`${id}-history`} disabled={saving || historyLoading}>Promise history</button>
-    </div>}
-    {error && <p role="alert" className="text-red-700">{error}</p>}
-    {message && <p role="status" aria-live="polite" className="text-gray-600">{message}</p>}
-    {refreshNeeded && <button type="button" className={buttonClass} disabled={saving} onClick={() => void refreshSaved()}>Refresh invoice details</button>}
-    {historyOpen && <div id={`${id}-history`} className="space-y-3 pt-2" aria-label="Promise history">
-      {historyLoading ? <p role="status">Loading promise history…</p> : history.length === 0 && !historyError ? <p className="text-gray-500">No promises recorded.</p> : history.map(item => <div key={item.promise.id}>
-        <p className="text-gray-700">{promiseMoney(item.promise.promisedAmountNative, item.promise.currencyCode ?? invoice.currencyCode)} by {promiseDate(item.promise.promisedDate)} · {promiseOutcome[item.promise.status]}</p>
-        {item.promise.note && <p className="mt-1 whitespace-pre-wrap text-gray-600">{item.promise.note}</p>}
-        {item.events === null ? <button type="button" className="min-h-11 text-gray-700 underline" disabled={eventLoading === item.promise.id} onClick={() => void loadEvents(item.promise.id)}>{eventLoading === item.promise.id ? 'Loading changes…' : 'Show changes'}</button>
-          : <ol className="mt-2 space-y-2 border-l border-gray-200 pl-3">{[...item.events].sort((a, b) => BigInt(a.sequence) < BigInt(b.sequence) ? -1 : 1).map(event => <li key={event.id}>
-            <p className="whitespace-pre-wrap text-gray-700">{promiseEventText(event, item.promise.currencyCode ?? invoice.currencyCode)}</p><p className="text-xs text-gray-500">Recorded {promiseDate(event.occurredAt)}</p>
-          </li>)}</ol>}
-        {item.events?.length === 100 && <p className="mt-1 text-xs text-gray-500">Showing the 100 most recent changes.</p>}
-      </div>)}
-      {history.length === 50 && <p className="text-xs text-gray-500">Showing the 50 most recent commitments.</p>}
-      {historyError && <p role="alert" className="text-red-700">{historyError}</p>}
-    </div>}
-  </section>
+  return <InvoicePromisePanel id={id} invoice={invoice} active={active} current={current} editing={editing}
+    cancellation={cancellation} eligible={eligible} locked={locked} saving={saving}
+    amount={amount} date={date} note={note} setAmount={setAmount} setDate={setDate} setNote={setNote}
+    fieldErrors={fieldErrors} error={error} message={message} refreshNeeded={refreshNeeded}
+    historyOpen={historyOpen} historyLoading={historyLoading} historyError={historyError} eventLoading={eventLoading}
+    history={history} formRef={formRef} actionRef={actionRef} open={open} save={save}
+    close={() => { setEditing(false); actionRef.current?.focus() }} showHistory={showHistory} loadEvents={loadEvents} refreshSaved={refreshSaved} />
 }

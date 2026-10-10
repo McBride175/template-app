@@ -28,6 +28,7 @@ with the existing `Field` component. All examples are fictional and deterministi
 | ProductShell | Eight simulated desktop/active/loading/error/mobile/open-menu/narrow/tablet states |
 | CollectionQueue | Fifteen synthetic focused/ranked/long-name/large-amount/adjustment/loading/empty/error/saving/retry/mobile-dashboard/first-action/return-to-first/refresh-warning states |
 | DisputesFilters | Collapsed, expanded, applied filters and disabled states |
+| CustomerWorkspace | Fourteen synthetic discovery/overview/name/amount/currency/credit/invoice/Promise/history/loading/empty/error states |
 
 The shell stories import only its pure presentation component, not
 ApplicationFrame, ProductWorkspace, session hooks or feature providers. Their
@@ -43,9 +44,14 @@ DashboardOnboardingClient, service clients or authenticated fixtures. The same
 isolated `pnpm test:shell` configuration covers queue presentation and responsive
 interactions. See [the queue record](collection-queue.md) for financial boundaries
 and the distinction between simulated and real application certification.
-The 56-story catalogue and responsive mobile refinement checks are recorded in
-[Phase 5B.1](mobile-refinement.md). Filter stories use a fictional worklist for
+The Phase 5B.1 catalogue and responsive mobile refinement checks are recorded in
+[the mobile record](mobile-refinement.md). Filter stories use a fictional worklist for
 spacing; they do not certify invoice actions or financial mutations.
+Phase 5C brings the catalogue to 70 stories. Customer stories reuse pure production
+presentation and fictional callbacks; live customer, Promise and history clients
+are excluded. Real-client regression tests use mocked transport separately.
+See [the customer workspace record](customer-workspace.md), including Phase 5B.2
+and Phase 5D handoffs and hosted certification limitations.
 
 Change props in Controls and use real pointer/keyboard interaction to inspect
 hover, focus and native input states. The loading example composes `Spinner` and

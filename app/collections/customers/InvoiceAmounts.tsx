@@ -9,9 +9,9 @@ export default function InvoiceAmounts({ invoice }: { invoice: InvoiceDisputeVie
   const entries: Array<[string, string | null]> = [['Outstanding', invoice.currentAmountDueNative]]
   if (disputed) entries.push(['Disputed', invoice.effectiveDisputedAmountNative])
   if (promised) entries.push(['Promised', invoice.activePromisedCoverageAmountNative ?? null])
-  return <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 sm:max-w-md" aria-label="Invoice amounts">
-    {entries.map(([label, value]) => <div key={label} className="contents text-gray-700">
-      <dt>{label}</dt><dd className="text-right tabular-nums">{promiseMoney(value, invoice.currencyCode)}</dd>
+  return <dl className="mt-3 grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-3 gap-y-1 sm:max-w-md" aria-label="Invoice amounts">
+    {entries.map(([label, value]) => <div key={label} className="contents text-text-primary">
+      <dt>{label}</dt><dd className="break-words text-right tabular-nums [overflow-wrap:anywhere]">{promiseMoney(value, invoice.currencyCode)}</dd>
     </div>)}
   </dl>
 }

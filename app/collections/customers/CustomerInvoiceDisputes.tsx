@@ -5,7 +5,12 @@ import { useCallback, useEffect, useState } from 'react'
 import type { FinancialMutationReconciliation } from '@/lib/collections/financial-mutation-reconciliation-server'
 import { mountedFinancialQueueWindow } from '@/lib/collections/promise-refresh'
 
-import InvoiceAmounts from './InvoiceAmounts'
+import InvoiceFrame from './InvoiceFrame'
+import InvoiceDetails from './InvoiceDetails'
+import { actionStyles } from '@/app/components/ui/actionStyles'
+import { fieldStyles } from '@/app/components/ui/fieldStyles'
+import EmptyState from '@/app/components/ui/EmptyState'
+import Spinner from '@/app/components/ui/Spinner'
 import InvoicePromise from './InvoicePromise'
 import type { InvoiceDisputeView as InvoiceRow } from '@/lib/collections/invoice-dispute-view'
 
@@ -31,30 +36,12 @@ function amount(value: string | null, currencyCode: string | null) {
   }
 }
 
-function date(value: string | null) {
-  if (!value) return '—'
-  const parsed = new Date(`${value}T00:00:00Z`)
-  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString()
-}
-
-function status(invoice: InvoiceRow) {
-  if (invoice.invoiceState === 'settled') {
-    if (invoice.isResolved) return 'Resolved by you · settled in accounting'
-    return invoice.isActive ? 'Settled in accounting · dispute remains unresolved' : 'Settled in accounting'
-  }
-  if (invoice.invoiceState === 'unavailable') return 'Unavailable in current accounting data'
-  if (invoice.invoiceState === 'invalid') return 'Accounting balance unavailable'
-  if (invoice.isResolved) return 'Resolved by you'
-  if (invoice.isActive) return `${invoice.disputeMode === 'full' ? 'Full' : 'Partial'} dispute${invoice.needsReview ? ' · Needs review' : ''}`
-  return 'No dispute'
-}
-
 function isBulkEligible(invoice: InvoiceRow) {
   return invoice.invoiceState === 'open' && !invoice.isResolved
 }
 
-const inputClass = 'min-h-11 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900'
-const actionClass = 'min-h-11 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50'
+const inputClass = fieldStyles('min-h-11 min-w-0 max-w-full')
+const actionClass = actionStyles({ variant: 'secondary', className: 'min-h-11 whitespace-normal text-left' })
 
 interface InvoiceDisputeListProps {
   tenantId: string
@@ -124,7 +111,7 @@ export default function CustomerInvoiceDisputes(props: InvoiceDisputeListProps) 
 export function InvoiceDisputeList({
   tenantId, customerSourceId, customerName, onChanged, onMutationStarted,
   onMutationPending, onMutationResult, invoices, loading = false, loadError = null,
-  reload, showBulkActions = true, disabled = false, onMutationError, onPromiseRefresh, onReconciled,
+  reload, showBulkActions = true, disabled = false, onMutationError, onPromiseRefresh, onReconciled, workspace = false,
 }: InvoiceDisputeListProps & {
   invoices: InvoiceRow[]
   loading?: boolean
@@ -132,6 +119,7 @@ export function InvoiceDisputeList({
   reload: () => Promise<boolean>
   showBulkActions?: boolean
   disabled?: boolean
+  workspace?: boolean
   onPromiseRefresh?: (invoiceId: string) => Promise<boolean>
 }) {
   const [saving, setSaving] = useState(false)
@@ -241,21 +229,21 @@ export function InvoiceDisputeList({
     .map((invoice) => ({ invoiceSourceId: invoice.invoiceSourceId, revision: invoice.revision }))
 
   return (
-    <section aria-label={`Invoices for ${customerName}`} className="space-y-4 bg-gray-50 p-4">
+    <section aria-label={`Invoices for ${customerName}`} className={workspace ? 'min-w-0 space-y-3' : 'space-y-4 bg-gray-50 p-4'}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="font-semibold text-gray-900">Invoices for {customerName}</h3>
-          <p className="text-xs text-gray-600">Amounts use invoice currency.</p>
+          <h3 className="text-base font-semibold text-text-primary">{workspace ? `Invoices (${invoices.length})` : `Invoices for ${customerName}`}</h3>
+          <p className="text-xs text-text-secondary">Amounts use invoice currency.{workspace ? ' Customer To chase includes applicable customer credit.' : ''}</p>
         </div>
         <button type="button" className={actionClass} onClick={() => void reload()} disabled={loading || saving || disabled}>Refresh invoices</button>
       </div>
-      {(error || loadError) && <p role="alert" className="text-sm text-red-700">{error || loadError}</p>}
-      {loading ? <p className="text-sm text-gray-600">Loading invoices…</p> : invoices.length === 0 ? (
-        <p className="text-sm text-gray-600">No current or previously disputed invoices are available for this customer.</p>
+      {(error || loadError) && <p role="alert" className="text-sm text-feedback-error">{error || loadError}</p>}
+      {loading ? <div role="status" className="flex items-center gap-2 py-4 text-sm"><Spinner label={null} />Loading invoices…</div> : invoices.length === 0 ? (
+        <EmptyState title="No invoices to review" description="No current or previously disputed invoices are available for this customer." />
       ) : (
         <>
           {showBulkActions && bulkEligibleInvoices.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
+            <InvoiceDetails compact={workspace} label={`Bulk invoice disputes (${eligibleSelectedIds.length} selected)`}><div className="flex flex-wrap items-center gap-2 pb-3">
               <button type="button" className={actionClass} disabled={saving || disabled || eligibleSelectedIds.length === 0}
                 onClick={() => void mutate('bulk_full', { customerSourceId, invoiceSourceIds: eligibleSelectedIds,
                   expectedRevisions: revisionEntries(eligibleSelectedIds) }, `${eligibleSelectedIds.length} invoice disputes saved.`)}>
@@ -267,40 +255,25 @@ export function InvoiceDisputeList({
                   `${bulkEligibleIds.length} invoice disputes saved.`)}>
                 Dispute all eligible current invoices in full ({bulkEligibleIds.length})
               </button>
-            </div>
+            </div></InvoiceDetails>
           )}
           <div className="space-y-3">
             {invoices.map((invoice) => (
-              <div key={invoice.invoiceSourceId} id={`invoice-${invoice.invoiceSourceId}`} className="rounded-md border border-gray-200 bg-white p-4 text-sm">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      {showBulkActions && isBulkEligible(invoice) && (
-                        <input type="checkbox" aria-label={`Select invoice ${invoice.invoiceNumber || invoice.invoiceSourceId} for full dispute`}
-                          checked={selectedIds.includes(invoice.invoiceSourceId)} disabled={saving || disabled}
-                          onChange={(event) => setSelectedIds((current) => event.target.checked
-                            ? [...current, invoice.invoiceSourceId]
-                            : current.filter((id) => id !== invoice.invoiceSourceId))} />
-                      )}
-                      <p className="font-medium text-gray-900">{invoice.invoiceNumber || invoice.reference || invoice.invoiceSourceId}</p>
-                    </div>
-                    <p className="mt-1 text-xs text-gray-600">Issued {date(invoice.issueDate)} · Due {date(invoice.dueDate)} · {invoice.currencyCode || 'Currency unavailable'}</p>
-                  </div>
-                  <p className="font-medium text-gray-700">{status(invoice)}</p>
-                </div>
+              <InvoiceFrame key={invoice.invoiceSourceId} invoice={invoice} selection={showBulkActions && isBulkEligible(invoice) ?
+                <label className="flex min-h-11 min-w-11 cursor-pointer items-start justify-center"><input type="checkbox" className="mt-1 h-5 w-5 shrink-0 accent-action-primary focus-visible:outline-2 focus-visible:outline-focus"
+                  aria-label={`Select invoice ${invoice.invoiceNumber || invoice.invoiceSourceId} for full dispute`}
+                  checked={selectedIds.includes(invoice.invoiceSourceId)} disabled={saving || disabled}
+                  onChange={event => setSelectedIds(current => event.target.checked ? [...current, invoice.invoiceSourceId] : current.filter(id => id !== invoice.invoiceSourceId))} /></label> : undefined}>
                 {showBulkActions && invoice.invoiceState === 'open' && invoice.isResolved && (
-                  <p className="mt-2 text-xs text-gray-600">Resolved — reactivate before disputing again.</p>
+                  <p className="mt-2 text-xs text-text-secondary">Resolved — reactivate before disputing again.</p>
                 )}
-                <InvoiceAmounts invoice={invoice} />
+                <InvoiceDetails compact={workspace}>
                 {invoice.disputeId && (
-                  <p className="mt-2 text-xs text-gray-600">Recorded dispute: {amount(invoice.recordedDisputedAmountNative, invoice.currencyCode)}{invoice.disputeMode === 'full' ? ' (full amount intent)' : ''}</p>
+                  <p className="mt-2 text-xs text-text-secondary">Recorded dispute: {amount(invoice.recordedDisputedAmountNative, invoice.currencyCode)}{invoice.disputeMode === 'full' ? ' (full amount intent)' : ''}</p>
                 )}
-                {invoice.note && editingId !== invoice.invoiceSourceId && noteEditingId !== invoice.invoiceSourceId && <p className="mt-2 whitespace-pre-wrap text-gray-700">Note: {invoice.note}</p>}
-                {invoice.needsReview && (
-                  <p className="mt-3 rounded-md bg-amber-50 p-2 text-amber-900">Balance changed since this dispute was last reviewed. Update it or keep it as is.</p>
-                )}
+                {invoice.note && editingId !== invoice.invoiceSourceId && noteEditingId !== invoice.invoiceSourceId && <p className="mt-2 whitespace-pre-wrap text-text-primary">Note: {invoice.note}</p>}
                 {noteEditingId === invoice.invoiceSourceId ? (
-                  <div className="mt-3 space-y-2 border-t border-gray-200 pt-3">
+                  <div className="mt-3 space-y-2 border-t border-border-default pt-3">
                     <label className="flex max-w-xl flex-col gap-1">Dispute note
                       <textarea className={inputClass} disabled={saving || disabled} maxLength={2000} rows={2} value={note} onChange={(event) => setNote(event.target.value)} />
                     </label>
@@ -312,11 +285,11 @@ export function InvoiceDisputeList({
                     </div>
                   </div>
                 ) : editingId === invoice.invoiceSourceId && invoice.invoiceState === 'open' ? (
-                  <div className="mt-3 space-y-3 border-t border-gray-200 pt-3">
+                  <div className="mt-3 space-y-3 border-t border-border-default pt-3">
                     <fieldset disabled={saving || disabled} className="flex flex-wrap gap-4">
                       <legend className="mb-1 font-medium">Disputed amount</legend>
-                      <label className="flex items-center gap-2"><input type="radio" name={`mode-${invoice.invoiceSourceId}`} checked={mode === 'full'} onChange={() => setMode('full')} />Dispute full outstanding amount ({amount(invoice.currentAmountDueNative, invoice.currencyCode)})</label>
-                      <label className="flex items-center gap-2"><input type="radio" name={`mode-${invoice.invoiceSourceId}`} checked={mode === 'partial'} onChange={() => setMode('partial')} />Dispute part</label>
+                      <label className="flex min-w-0 items-start gap-2"><input type="radio" name={`mode-${invoice.invoiceSourceId}`} checked={mode === 'full'} onChange={() => setMode('full')} />Dispute full outstanding amount ({amount(invoice.currentAmountDueNative, invoice.currencyCode)})</label>
+                      <label className="flex min-w-0 items-start gap-2"><input type="radio" name={`mode-${invoice.invoiceSourceId}`} checked={mode === 'partial'} onChange={() => setMode('partial')} />Dispute part</label>
                     </fieldset>
                     {mode === 'partial' && <label className="flex max-w-xs flex-col gap-1">Partial disputed amount ({invoice.currencyCode})
                       <input className={inputClass} disabled={saving || disabled} type="text" inputMode="decimal" required value={partialAmount} onChange={(event) => setPartialAmount(event.target.value)} placeholder="0.00" />
@@ -354,8 +327,9 @@ export function InvoiceDisputeList({
                     )}
                   </div>
                 )}
+                </InvoiceDetails>
                 {onPromiseRefresh && <InvoicePromise invoice={invoice} tenantId={tenantId} onRefresh={onPromiseRefresh} onReconciled={onReconciled} onMutationStarted={onMutationStarted} onReconciliationUnavailable={() => onMutationResult(false, 'Promise saved, but current balances are not ready. Refresh the details before making further changes.')} disabled={disabled || saving} />}
-              </div>
+              </InvoiceFrame>
             ))}
           </div>
         </>

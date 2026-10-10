@@ -1,8 +1,10 @@
 # Invoice Promise experience (Phase 8)
 
 The customer invoice list is the management surface. `InvoiceAmounts` renders the
-server's canonical Outstanding, Disputed, Promised and To-chase values; zero
-adjustments are hidden. Zero To chase is never presented as payment/settlement.
+server's canonical Outstanding, Disputed and Promised coverage values; zero
+adjustments are hidden. Customer-level To chase includes applicable customer
+credit, which is not allocated to invoice rows. Zero customer To chase is never
+presented as payment/settlement.
 The main Promised row is active coverage. A compact commitment summary retains
 its fixed amount/date, note, received amount and differing current coverage.
 

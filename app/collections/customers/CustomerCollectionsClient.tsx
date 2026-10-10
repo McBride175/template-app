@@ -6,19 +6,25 @@ import type { FinancialMutationReconciliation } from '@/lib/collections/financia
 import { shouldApplyCustomerFinancialResponse, type CustomerFinancialStamp } from '@/lib/collections/financial-mutation-response'
 import { notifyPromiseActionabilityChanged } from '@/lib/collections/promise-refresh'
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import type { SortBy, SortDir, CustomerCollectionsSummaryRow } from './customer-workspace-types'
+import { formatMoney, formatInvoicedAmount, formatCurrencyFailureReason } from './customer-format'
+import CustomerOverview from './CustomerOverview'
+import CustomerPromises from './CustomerPromises'
+import CustomerBrowser from './CustomerBrowser'
+import CustomerSelectionPanel from './CustomerSelectionPanel'
+import Select from '@/app/components/ui/Select'
+import { actionStyles } from '@/app/components/ui/actionStyles'
+import Alert from '@/app/components/ui/Alert'
+import Spinner from '@/app/components/ui/Spinner'
+import EmptyState from '@/app/components/ui/EmptyState'
 import Card from '@/app/components/ui/Card'
 import Button from '@/app/components/ui/Button'
 import { InvoiceDisputeList } from '@/app/collections/customers/CustomerInvoiceDisputes'
 import type { InvoiceDisputeView } from '@/lib/collections/invoice-dispute-view'
 import MultiCurrencyPlanGate from '@/app/collections/MultiCurrencyPlanGate'
-import {
-  formatCurrentOverdueAge,
-  formatHistoricalPaymentTiming,
-  formatRelativeLateness,
-} from '@/lib/collections/payment-behavior-copy'
 import { buildLoginPath } from '@/lib/auth-flow'
 import { customerHistoryUrl } from '@/lib/collections/customer-history-url'
 import {
@@ -26,60 +32,6 @@ import {
   type FounderContextLevel,
 } from '@/lib/collections/founder-context'
 
-type SortBy =
-  | 'overdue_outstanding'
-  | 'total_outstanding'
-  | 'oldest_overdue_days'
-  | 'customer_name'
-
-type SortDir = 'asc' | 'desc'
-
-interface CustomerCollectionsSummaryRow {
-  customer_source_id: string
-  customer_name: string
-  customer_email: string | null
-  is_customer: boolean | null
-  is_supplier: boolean | null
-  status: string | null
-  total_invoices_count: number
-  open_invoices_count: number
-  overdue_invoices_count: number
-  total_outstanding_base_decimal: string | null
-  overdue_outstanding_base_decimal: string | null
-  total_outstanding_base: number | null
-  overdue_outstanding_base: number | null
-  collectible_outstanding_base: number
-  collectible_overdue_base: number
-  customer_to_chase_overdue_base: number
-  customer_credit_applied_base: number
-  effective_disputed_outstanding_base_decimal: string | null
-  effective_disputed_overdue_base_decimal: string | null
-  has_active_dispute: boolean
-  oldest_overdue_invoice_date: string | null
-  oldest_overdue_days: number | null
-  weighted_avg_overdue_days: number
-  historical_paid_invoice_count: number
-  historical_mean_days_late: number | null
-  historical_normal_days_late: number | null
-  relative_lateness_days: number | null
-  latest_invoice_date: string | null
-  latest_due_date: string | null
-  last_payment_date: string | null
-  organisation_base_currency_code: string
-  native_currency_breakdown: Array<{
-    currency_code: string
-    total_outstanding_native: string
-    overdue_outstanding_native: string
-  }>
-  collectible_native_currency_breakdown: Array<{
-    currency_code: string
-    effective_disputed_outstanding_native: string
-    effective_disputed_overdue_native: string
-    collectible_outstanding_native: string
-    collectible_overdue_native: string
-  }>
-  override_level: FounderContextLevel
-}
 
 interface CollectionsCurrencyContext {
   mode: 'single_currency' | 'multi_currency'
@@ -164,69 +116,7 @@ const SORT_OPTIONS: Array<{
   { value: 'customer_name:desc', label: 'Customer name (Z to A)' },
 ]
 
-function formatDate(value: string | null) {
-  if (!value) return '—'
-  const date = new Date(`${value}T00:00:00Z`)
-  if (Number.isNaN(date.getTime())) return '—'
-  return date.toLocaleDateString()
-}
 
-function formatMoney(amount: number | null, currencyCode: string | null) {
-  if (amount === null) return 'Base amount unavailable'
-  const normalizedCurrencyCode = currencyCode?.trim() || null
-
-  if (normalizedCurrencyCode) {
-    try {
-      return new Intl.NumberFormat(undefined, {
-        style: 'currency',
-        currency: normalizedCurrencyCode,
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(amount)
-    } catch {
-      // Fall through to generic number formatting when currency code is invalid.
-    }
-  }
-
-  return new Intl.NumberFormat(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount)
-}
-
-function formatInvoicedAmount(amount: string, currencyCode: string) {
-  const numericAmount = Number(amount)
-  if (!Number.isFinite(numericAmount)) return `${currencyCode} ${amount}`
-  return `${formatMoney(numericAmount, currencyCode)} ${currencyCode}`
-}
-
-function formatInvoicedBreakdown(
-  breakdown: CustomerCollectionsSummaryRow['native_currency_breakdown'],
-  amountField: 'total_outstanding_native' | 'overdue_outstanding_native'
-) {
-  return breakdown
-    .filter((entry) => Number(entry[amountField]) > 0)
-    .map((entry) => formatInvoicedAmount(entry[amountField], entry.currency_code))
-    .join(' · ')
-}
-
-function formatCurrencyFailureReason(reason: string) {
-  return reason.replaceAll('_', ' ')
-}
-
-function getStatusLabel(row: CustomerCollectionsSummaryRow) {
-  if (row.status?.trim()) return row.status
-  if (row.is_customer === true) return 'customer'
-  if (row.is_supplier === true) return 'supplier'
-  return 'contact'
-}
-
-function getStatusBadgeClasses(row: CustomerCollectionsSummaryRow) {
-  if (row.overdue_invoices_count > 0) {
-    return 'bg-amber-100 text-amber-800'
-  }
-  return 'bg-gray-100 text-gray-700'
-}
 
 export default function CustomerCollectionsClient({ tenantId = null, initialCustomerSourceId = null }: CustomerCollectionsClientProps) {
   const router = useRouter()
@@ -509,7 +399,15 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
       detail?.customerSourceId !== expandedCustomerSourceId ||
       pendingDetailScrollId.current !== expandedCustomerSourceId || !invoiceSectionRef.current) return
     pendingDetailScrollId.current = null
-    invoiceSectionRef.current.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    let target: HTMLElement = invoiceSectionRef.current
+    try {
+      if (window.location.hash.startsWith('#invoice-') || ['#customer-invoices', '#customer-promises', '#customer-overview'].includes(window.location.hash)) {
+        const invoice = document.getElementById(decodeURIComponent(window.location.hash.slice(1)))
+        if (invoice && target.contains(invoice)) target = invoice
+      }
+    } catch { /* Ignore malformed customer fragments. */ }
+    target.focus({ preventScroll: true })
+    target.scrollIntoView({ block: 'start', behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
   }, [expandedCustomerSourceId, detailLoading, detail])
 
   const handleFounderContextChange = useCallback(
@@ -657,154 +555,21 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
     }
   }, [visibleRows])
 
+  const prioritiesHref = resolvedTenantId ? `/dashboard?tenantId=${encodeURIComponent(resolvedTenantId)}#collection-actions` : '/dashboard#collection-actions'
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Customer Collections Summary</h1>
-          <p className="mt-1 text-sm text-gray-600">
-            Aggregated view of customer receivables from canonical invoices and payments.
-          </p>
-        </div>
-      </div>
-
-      {expandedCustomerSourceId && (
-        <section ref={(element) => { invoiceSectionRef.current = element }}
-          aria-label="Selected customer detail" className="scroll-mt-6 space-y-3">
-          <div className="flex justify-end">
-            <Button variant="secondary" size="md" onClick={() => selectCustomer(expandedCustomerSourceId)}>
-              Hide invoices
-            </Button>
-          </div>
-          {detailLoading && <Card><p className="text-sm text-gray-600">Loading selected customer and invoices…</p></Card>}
-          {detailError && !detailLoading && <Card>
-            <p role="alert" className="text-sm text-red-700">{detailError}</p>
-            <Button variant="secondary" size="md" onClick={() => void loadDetail(expandedCustomerSourceId)}>Retry customer detail</Button>
-          </Card>}
-          {detail && detail.customerSourceId === expandedCustomerSourceId && (
-            <Card>
-              <div className="mb-3">
-                <h2 className="text-lg font-semibold text-gray-900">
-                  {detail.row?.customer_name ?? detail.reviewRequiredCustomer?.customer_name ?? 'Customer'}
-                </h2>
-                {detail.row && <p className="text-sm text-gray-700">
-                  {formatMoney(detail.row.total_outstanding_base, detail.organisationBaseCurrency ?? null)} gross outstanding
-                  {' · '}{formatMoney(detail.row.overdue_outstanding_base, detail.organisationBaseCurrency ?? null)} gross overdue
-                  {' · '}{formatMoney(detail.row.customer_to_chase_overdue_base, detail.organisationBaseCurrency ?? null)} to chase
-                </p>}
-                {detail.tenantId && <Link href={customerHistoryUrl(expandedCustomerSourceId, detail.tenantId)}
-                  className="mt-2 inline-flex min-h-11 items-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900">
-                  View history
-                </Link>}
-              </div>
-              {(detail.currencyHealth?.status === 'unavailable' || !detail.organisationBaseCurrency) ?
-                <p className="text-sm text-gray-700">Customer amounts are unavailable until currency data is ready.</p> :
-              <InvoiceDisputeList key={expandedCustomerSourceId} tenantId={detail.tenantId!} customerSourceId={expandedCustomerSourceId}
-                customerName={detail.row?.customer_name ?? detail.reviewRequiredCustomer?.customer_name ?? 'Customer'}
-                invoices={detail.invoices ?? []} loading={false}
-                reload={() => recoverDetail(expandedCustomerSourceId)}
-                onPromiseRefresh={() => recoverDetail(expandedCustomerSourceId)}
-                onReconciled={applyReconciliation}
-                onChanged={async () => true}
-                onMutationStarted={() => { setDisputeRefreshState(null); return ++mutationSequence.current }}
-                onMutationPending={(message) => setDisputeRefreshState({ stale: true, message })}
-                onMutationResult={(refreshed, message) => setDisputeRefreshState({ stale: !refreshed, message })}
-                disabled={detailLoading || Boolean(disputeRefreshState?.stale)} />}
-            </Card>
-          )}
-        </section>
-      )}
-
-      {!multiCurrencyPlanRequired && (
-        <Card>
-          <div id="customer-context" className="scroll-mt-6">
-            <h2 className="text-lg font-semibold text-gray-900">Customer context</h2>
-            <p className="mt-1 max-w-3xl text-sm leading-relaxed text-gray-600">
-              Yuohme ranks customers from Xero first. If you know something the accounting data
-              cannot show, you can optionally set Priority, Safe, or Never chase here. Normal is
-              the default and needs no action.
-            </p>
-            <p className="mt-2 text-xs leading-relaxed text-gray-500">
-              Customer context stays in place until you change it. Use a dated outcome or invoice promise,
-              or an action log for temporary collection workflow.
-            </p>
-          </div>
-        </Card>
-      )}
-
-      {!multiCurrencyPlanRequired && <Card>
-        <div className="flex flex-wrap items-end gap-4">
-          <label className="flex min-w-64 flex-1 flex-col gap-1 text-sm text-gray-700">
-            <span>Find a customer</span>
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search name or email"
-              className="min-h-11 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-900"
-            />
-          </label>
-
-          <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-              checked={overdueOnly}
-              onChange={(event) => setOverdueOnly(event.target.checked)}
-            />
-            Overdue only
-          </label>
-
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <span>Sort</span>
-            <select
-              value={sortOption}
-              onChange={(event) => setSortOption(event.target.value as `${SortBy}:${SortDir}`)}
-              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
-            >
-              {SORT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <Button onClick={() => disputeRefreshState?.stale
-            ? expandedCustomerSourceId && void recoverDetail(expandedCustomerSourceId) : void loadRows(true)} variant="secondary" size="md" disabled={refreshing}>
-            {refreshing ? 'Refreshing…' : 'Refresh'}
-          </Button>
-        </div>
-      </Card>}
-
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      {disputeRefreshState && (
-        <p role={disputeRefreshState.stale ? 'alert' : 'status'}
-          className={disputeRefreshState.stale ? 'text-sm text-amber-900' : 'text-sm text-green-700'}>
-          {disputeRefreshState.message}
-          {disputeRefreshState.stale && (
-            <button type="button" className="ml-2 underline" onClick={() => expandedCustomerSourceId && void recoverDetail(expandedCustomerSourceId)}>
-              Refresh page
-            </button>
-          )}
-        </p>
-      )}
-      {contextError && (
-        <p className="text-sm text-red-600" role="alert">
-          {contextError}
-        </p>
-      )}
-      {contextFeedback && (
-        <p className="text-sm text-green-700" role="status" aria-live="polite">
-          {contextFeedback}
-        </p>
-      )}
-      {!error && !multiCurrencyPlanRequired && (
-        <p className="text-sm text-gray-600">{description}</p>
-      )}
-
+    <div className="min-w-0 space-y-4 sm:space-y-6">
+      <header className={expandedCustomerSourceId ? 'sr-only sm:not-sr-only' : ''}>
+        <h1 className="text-xl font-semibold text-text-primary sm:text-2xl">Customers</h1>
+      </header>
+      {error && <Alert variant="error">{error}</Alert>}
+      {disputeRefreshState && <Alert variant={disputeRefreshState.stale ? 'warning' : 'success'}>
+        {disputeRefreshState.message}
+        {disputeRefreshState.stale && <button type="button" className="ml-2 inline-flex min-h-11 items-center underline" onClick={() => expandedCustomerSourceId && void recoverDetail(expandedCustomerSourceId)}>Refresh page</button>}
+      </Alert>}
+      {contextError && <Alert variant="error">{contextError}</Alert>}
+      {contextFeedback && <Alert variant="success">{contextFeedback}</Alert>}
       {multiCurrencyPlanRequired && <MultiCurrencyPlanGate />}
-
       {!error &&
         !multiCurrencyPlanRequired &&
         !loading &&
@@ -851,6 +616,16 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
         </Card>
       )}
 
+
+      {!multiCurrencyPlanRequired && <div className="grid min-w-0 items-start gap-3 sm:gap-6 lg:grid-cols-[20rem_minmax(0,1fr)]">
+        <CustomerSelectionPanel key={expandedCustomerSourceId ?? 'browse'} selected={Boolean(expandedCustomerSourceId)}>
+          <CustomerBrowser rows={visibleRows} selectedId={expandedCustomerSourceId} currency={organisationBaseCurrency}
+            equivalent={showMultiCurrencyAmounts} search={searchQuery} onSearch={setSearchQuery}
+            overdueOnly={overdueOnly} onOverdueOnly={setOverdueOnly} sort={sortOption}
+            onSort={value => setSortOption(value as `${SortBy}:${SortDir}`)} sortOptions={SORT_OPTIONS}
+            loading={loading} refreshing={refreshing} blocked={Boolean(error || disputeRefreshState?.stale || currencyHealth?.status === 'unavailable')}
+            onSelect={selectCustomer} summary={description}
+            onRefresh={() => disputeRefreshState?.stale ? expandedCustomerSourceId && void recoverDetail(expandedCustomerSourceId) : void loadRows(true)} />
       {!error && !disputeRefreshState?.stale &&
         !multiCurrencyPlanRequired &&
         !loading &&
@@ -923,213 +698,77 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
         </Card>
       )}
 
-      {!error && !disputeRefreshState?.stale &&
-        !multiCurrencyPlanRequired &&
-        !loading &&
-        currencyHealth?.status !== 'unavailable' &&
-        visibleRows.length > 0 && (
-        <div className="space-y-3">
-          <div className="grid gap-3 rounded-md border border-gray-200 bg-gray-50 p-3 text-sm text-gray-800 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-gray-600">
-                {showMultiCurrencyAmounts ? 'Gross equivalent outstanding total' : 'Gross outstanding total'}
-              </p>
-              <p className="mt-1 font-semibold text-gray-900">
-                {formatMoney(totals.outstandingBase, organisationBaseCurrency)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-gray-600">
-                {showMultiCurrencyAmounts
-                  ? 'Gross equivalent overdue total'
-                  : 'Gross overdue total'}
-              </p>
-              <p className="mt-1 font-semibold text-gray-900">
-                {formatMoney(totals.overdueOutstandingBase, organisationBaseCurrency)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-gray-600">Overdue invoices total</p>
-              <p className="mt-1 font-semibold text-gray-900">{totals.overdueInvoicesCount}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-gray-600">Oldest overdue days total</p>
-              <p className="mt-1 font-semibold text-gray-900">{totals.oldestOverdueDaysSum}</p>
-            </div>
-          </div>
 
-          <div className="overflow-x-auto rounded-md border border-gray-200 bg-white">
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50 text-left text-gray-700">
-              <tr>
-                <th className="px-4 py-3 font-medium">Customer name</th>
-                <th className="px-4 py-3 font-medium">Gross outstanding</th>
-                <th className="px-4 py-3 font-medium">Gross overdue</th>
-                <th className="px-4 py-3 font-medium">Overdue invoices</th>
-                <th className="px-4 py-3 font-medium">Oldest actionable overdue (days)</th>
-                <th className="px-4 py-3 font-medium">Last payment date</th>
-                <th className="px-4 py-3 font-medium">Payment behaviour</th>
-                <th className="px-4 py-3 font-medium">Customer context</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Invoices</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 text-gray-800">
-              {visibleRows.map((row) => (
-                <Fragment key={row.customer_source_id}>
-                <tr>
-                  <td className="px-4 py-3">
-                    <p className="font-medium text-gray-900">{row.customer_name}</p>
-                    <p className="text-xs text-gray-600">{row.customer_email || '—'}</p>
-                  </td>
-                  <td className="px-4 py-3">
-                    <p>
-                      {formatMoney(row.total_outstanding_base, organisationBaseCurrency)}
-                      {showMultiCurrencyAmounts && row.total_outstanding_base !== null ? ' equivalent' : ''}
-                    </p>
-                    {(showMultiCurrencyAmounts || row.total_outstanding_base === null) &&
-                      formatInvoicedBreakdown(
-                        row.native_currency_breakdown,
-                        'total_outstanding_native'
-                      ) && (
-                        <p className="mt-0.5 text-xs text-gray-500">
-                          {formatInvoicedBreakdown(
-                            row.native_currency_breakdown,
-                            'total_outstanding_native'
-                          )}{' '}
-                          invoiced
-                        </p>
-                      )}
-                    {row.has_active_dispute && (
-                      <p className="mt-0.5 text-xs text-gray-600">
-                        Disputed: {row.effective_disputed_outstanding_base_decimal === null
-                          ? 'Base amount unavailable'
-                          : formatMoney(Number(row.effective_disputed_outstanding_base_decimal), organisationBaseCurrency)}
-                      </p>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <p>
-                      {formatMoney(row.overdue_outstanding_base, organisationBaseCurrency)}
-                      {showMultiCurrencyAmounts && row.overdue_outstanding_base !== null ? ' equivalent overdue' : ''}
-                    </p>
-                    {(showMultiCurrencyAmounts || row.overdue_outstanding_base === null) &&
-                      formatInvoicedBreakdown(
-                        row.native_currency_breakdown,
-                        'overdue_outstanding_native'
-                      ) && (
-                        <p className="mt-0.5 text-xs text-gray-500">
-                          {formatInvoicedBreakdown(
-                            row.native_currency_breakdown,
-                            'overdue_outstanding_native'
-                          )}{' '}
-                          invoiced
-                        </p>
-                      )}
-                    {(row.customer_to_chase_overdue_base > 0 || row.customer_credit_applied_base > 0) &&
-                      (row.overdue_outstanding_base === null ||
-                        row.customer_to_chase_overdue_base !== row.overdue_outstanding_base) && (
-                        <p className="mt-0.5 text-xs text-gray-600">
-                          {row.customer_to_chase_overdue_base > 0
-                            ? `${formatMoney(row.customer_to_chase_overdue_base, organisationBaseCurrency)} to chase`
-                            : 'No overdue amount to chase'}
-                        </p>
-                      )}
-                    {row.customer_credit_applied_base > 0 && (
-                      <p className="mt-0.5 text-xs text-gray-500">
-                        {formatMoney(row.customer_credit_applied_base, organisationBaseCurrency)} Xero credit deducted
-                      </p>
-                    )}
-                    {row.has_active_dispute && (
-                      <p className="mt-0.5 text-xs text-gray-600">
-                        Disputed: {row.effective_disputed_overdue_base_decimal === null
-                          ? 'Base amount unavailable'
-                          : formatMoney(Number(row.effective_disputed_overdue_base_decimal), organisationBaseCurrency)}
-                      </p>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">{row.overdue_invoices_count}</td>
-                  <td className="px-4 py-3">{row.oldest_overdue_days ?? '—'}</td>
-                  <td className="px-4 py-3">{formatDate(row.last_payment_date)}</td>
-                  <td className="min-w-64 px-4 py-3">
-                    <dl className="space-y-1 text-xs text-gray-600">
-                      <div>
-                        <dt className="inline font-medium text-gray-700">Typical payment timing: </dt>
-                        <dd className="inline">
-                          {formatHistoricalPaymentTiming(row.historical_normal_days_late)}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="inline font-medium text-gray-700">Historical invoices: </dt>
-                        <dd className="inline">{row.historical_paid_invoice_count}</dd>
-                      </div>
-                      <div>
-                        <dt className="inline font-medium text-gray-700">Current overdue age: </dt>
-                        <dd className="inline">
-                          {formatCurrentOverdueAge(row.weighted_avg_overdue_days)}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="inline font-medium text-gray-700">Versus normal: </dt>
-                        <dd className="inline">
-                          {formatRelativeLateness(row.relative_lateness_days)}
-                        </dd>
-                      </div>
-                    </dl>
-                  </td>
-                  <td className="min-w-48 px-4 py-3">
-                    <label className="sr-only" htmlFor={`customer-context-${row.customer_source_id}`}>
-                      Customer context for {row.customer_name}
-                    </label>
-                    <select
-                      id={`customer-context-${row.customer_source_id}`}
-                      value={row.override_level}
-                      onChange={(event) =>
-                        void handleFounderContextChange(
-                          row,
-                          event.target.value as FounderContextLevel
-                        )
-                      }
-                      disabled={Boolean(updatingContextByCustomerId[row.customer_source_id])}
-                      className="min-h-11 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {FOUNDER_CONTEXT_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="mt-1 min-h-4 text-xs text-gray-500" aria-live="polite">
-                      {updatingContextByCustomerId[row.customer_source_id] ? 'Saving…' : ''}
-                    </p>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${getStatusBadgeClasses(row)}`}
-                    >
-                      {getStatusLabel(row)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {resolvedTenantId && <Link href={customerHistoryUrl(row.customer_source_id, resolvedTenantId)}
-                      className="mr-2 inline-flex min-h-11 items-center whitespace-nowrap rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50">
-                      View history
-                    </Link>}
-                    <button type="button" className="min-h-11 whitespace-nowrap rounded-md border border-gray-300 px-3 py-2 text-sm font-medium hover:bg-gray-50"
-                      aria-expanded={expandedCustomerSourceId === row.customer_source_id}
-                      onClick={() => selectCustomer(row.customer_source_id)}>
-                      {expandedCustomerSourceId === row.customer_source_id ? 'Hide invoices' : 'Manage invoices'}
-                    </button>
-                    {row.has_active_dispute && <p className="mt-1 text-xs text-amber-800">Disputed debt</p>}
-                  </td>
-                </tr>
-                </Fragment>
-              ))}
-            </tbody>
-            </table>
+          {!error && !loading && visibleRows.length > 0 && <details className="mt-4 border-t border-border-default">
+            <summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-focus">Shown customer totals</summary>
+            <dl className="space-y-3 pb-3 text-sm">
+              <div><dt className="text-text-secondary">{showMultiCurrencyAmounts ? 'Gross equivalent outstanding total' : 'Gross outstanding total'}</dt><dd>{formatMoney(totals.outstandingBase, organisationBaseCurrency)}</dd></div>
+              <div><dt className="text-text-secondary">{showMultiCurrencyAmounts ? 'Gross equivalent overdue total' : 'Gross overdue total'}</dt><dd>{formatMoney(totals.overdueOutstandingBase, organisationBaseCurrency)}</dd></div>
+              <div><dt className="text-text-secondary">Overdue invoices total</dt><dd>{totals.overdueInvoicesCount}</dd></div>
+              <div><dt className="text-text-secondary">Oldest overdue days total</dt><dd>{totals.oldestOverdueDaysSum}</dd></div>
+            </dl>
+          </details>}
+        </CustomerSelectionPanel>
+        <div className="min-w-0">
+      {expandedCustomerSourceId && (
+        <section ref={(element) => { invoiceSectionRef.current = element }}
+          tabIndex={-1} aria-label="Selected customer detail" className="min-w-0 scroll-mt-4 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Link href={prioritiesHref} className={actionStyles({ variant: 'ghost', className: 'min-h-11 px-0' })}>Back to Priorities</Link>
+            <Button variant="ghost" className="min-h-11" onClick={() => selectCustomer(expandedCustomerSourceId)}>
+              Close customer
+            </Button>
           </div>
-        </div>
+          {detailLoading && <div className="flex items-center gap-2 py-4 text-sm" role="status"><Spinner label={null} />Loading selected customer and invoices…</div>}
+          {detailError && !detailLoading && <Card>
+            <Alert variant="error">{detailError}</Alert>
+            <Button variant="ghost" className="min-h-11" onClick={() => void loadDetail(expandedCustomerSourceId)}>Retry customer detail</Button>
+          </Card>}
+          {detail && detail.customerSourceId === expandedCustomerSourceId && (
+            <div className="min-w-0 space-y-5">
+              {detail.row ? <CustomerOverview row={{ ...detail.row, override_level: rows.find(row => row.customer_source_id === detail.row!.customer_source_id)?.override_level ?? detail.row.override_level }} currency={detail.organisationBaseCurrency ?? null}
+                equivalent={showMultiCurrencyAmounts} historyHref={detail.tenantId ? customerHistoryUrl(expandedCustomerSourceId, detail.tenantId) : undefined}
+                contextControl={<>
+                  <label className="sr-only" htmlFor={`customer-context-${detail.row.customer_source_id}`}>Customer context for {detail.row.customer_name}</label>
+                  <Select id={`customer-context-${detail.row.customer_source_id}`} value={rows.find(row => row.customer_source_id === detail.row!.customer_source_id)?.override_level ?? detail.row.override_level}
+                    onChange={event => void handleFounderContextChange(rows.find(row => row.customer_source_id === detail.row!.customer_source_id) ?? detail.row!, event.target.value as FounderContextLevel)}
+                    disabled={!rows.some(row => row.customer_source_id === detail.row!.customer_source_id) || Boolean(updatingContextByCustomerId[detail.row.customer_source_id])} className="min-h-11 max-w-sm">
+                    {FOUNDER_CONTEXT_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </Select>
+                  <p className="text-xs text-text-secondary" aria-live="polite">{updatingContextByCustomerId[detail.row.customer_source_id] ? 'Saving…' : !rows.some(row => row.customer_source_id === detail.row!.customer_source_id) ? 'This account is outside the current customer list. Adjust the list filters to manage its priority setting.' : ''}</p>
+                </>} /> : <div>
+                  <h2 className="break-words text-xl font-semibold">{detail.reviewRequiredCustomer?.customer_name ?? 'Customer'}</h2>
+                  <Alert variant="warning">Customer amounts cannot be valued reliably. Review currency evidence before deciding what to chase.</Alert>
+                  {detail.tenantId && <Link href={customerHistoryUrl(expandedCustomerSourceId, detail.tenantId)} className={actionStyles({ variant: 'secondary', className: 'mt-2 min-h-11' })}>View history</Link>}
+                </div>}
+              <div id="customer-invoices" tabIndex={-1} className="min-w-0 scroll-mt-4">
+              {(detail.currencyHealth?.status === 'unavailable' || !detail.organisationBaseCurrency) ?
+                <p className="text-sm text-gray-700">Customer amounts are unavailable until currency data is ready.</p> :
+              <InvoiceDisputeList workspace key={expandedCustomerSourceId} tenantId={detail.tenantId!} customerSourceId={expandedCustomerSourceId}
+                customerName={detail.row?.customer_name ?? detail.reviewRequiredCustomer?.customer_name ?? 'Customer'}
+                invoices={detail.invoices ?? []} loading={false}
+                reload={() => recoverDetail(expandedCustomerSourceId)}
+                onPromiseRefresh={() => recoverDetail(expandedCustomerSourceId)}
+                onReconciled={applyReconciliation}
+                onChanged={async () => true}
+                onMutationStarted={() => { setDisputeRefreshState(null); return ++mutationSequence.current }}
+                onMutationPending={(message) => setDisputeRefreshState({ stale: true, message })}
+                onMutationResult={(refreshed, message) => setDisputeRefreshState({ stale: !refreshed, message })}
+                disabled={detailLoading || Boolean(disputeRefreshState?.stale)} />}
+              </div>
+              {detail.currencyHealth?.status !== 'unavailable' && detail.organisationBaseCurrency && <CustomerPromises invoices={detail.invoices ?? []} />}
+            </div>
+          )}
+        </section>
       )}
+
+
+          {!expandedCustomerSourceId && <EmptyState title="Select a customer" description="Find an account to review its financial position, invoices and collection history.">
+            <Link href={prioritiesHref} className={actionStyles({ variant: 'secondary', className: 'min-h-11' })}>Back to Priorities</Link>
+          </EmptyState>}
+        </div>
+
+      </div>}
     </div>
   )
 }

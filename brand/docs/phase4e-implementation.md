@@ -1,6 +1,6 @@
 # Phase 4E — approved asset integration
 
-**Locally implemented; hosted Preview certification is separate.** The starting checkpoint was `develop@d5af0e52afd6e145ef521e44ab139eec38e1b414`, with a clean working tree. Phase 4D consolidation is preserved. The eight approved production SVGs, four masters, font and canonical PNG/ICO sources are unchanged; no artwork was regenerated.
+**Locally implemented; hosted public certification is complete with defined coverage limits.** See [the hosted certification](phase4e-hosted-certification.md): PARTIALLY CERTIFIED because safe authenticated coverage and WebKit/native Safari are unavailable. The starting checkpoint was `develop@d5af0e52afd6e145ef521e44ab139eec38e1b414`, with a clean working tree. Phase 4D consolidation is preserved. The eight approved production SVGs, four masters, font and canonical PNG/ICO sources are unchanged; no artwork was regenerated.
 
 ## Shared Logo API and placements
 

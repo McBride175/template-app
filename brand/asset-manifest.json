@@ -31,8 +31,8 @@
       "path": "brand/README.md",
       "category": "documentation",
       "intended_use": "Canonical index/usage guidance/Phase 1 closeout",
-      "bytes": 5255,
-      "sha256": "01bbd51f95d8c96af83b4b4035287e370d5c6b47487ce7d2f49557c2a3d803e7"
+      "bytes": 5413,
+      "sha256": "e794ab95e227b4c1d93bcc94d1ffba6039fa9910b1d2dec3aacb682beddcaf97"
     },
     {
       "path": "brand/asset-manifest.json",
@@ -47,11 +47,18 @@
       "sha256": "481b9d6ac8c3a166c1699124862f849146e96983366719eec99acfbcdbac9d2f"
     },
     {
+      "path": "brand/docs/phase4e-hosted-certification.md",
+      "category": "documentation",
+      "intended_use": "Hosted certification, authorised alias corrections, limitations and Phase 5A handoff",
+      "bytes": 10109,
+      "sha256": "933b07311115fcded627202fcb7749e9542a91c9d8fae628428120676a9a626b"
+    },
+    {
       "path": "brand/docs/phase4e-implementation.md",
       "category": "documentation",
       "intended_use": "Phase 4E implementation, local validation and hosted certification record",
-      "bytes": 8548,
-      "sha256": "631b809ec68a5b36d8db024ba46009dd26160df429e0e2651805a2b007d27229"
+      "bytes": 8739,
+      "sha256": "4f5837b0521fe4bb0008d183bd7be45b89c2ce367a59c046c8fa7a90b93eb98e"
     },
     {
       "path": "brand/docs/usage-guide.md",
@@ -292,10 +299,11 @@
     "favicon": "app/favicon.ico (byte-identical to canonical public ICO)",
     "apple_icon": "public/brand/icons/logo-square-180.png",
     "approved_artwork_unchanged": true,
-    "scope": "Local implementation; hosted Preview certification pending"
+    "scope": "Hosted public/auth/onboarding certified on ac612f7; positive authenticated coverage and WebKit/native Safari remain unverified.",
+    "hosted_certification": "brand/docs/phase4e-hosted-certification.md"
   },
   "current_inventory": {
-    "files": 32,
-    "bytes": 1021578
+    "files": 33,
+    "bytes": 1032502
   }
 }

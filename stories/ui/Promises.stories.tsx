@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import { useState } from 'react'
+import PromiseManagementPreview from './PromiseManagementPreview'
 import ProductShell from '@/app/components/shell/ProductShell'
 import PromiseWorklist from '@/app/promises/PromiseWorklist'
 import { parsePromiseWorklist, promiseDateCategory, type PromiseWorklistRow, type PromiseWorklistQuery } from '@/lib/collections/promise-worklist'
@@ -24,18 +25,20 @@ const promiseFixtures: PromiseWorklistRow[] = [
 interface Props { mode?: 'active' | 'history'; state?: 'normal' | 'loading' | 'empty' | 'error' | 'unavailable'; long?: boolean; pagination?: boolean }
 function Preview({ mode = 'active', state = 'normal', long = false, pagination = false }: Props) {
   const [query, setQuery] = useState<PromiseWorklistQuery>({ ...parsePromiseWorklist(new URLSearchParams()), status: mode }), [feedback, setFeedback] = useState('')
+  const [selected, setSelected] = useState<PromiseWorklistRow | null>(null), [saved, setSaved] = useState<PromiseWorklistRow | null>(null)
   const all = long ? promiseFixtures.map((row, i) => i === 0 ? { ...row, customerName: 'Northbridge International Engineering and Specialist Construction Services Limited — Northern Region', invoiceReference: 'INV-INTERNATIONAL-REFERENCE-12345678901234567890', promisedAmountNative: '9999999999999999.99' } : row) : promiseFixtures
-  const rows = state === 'empty' ? [] : all.filter(row => (query.status === 'history' ? row.status !== 'active' : row.status === query.status)
+  const rows = state === 'empty' ? [] : all.map(row => saved?.id === row.id ? saved : row).filter(row => (query.status === 'history' ? row.status !== 'active' : row.status === query.status)
     && (!query.q || `${row.customerName} ${row.invoiceReference}`.toLowerCase().includes(query.q.toLowerCase()))
     && (query.date === 'all' || row.dateCategory === query.date))
     .sort((a,b) => (query.status === 'active' ? 1 : -1) * (a.promisedDate ?? '').localeCompare(b.promisedDate ?? '') || a.id.localeCompare(b.id))
   const unavailable = state === 'unavailable'
   return <ProductShell pathname="/promises" accountLabel="Synthetic example" onSignOut={() => {}}>
     <PromiseWorklist query={query} loading={state === 'loading'} error={state === 'error' ? 'Could not load promises. Please retry.' : null}
-      data={{ ok: true, tenantId: 'synthetic', organisationDate: unavailable ? null : date, timezone: unavailable ? null : 'Europe/London', query,
+      data={state === 'loading' || state === 'error' ? null : { ok: true, tenantId: 'synthetic', organisationDate: unavailable ? null : date, timezone: unavailable ? null : 'Europe/London', query,
         rows: unavailable ? rows.map((row,i) => ({ ...row, dateCategory: 'unavailable', ...(i === 0 ? { promisedAmountNative: null, qualifyingPaidAmountNative: null, currencyCode: '', contextUnavailable: true, financialUnavailable: true, currentOutstandingNative: null } : {}) })) : rows,
         total: pagination ? 54 : rows.length, pageCount: pagination ? 3 : 1 }}
-      onRetry={() => setFeedback('Synthetic retry callback. No request made.')} onNavigate={next => { setQuery(next); setFeedback('Synthetic navigation. No financial request made.') }} />
+      onManage={setSelected} onRetry={() => setFeedback('Synthetic retry callback. No request made.')} onNavigate={next => { setQuery(next); setFeedback('Synthetic navigation. No financial request made.') }} />
+    {selected && <PromiseManagementPreview row={selected} onClose={() => setSelected(null)} onSaved={setSaved} />}
     {feedback && <p role="status" data-testid="promise-preview-event" className="mt-3 text-xs">{feedback}</p>}
   </ProductShell>
 }

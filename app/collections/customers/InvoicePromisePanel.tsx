@@ -10,7 +10,7 @@ const buttonClass = actionStyles({ variant: 'secondary', className: 'min-h-11 wh
 
 export interface InvoicePromisePanelProps {
   id: string; invoice: InvoiceDisputeView; active: PromiseView | null; current: PromiseView | null
-  editing: boolean; cancellation: boolean; eligible: boolean; locked: boolean; saving: boolean
+  editCloseLabel?: string; showCancellation?: boolean; protectUncertain?: boolean; editing: boolean; cancellation: boolean; eligible: boolean; locked: boolean; saving: boolean
   amount: string; date: string; note: string; setAmount: (value: string) => void; setDate: (value: string) => void; setNote: (value: string) => void
   fieldErrors: Record<string, string>; error: string | null; message: string | null; refreshNeeded: boolean
   historyOpen: boolean; historyLoading: boolean; historyError: string | null; eventLoading: string | null
@@ -23,40 +23,41 @@ export interface InvoicePromisePanelProps {
 /** Controlled promise presentation; command/retry/lifecycle state stays in InvoicePromise. */
 export default function InvoicePromisePanel({ id, invoice, active, current, editing, cancellation, eligible, locked, saving,
   amount, date, note, setAmount, setDate, setNote, fieldErrors, error, message, refreshNeeded, historyOpen,
-  historyLoading, historyError, eventLoading, history, formRef, actionRef, open, save, close, showHistory, loadEvents, refreshSaved }: InvoicePromisePanelProps) {
+  historyLoading, historyError, eventLoading, history, formRef, actionRef, open, save, close, showHistory, loadEvents, refreshSaved, protectUncertain = false, showCancellation = false, editCloseLabel = 'Close' }: InvoicePromisePanelProps) {
   return <section aria-label={`Invoice promise for ${invoice.invoiceNumber || invoice.reference || invoice.invoiceSourceId}`} className="min-w-0 space-y-2 text-sm">
     <h5 className="font-semibold text-text-primary">Promise</h5>
     {editing ? <form ref={formRef} onSubmit={save} noValidate aria-busy={saving} className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2 sm:max-w-xl">
         <div><label htmlFor={`${id}-amount`} className="mb-1 block font-medium">Promise amount ({invoice.currencyCode})</label>
-          <input id={`${id}-amount`} className={`${inputClass} w-full`} inputMode="decimal" autoComplete="off" maxLength={100} value={amount} onChange={event => setAmount(event.target.value)} disabled={saving}
+          <input id={`${id}-amount`} className={`${inputClass} w-full`} inputMode="decimal" autoComplete="off" maxLength={100} value={amount} onChange={event => setAmount(event.target.value)} disabled={saving || protectUncertain}
             aria-invalid={Boolean(fieldErrors.amount)} aria-describedby={fieldErrors.amount ? `${id}-amount-error` : undefined} />
           {fieldErrors.amount && <p id={`${id}-amount-error`} className="mt-1 text-feedback-error">{fieldErrors.amount}</p>}
         </div>
         {!cancellation && <div><label htmlFor={`${id}-date`} className="mb-1 block font-medium">Promised date</label>
-          <input id={`${id}-date`} className={`${inputClass} w-full`} type="date" value={date} onChange={event => setDate(event.target.value)} disabled={saving}
+          <input id={`${id}-date`} className={`${inputClass} w-full`} type="date" value={date} onChange={event => setDate(event.target.value)} disabled={saving || protectUncertain}
             aria-invalid={Boolean(fieldErrors.date)} aria-describedby={fieldErrors.date ? `${id}-date-error` : undefined} />
           {fieldErrors.date && <p id={`${id}-date-error`} className="mt-1 text-feedback-error">{fieldErrors.date}</p>}
         </div>}
       </div>
       {!cancellation && <div className="max-w-xl"><label htmlFor={`${id}-note`} className="mb-1 block">Optional promise note</label>
-        <textarea id={`${id}-note`} className={`${inputClass} w-full`} rows={2} maxLength={2000} value={note} onChange={event => setNote(event.target.value)} disabled={saving}
+        <textarea id={`${id}-note`} className={`${inputClass} w-full`} rows={2} maxLength={2000} value={note} onChange={event => setNote(event.target.value)} disabled={saving || protectUncertain}
           aria-invalid={Boolean(fieldErrors.note)} aria-describedby={fieldErrors.note ? `${id}-note-error` : undefined} />
         {fieldErrors.note && <p id={`${id}-note-error`} className="mt-1 text-feedback-error">{fieldErrors.note}</p>}
       </div>}
       <div className="flex flex-wrap gap-2"><button type="submit" className={actionStyles({ className: 'min-h-11' })} disabled={locked}>{saving ? 'Saving…' : cancellation ? 'Cancel promise' : 'Save promise'}</button>
-        <button type="button" className={buttonClass} disabled={saving} onClick={close}>Close</button></div>
+        <button type="button" className={buttonClass} disabled={saving || protectUncertain} onClick={close}>{editCloseLabel}</button></div>
     </form> : <div className="flex flex-wrap gap-2">
       {(active || eligible) && <button ref={actionRef} type="button" className={buttonClass} onClick={open} disabled={locked || Boolean(active && !active.revision)}>{active ? 'Edit promise' : current || history.length ? 'Record new promise' : 'Record promise'}</button>}
+      {showCancellation && active && <button type="button" className={buttonClass} disabled={locked || !active.revision} onClick={() => { open(); setAmount('') }}>Cancel promise</button>}
       <button type="button" className={buttonClass} onClick={() => void showHistory()} aria-expanded={historyOpen} aria-controls={`${id}-history`} disabled={saving || historyLoading}>Promise history</button>
     </div>}
     {current?.status === 'active' ? <details className="border-t border-border-default">
       <summary className="min-h-11 cursor-pointer py-3 text-xs font-medium text-text-secondary focus-visible:outline-2 focus-visible:outline-focus">Commitment details & note</summary>
       <PromiseCommitment invoice={invoice} current={current} editing={editing} />
-    </details> : <PromiseCommitment invoice={invoice} current={current} editing={editing} />}
+    </details> : <><PromiseCommitment invoice={invoice} current={current} editing={editing} />{current?.note && <p className="whitespace-pre-wrap break-words text-text-secondary">{current.note}</p>}</>}
     {error && <p role="alert" className="text-feedback-error">{error}</p>}
     {message && <p role="status" aria-live="polite" className="text-text-secondary">{message}</p>}
-    {refreshNeeded && <button type="button" className={buttonClass} disabled={saving} onClick={() => void refreshSaved()}>Refresh invoice details</button>}
+    {refreshNeeded && <button type="button" className={buttonClass} disabled={saving || protectUncertain} onClick={() => void refreshSaved()}>Refresh invoice details</button>}
     {historyOpen && <div id={`${id}-history`} className="space-y-3 pt-2" aria-label="Promise history">
       {historyLoading ? <p role="status">Loading promise history…</p> : history.length === 0 && !historyError ? <p className="text-text-secondary">No promises recorded.</p> : history.map(item => <div key={item.promise.id}>
         <p className="text-text-primary">{promiseMoney(item.promise.promisedAmountNative, item.promise.currencyCode ?? invoice.currencyCode)} by {promiseDate(item.promise.promisedDate)} · {promiseOutcome[item.promise.status]}</p>

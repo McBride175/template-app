@@ -10,7 +10,7 @@ import EmptyState from '@/app/components/ui/EmptyState'
 import Spinner from '@/app/components/ui/Spinner'
 import { actionStyles } from '@/app/components/ui/actionStyles'
 import { promiseDate, promiseMoney, promiseOutcome } from '@/lib/collections/promise-presentation'
-import { promiseCustomerHref, promiseDateLabels, promiseWorklistUrl, type PromiseWorklistQuery, type PromiseWorklistResponse } from '@/lib/collections/promise-worklist'
+import { promiseCustomerHref, promiseDateLabels, promiseWorklistUrl, type PromiseWorklistQuery, type PromiseWorklistResponse, type PromiseWorklistRow } from '@/lib/collections/promise-worklist'
 
 export function PromiseFilters({ query, onNavigate, busy = false }: { query: PromiseWorklistQuery; onNavigate: (query: PromiseWorklistQuery) => void; busy?: boolean }) {
   const id = useId(), [q, setQ] = useState(query.q), [status, setStatus] = useState(query.status), [date, setDate] = useState(query.date), [expanded, setExpanded] = useState(false)
@@ -34,19 +34,19 @@ export function PromiseFilters({ query, onNavigate, busy = false }: { query: Pro
       {filtered && <Button variant="ghost" disabled={busy} className="min-h-11" onClick={() => { setQ(''); setStatus('active'); setDate('all'); onNavigate({ ...query, q: '', status: 'active', date: 'all', page: 1 }) }}>Clear</Button>}</div>
   </form>
 }
-export default function PromiseWorklist({ query, data, loading, error, onRetry, onNavigate }: {
+export default function PromiseWorklist({ query, data, loading, error, onRetry, onNavigate, onManage }: {
   query: PromiseWorklistQuery; data: PromiseWorklistResponse | null; loading: boolean; error: string | null;
-  onRetry: () => void; onNavigate: (query: PromiseWorklistQuery) => void
+  onRetry: () => void; onNavigate: (query: PromiseWorklistQuery) => void; onManage: (row: PromiseWorklistRow) => void
 }) {
   const returnHref = promiseWorklistUrl(query, data?.tenantId)
   return <div className="min-w-0 space-y-3 sm:space-y-5">
-    <div className="flex flex-wrap items-center justify-between gap-2"><div><h1 className="text-xl font-semibold sm:text-2xl">Promises</h1>
+    <div className="flex flex-wrap items-center justify-between gap-2"><div><h1 tabIndex={-1} data-promise-heading className="text-xl font-semibold sm:text-2xl">Promises</h1>
       <p className="mt-1 hidden text-sm text-text-secondary sm:block">Payment commitments across customers. Priorities remains your collection worklist.</p></div>
       <Button variant="secondary" className="min-h-11" disabled={loading} onClick={onRetry}>Refresh list</Button></div>
     <PromiseFilters key={returnHref} query={query} onNavigate={onNavigate} busy={loading} />
     {error && <Alert variant="error" role="alert">{error}<Button variant="secondary" className="ml-2 min-h-11" onClick={onRetry}>Retry promises</Button></Alert>}
-    {loading && <div role="status" className="flex min-h-32 items-center gap-2 text-sm text-text-secondary"><Spinner label={null} />Loading commitments…</div>}
-    {!loading && !error && data && <>
+    {loading && !data && <div role="status" className="flex min-h-32 items-center gap-2 text-sm text-text-secondary"><Spinner label={null} />Loading commitments…</div>}
+    {data && <>
       {!data.organisationDate && <Alert variant="warning">Organisation date context is unavailable. Active commitments retain their recorded status; date categories cannot be established.</Alert>}
       <div className="flex flex-wrap justify-between gap-1 text-xs text-text-secondary"><p>{data.total} matching commitment{data.total === 1 ? '' : 's'}<span className="hidden sm:inline">{query.status === 'active' ? ' · Earliest promise date first' : ' · Latest promise date first'}</span>.</p>
         {data.organisationDate && <p>Organisation date: {promiseDate(data.organisationDate)}<span className="hidden sm:inline"> · {data.timezone}</span></p>}</div>
@@ -58,18 +58,20 @@ export default function PromiseWorklist({ query, data, loading, error, onRetry, 
           <div className="min-w-0"><h2 className="break-words text-sm font-semibold sm:text-base">{row.customerName ?? 'Customer name unavailable'}</h2><p className="break-all text-xs text-text-secondary">Invoice {row.invoiceReference}</p></div>
           <div className="min-w-0 max-w-40 text-right sm:max-w-none sm:text-left"><p className="text-[11px] text-text-secondary">Promised · {row.currencyCode || 'Currency unavailable'}</p><p className="break-all text-base font-semibold tabular-nums text-text-primary">{promiseMoney(row.promisedAmountNative, row.currencyCode || null)}</p></div>
           <div className="col-span-1 min-w-0 sm:col-span-1"><p className="text-sm">{row.promisedDate ? promiseDate(row.promisedDate) : 'Promise date unavailable'}</p><p className="mt-0.5 text-xs font-medium">{row.status === 'active' ? promiseDateLabels[row.dateCategory] : promiseOutcome[row.status]}</p></div>
-          <Link href={promiseCustomerHref(row, data.tenantId, returnHref)} className={actionStyles({ variant: 'ghost', className: 'min-h-11 self-start px-1 text-sm underline underline-offset-4' })}
+          <Button variant="ghost" className="min-h-11 self-start px-1 text-sm underline underline-offset-4" onClick={() => onManage(row)}
             aria-label={`${row.status === 'active' ? 'Manage promise' : 'View promise'} for ${row.customerName ?? row.customerSourceId}, invoice ${row.invoiceReference}`}>
-            {row.status === 'active' ? 'Manage promise' : 'View promise'}</Link>
+            {row.status === 'active' ? 'Manage promise' : 'View promise'}</Button>
           {(row.contextUnavailable || row.financialUnavailable) && <p role="note" className="col-span-full text-xs text-feedback-warning">
             {row.contextUnavailable && 'Current customer or invoice context unavailable. '}{row.financialUnavailable && 'Some financial values are unavailable. '}Recorded commitment retained; investigate in Customers.</p>}
-          <details className="col-span-full min-w-0"><summary className="w-fit min-h-11 cursor-pointer py-3 text-xs text-text-secondary focus-visible:outline-2 focus-visible:outline-focus">Payment progress{row.note ? ' & note' : ''}</summary>
+          <div className="col-span-full flex min-w-0 items-start justify-between gap-2"><details className="min-w-0 flex-1"><summary className="w-fit min-h-11 cursor-pointer py-3 text-xs text-text-secondary focus-visible:outline-2 focus-visible:outline-focus">Payment progress{row.note ? ' & note' : ''}</summary>
             <div className="space-y-2 pb-2 text-sm text-text-secondary"><p>Qualifying payment recorded: {promiseMoney(row.qualifyingPaidAmountNative, row.currencyCode || null)}</p><p className="text-xs">Recorded accounting evidence only. An active promise with a passed date has not been declared missed.</p>
               <p>Current invoice outstanding: {promiseMoney(row.currentOutstandingNative, row.currencyCode || null)}{row.currentInvoiceStatus ? ` · ${row.currentInvoiceStatus}` : ' · Accounting context unavailable'}</p>
               {row.note && <p className="whitespace-pre-wrap break-words"><span className="font-semibold">Note: </span>{row.note}</p>}
               {row.resolvedAt && <p>Recorded outcome: {new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(row.resolvedAt))} (UTC date)</p>}
             </div>
           </details>
+          <Link href={promiseCustomerHref(row, data.tenantId, returnHref)} className={actionStyles({ variant: 'ghost', className: 'min-h-11 shrink-0 px-1 text-xs underline underline-offset-4' })}
+            aria-label={`View invoice ${row.invoiceReference} for ${row.customerName ?? row.customerSourceId}`}>View invoice</Link></div>
         </li>)}
       </ol>}
       {data.pageCount > 1 && <nav aria-label="Promise pages" className="flex items-center justify-between gap-2 text-sm">

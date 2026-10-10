@@ -1,7 +1,7 @@
 'use client'
 
 import InvoicePromisePanel from './InvoicePromisePanel'
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { InvoiceDisputeView } from '@/lib/collections/invoice-dispute-view'
 import { compareDecimalValues, normalizeDecimalValue } from '@/lib/money/currency'
 import { promiseOutcome, type PromiseView, type PromiseEventView } from '@/lib/collections/promise-presentation'
@@ -17,23 +17,30 @@ const errorMessage = (body: Body | null) => body?.code === 'conflict' || body?.c
   : body?.code === 'forbidden' ? 'This invoice is not available to your account.'
   : 'Could not save the promise. Try again with the same details.'
 
-export default function InvoicePromise({ invoice, tenantId, onRefresh, onReconciled, onMutationStarted, onReconciliationUnavailable, disabled = false }: {
+export default function InvoicePromise({ invoice, tenantId, onRefresh, onReconciled, onMutationStarted, onReconciliationUnavailable, disabled = false, selectedPromise, allowCreate = true, protectUncertain = false, onInteractionChange, onCommitted }: {
   invoice: InvoiceDisputeView; tenantId: string; onRefresh: (invoiceId: string) => Promise<boolean>; disabled?: boolean
   onReconciled?: (result: FinancialMutationReconciliation, sequence?: number) => Promise<boolean>
   onMutationStarted?: () => number | void
   onReconciliationUnavailable?: () => void
+  selectedPromise?: PromiseView // Historical commitment loaded from the authoritative invoice history.
+  allowCreate?: boolean; protectUncertain?: boolean
+  onInteractionChange?: (state: { editing: boolean; saving: boolean; uncertain: boolean }) => void
+  onCommitted?: (promise: PromiseView) => Promise<boolean>
 }) {
   const id = useId()
   const [overlay, setOverlay] = useState<{ source: InvoiceDisputeView; promise: PromiseView | null } | null>(null)
   const [lastTerminal, setLastTerminal] = useState<PromiseView | null>(null)
-  const current: PromiseView | null = overlay && overlay.source === invoice ? overlay.promise : invoice.activePromise ?? invoice.latestPromise ?? lastTerminal
-  const active = current?.status === 'active' ? current : null
+  const current: PromiseView | null = selectedPromise ?? (overlay && overlay.source === invoice ? overlay.promise : invoice.activePromise ?? invoice.latestPromise ?? lastTerminal)
+  const active = !selectedPromise && current?.status === 'active' ? current : null
   const editSnapshot = useRef<PromiseView | null>(null)
   const [editing, setEditing] = useState(false)
   const [amount, setAmount] = useState('')
   const [date, setDate] = useState('')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
+  const [uncertain, setUncertain] = useState(false)
+  const [listRefreshNeeded, setListRefreshNeeded] = useState(false)
+  useEffect(() => { onInteractionChange?.({ editing, saving, uncertain }) }, [editing, saving, uncertain, onInteractionChange])
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
@@ -48,7 +55,7 @@ export default function InvoicePromise({ invoice, tenantId, onRefresh, onReconci
   const formRef = useRef<HTMLFormElement>(null)
   const actionRef = useRef<HTMLButtonElement>(null)
   const cancellation = Boolean(active) && (!amount.trim() || (/^\d+(?:\.\d+)?$/.test(amount.trim()) && normalizeDecimalValue(amount.trim()) === '0'))
-  const eligible = invoice.invoiceState === 'open' && compareDecimalValues(invoice.currentAmountDueNative, '0') === 1
+  const eligible = allowCreate && !selectedPromise && invoice.invoiceState === 'open' && compareDecimalValues(invoice.currentAmountDueNative, '0') === 1
   const locked = disabled || saving || refreshNeeded
 
   function open() {
@@ -71,12 +78,14 @@ export default function InvoicePromise({ invoice, tenantId, onRefresh, onReconci
   async function refreshSaved() {
     const refreshed = await onRefresh(invoice.invoiceSourceId).catch(() => false)
     setRefreshNeeded(!refreshed)
-    if (refreshed) setMessage('Current invoice amounts refreshed.')
+    const listReady = !listRefreshNeeded || !current || !onCommitted || await onCommitted(current).catch(() => false)
+    setListRefreshNeeded(!listReady); setRefreshNeeded(!refreshed || !listReady)
+    if (refreshed && listReady) setMessage('Current invoice amounts refreshed.')
     return refreshed
   }
   async function save(event: React.FormEvent) {
     event.preventDefault()
-    if (pending.current || locked) return
+    if (pending.current || locked || selectedPromise) return
     if (editSnapshot.current?.id !== (active?.id ?? undefined) || editSnapshot.current?.revision !== active?.revision) {
       setError('This promise changed. Close the form and review the latest details before saving.'); return
     }
@@ -107,16 +116,16 @@ export default function InvoicePromise({ invoice, tenantId, onRefresh, onReconci
       const body = await response.json().catch(() => null) as Body | null
       if (!response.ok || !body?.ok || !body.promise) {
         if (body?.code === 'conflict' || body?.code === 'not_found') {
-          command.current = null; setEditing(false)
+          command.current = null; setUncertain(false); setEditing(false)
           const refreshed = await Promise.allSettled([context(), onRefresh(invoice.invoiceSourceId)])
           const failed = refreshed.some(result => result.status === 'rejected' || result.value === false)
           setRefreshNeeded(failed)
           setError(failed ? 'This invoice or promise changed. Refresh the latest details before trying again.' : errorMessage(body))
-        } else setError(errorMessage(body))
+        } else { setError(errorMessage(body)); setUncertain(!body || (!body.code && response.status >= 500) || (response.ok && !body.promise)) }
         return
       }
       // A committed response is never presented as a failed save, even if refresh subsequently fails.
-      command.current = null; setOverlay({ source: invoice, promise: body.promise }); setEditing(false)
+      command.current = null; setUncertain(false); setOverlay({ source: invoice, promise: body.promise }); setEditing(false)
       if (body.promise.status !== 'active') setLastTerminal(body.promise)
       setHistory(previous => [{ promise: body.promise!, events: null }, ...previous.filter(item => item.promise.id !== body.promise!.id)])
       actionRef.current?.focus()
@@ -133,7 +142,12 @@ export default function InvoicePromise({ invoice, tenantId, onRefresh, onReconci
         setMessage(refreshed ? (body.promise.status === 'active' ? 'Promise saved.' : promiseOutcome[body.promise.status])
           : 'Promise saved, but current invoice amounts could not be refreshed. Refresh the details before making another change.')
       } else setMessage('Promise note saved.')
+      if (onCommitted && !await onCommitted(body.promise).catch(() => false)) {
+        setListRefreshNeeded(true); setRefreshNeeded(true)
+        setMessage('Promise saved, but the worklist could not be refreshed. Retry the refresh before making another change.')
+      }
     } catch {
+      setUncertain(true)
       setError('The save response was not received. Retry with the same details to safely check the result.')
     } finally { pending.current = false; setSaving(false) }
   }
@@ -163,7 +177,7 @@ export default function InvoicePromise({ invoice, tenantId, onRefresh, onReconci
     finally { setEventLoading(null) }
   }
   return <InvoicePromisePanel id={id} invoice={invoice} active={active} current={current} editing={editing}
-    cancellation={cancellation} eligible={eligible} locked={locked} saving={saving}
+    editCloseLabel={allowCreate ? 'Close' : 'Cancel edit'} showCancellation={!allowCreate && !selectedPromise} protectUncertain={protectUncertain && uncertain} cancellation={cancellation} eligible={eligible} locked={locked} saving={saving}
     amount={amount} date={date} note={note} setAmount={setAmount} setDate={setDate} setNote={setNote}
     fieldErrors={fieldErrors} error={error} message={message} refreshNeeded={refreshNeeded}
     historyOpen={historyOpen} historyLoading={historyLoading} historyError={historyError} eventLoading={eventLoading}

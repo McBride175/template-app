@@ -649,8 +649,9 @@ It reads a bounded Promise page with batched current customer/invoice labels,
 exact decimal strings and an explicit public-field projection. Active date
 categories use authoritative organisation timezone context; elapsed Active
 commitments remain Active. The worklist never runs reconciliation, scoring or
-accounting refresh. Management links reuse the customer invoice editor with
-validated same-tenant return context. No migration or privileged function is
+accounting refresh. In-place management reuses the existing invoice Promise
+controller with targeted selected-invoice context; separate investigation links retain validated same-tenant
+return context. No migration or privileged function is
 added. Earlier Promise stages above describe their historical boundaries; the
 editor and this global worklist now exist. See
 [the Phase 5E contract and certification](docs/global-promises-workspace.md).

@@ -2,7 +2,9 @@
 
 Phase 5E adds `/promises` as an authenticated operational worklist. Priorities
 remains the primary collections environment; Customers remains the invoice and
-Promise management environment. No later programme phase is implemented here.
+detailed Promise investigation environment. Routine Promise management is now
+available in place on Promises, as recorded in the Phase 5E correction below.
+No later programme phase is implemented here.
 
 ## Product contract
 
@@ -88,7 +90,7 @@ data is prefetched by ProductShell or Priorities. Notes-only
 changes are visible on normal return/reload; no new cross-window notification layer
 has been added.
 
-Manage promise/View promise links carry tenant, durable customer/invoice IDs and a
+The initial Phase 5E implementation used Manage promise/View promise links carrying tenant, durable customer/invoice IDs and a
 validated `/promises` return URL to the existing `/customers?...#invoice-ID` focus
 convention. InvoiceFrame reveals the invoice; the existing Promise editor retains
 all permissions, revision/idempotency, retry and lifecycle control. Terminal records
@@ -178,3 +180,97 @@ management/return links and native/mixed currencies with real Test fixtures,
 measure query latency/search plans and pagination under representative tenant
 sizes, and inspect Safari/mobile Safari. No hosted latency or Safari certification
 is claimed from the local synthetic timings or Chromium checks.
+
+## Phase 5E correction — Manage Promises in place
+
+This correction keeps the official programme numbering unchanged. Phase 5F remains
+Disputes Workspace Redesign and has not begun.
+
+Manage promise now opens one native modal dialog on Promises. The compact list
+keeps a separate View invoice link beside Payment progress; the dialog also offers
+View invoice in Customers with the existing validated tenant/customer/invoice and
+return URL. Active commitments offer Edit promise, Cancel promise and Promise
+history. Cancellation opens the existing blank-amount cancellation form for explicit
+submission. Historical commitments show their own authoritative recorded terms,
+notes and history, without edit/create/cancel controls, even when another commitment
+on the same invoice is currently Active. An elapsed Active commitment remains Active.
+
+`PromiseManagement` loads the existing selected-invoice GET only on demand:
+`/api/collections/invoice-disputes?tenantId=…&customerSourceId=…&invoiceSourceId=…`.
+It matches the durable invoice and Promise identity. Older historical commitments
+use the existing bounded invoice Promise history GET when the selected record is
+not current/latest. No incomplete worklist DTO is converted into an invoice DTO.
+Unavailable accounting/currency values remain explicit. A four-entry, 60-second,
+page-local cache includes tenant/customer/invoice/Promise identity and a terms
+signature. Accounting/financial signals and committed changes invalidate it.
+Abort/sequence/mount guards reject stale reads and old-tenant results. No requests
+are added to initial loading, ProductShell or Priorities, and no per-row waterfall,
+new API, migration or accounting refresh is introduced.
+
+The existing `InvoicePromise` controller and `InvoicePromisePanel` own every
+mutation, revision, amount/date/note validation, command ID, conflict, history and
+retry. Optional host callbacks report draft/save/uncertainty and committed results;
+Customer Workspace retains its existing defaults. The new host prevents closing,
+Escape, changing retry terms or following the invoice link while saving or uncertain.
+A definite unsaved edit requires discard confirmation when closing the dialog or
+leaving for Customers. Native dialog containment, 44px controls, scroll locking and
+restoration, focus restoration to the originating row (or heading after removal),
+and a browser unload warning protect the editing surface. There is no custom motion
+or separate mobile editor.
+
+Financial saves retain existing tenant-scoped invalidation and refresh one selected
+invoice followed by one current filtered worklist. Own financial signals do not
+start a duplicate worklist fetch during mutation. Note-only saves refresh just the
+worklist; they do not reload accounting, invoices or a portfolio. Background list
+refresh leaves the mounted editor and draft intact. Filters, page and search URL
+state remain unchanged; the list stays visible during reload. Cancellation can
+remove an Active row without unmounting the manager. A committed response stays
+saved if either read refresh fails, with a distinct refresh warning and read retry;
+uncertain saves retain their original command identity and draft for retry.
+
+### Correction certification
+
+Local synthetic verification on 10 October 2026:
+
+- 62 final controller/worklist tests passed, zero failed/skipped. This includes real
+  existing controllers with mocked requests: edit amount/date/note, cancellation,
+  note-only request counts, conflict, uncertain retry identity, saved-but-refresh-failed,
+  disappearing row, historical target, context retry, cache reuse, tenant cancellation,
+  background draft preservation and current Customer Workspace behaviour.
+- Broader Promise/domain/accounting/queue/access regression: 554 passed, two existing
+  failures, zero skips (556 tests). Both failures in `collections-queue-status.test.mjs`
+  rely on pre-extraction queue presentation: a fake hook-slot/tree assertion expects
+  inline amounts and another regex expects an old inline complete-today expression.
+  They reproduce independently; their test and `CollectionActionsClient` are unchanged.
+  No queue/scoring or unrelated test rewrite is included in this correction.
+- 35 Customer Workspace/Promises responsive Chromium checks passed with no retries,
+  including 320/390/768/1440px, editing/history/cancellation, removal fallback focus,
+  filter retention, navigation and existing invoice density/draft behaviour. An initial
+  new test incorrectly followed position #1 after a date edit reordered the worklist;
+  its locator was corrected to durable invoice identity. No waits/retries were raised.
+- Guarded local production smoke: 8 passed, 5 skipped, no failures/retries. The same two
+  designated-session and three unsafe financial-mutation journeys remain disabled.
+- agent-browser targeted desktop/mobile editor inspection and scoped axe-core 4.12.1
+  WCAG A/AA audits: zero violations or incomplete checks in both visible editors.
+- Lint, application/Storybook TypeScript, production/Storybook builds, SQL safety and
+  diff whitespace checks pass. No dependencies or environment variables changed.
+
+Screenshots live outside Git in the local `promises-management` review folder:
+desktop/mobile editor, responsive editing and cancellation, worklist/history/loading/
+empty/error and existing Customer Workspace regression evidence. Storybook exercises
+the real controlled panel/dialog with fictional callbacks; controller transport and
+financial behaviours are separately mocked integration tests, not hosted mutations.
+
+Measured request contracts: one initial worklist GET; one targeted invoice GET on
+ordinary Manage (zero on unchanged cached reopen); one additional bounded history GET
+for an older commitment; note save = one existing POST plus one worklist GET; financial
+save = one existing POST, one targeted invoice GET and one worklist GET. No global
+refresh or reconciliation is started by opening Manage. These are verified request
+counts, not hosted latency claims.
+
+Hosted authenticated edit/cancel/history, real Test permissions/accounting refresh,
+native Safari/mobile Safari and WebKit remain to certify after an approved push.
+Chromium/local synthetic certification does not certify those environments. No
+Promise engine, financial calculation, lifecycle, API contract, branding, navigation,
+Production configuration or later phase changed. Phase 5F can reuse the modal host
+pattern while retaining the distinct existing dispute controller and semantics.

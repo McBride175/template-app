@@ -6,7 +6,7 @@ import Button from '@/app/components/ui/Button'
 /** Mobile discovery disclosure only; controlled search/selection remain mounted. */
 export default function CustomerSelectionPanel({ selected, children }: { selected: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(false), id = useId()
-  return <aside aria-label="Find and select customers" className="min-w-0 lg:border-r lg:border-border-default lg:pr-6">
+  return <aside aria-label="Find and select customers" className="min-w-0 lg:col-start-2 lg:row-start-1 lg:border-l lg:border-border-default lg:pl-6">
     {selected && <Button variant="secondary" className="min-h-11 w-full justify-between lg:hidden" aria-expanded={open} aria-controls={id} onClick={() => setOpen(value => !value)}>
       Change customer <span>{open ? 'Close' : 'Show'}</span>
     </Button>}

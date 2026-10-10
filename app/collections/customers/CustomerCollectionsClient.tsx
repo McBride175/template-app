@@ -617,7 +617,7 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
       )}
 
 
-      {!multiCurrencyPlanRequired && <div className="grid min-w-0 items-start gap-3 sm:gap-6 lg:grid-cols-[20rem_minmax(0,1fr)]">
+      {!multiCurrencyPlanRequired && <div className="grid min-w-0 items-start gap-3 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <CustomerSelectionPanel key={expandedCustomerSourceId ?? 'browse'} selected={Boolean(expandedCustomerSourceId)}>
           <CustomerBrowser rows={visibleRows} selectedId={expandedCustomerSourceId} currency={organisationBaseCurrency}
             equivalent={showMultiCurrencyAmounts} search={searchQuery} onSearch={setSearchQuery}
@@ -709,7 +709,7 @@ export default function CustomerCollectionsClient({ tenantId = null, initialCust
             </dl>
           </details>}
         </CustomerSelectionPanel>
-        <div className="min-w-0">
+        <div className="min-w-0 lg:col-start-1 lg:row-start-1">
       {expandedCustomerSourceId && (
         <section ref={(element) => { invoiceSectionRef.current = element }}
           tabIndex={-1} aria-label="Selected customer detail" className="min-w-0 scroll-mt-4 space-y-4">

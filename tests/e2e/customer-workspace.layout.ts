@@ -12,6 +12,14 @@ for (const width of [320,390,768,1440]) {
     await page.goto(story('selected-customer'))
     const overview=page.getByRole('region',{name:'Customer financial overview'})
     await expect(overview.getByRole('heading',{name:'Northbridge Supplies'})).toBeVisible()
+    if(width>=1024){
+      const browser=(await page.getByRole('complementary',{name:'Find and select customers'}).boundingBox())!
+      const account=(await overview.boundingBox())!
+      expect(browser.x).toBeGreaterThanOrEqual(account.x+account.width)
+    }else{
+      const switcher=(await page.getByRole('button',{name:/^Change customer/}).boundingBox())!
+      expect(switcher.y+switcher.height).toBeLessThanOrEqual((await overview.boundingBox())!.y)
+    }
     await expect(overview.getByText('£6,842.50',{exact:true})).toBeVisible()
     await expect(overview.getByText('£14,120.00',{exact:true})).toBeVisible()
     await expect(page.getByRole('link',{name:'Back to Priorities'})).toHaveAttribute('href','/dashboard?tenantId=synthetic#collection-actions')

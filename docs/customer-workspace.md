@@ -8,8 +8,9 @@ is implemented by this checkpoint.
 
 ## Workspace and navigation
 
-A contextual 320px customer browser and dominant selected-account area share
-ProductShell's existing desktop width. They scroll with the document. On phones
+A contextual 320px customer browser sits on the right of the dominant
+selected-account area, matching the Priorities summary navigation placement.
+Both share ProductShell's existing desktop width and scroll with the document. On phones
 and tablets the browser becomes an accessible Change customer disclosure above
 the overview, so switching does not require reaching the bottom of the invoices.
 Search remains local; the eight existing gross-balance/age/name sort options,

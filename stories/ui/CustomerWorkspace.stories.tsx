@@ -72,13 +72,13 @@ function Workspace({ initialSelected = true, customer = customerFixture, state =
       {message && <Alert>{message}</Alert>}
       {state === 'error' && <Alert variant="error">Could not load customer detail. Retry using the current selection.</Alert>}
       {state === 'unavailable' && <Alert variant="warning">Currency evidence is incomplete. Native invoice amounts remain available; base totals are unavailable.</Alert>}
-      <div className="grid min-w-0 items-start gap-3 sm:gap-6 lg:grid-cols-[20rem_minmax(0,1fr)]">
+      <div className="grid min-w-0 items-start gap-3 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <CustomerSelectionPanel key={selected ?? 'browse'} selected={Boolean(selected)}><CustomerBrowser rows={found} selectedId={selected} currency="GBP" equivalent={equivalent}
           search={search} onSearch={setSearch} overdueOnly={overdue} onOverdueOnly={setOverdue} sort={sort} onSort={setSort}
           sortOptions={[{ value: 'overdue_outstanding:desc', label: 'Gross overdue (high to low)' }, { value: 'customer_name:asc', label: 'Customer name (A to Z)' }]}
           loading={state === 'loading'} refreshing={false} onRefresh={() => setMessage('Synthetic refresh callback. No request made.')}
           onSelect={id => setSelected(current => current === id ? null : id)} /></CustomerSelectionPanel>
-        <div className="min-w-0 space-y-5">
+        <div className="min-w-0 space-y-5 lg:col-start-1 lg:row-start-1">
           {state === 'loading' ? <div role="status" className="flex items-center gap-2"><Spinner label={null} />Loading selected customer and invoices…</div>
           : selectedRow ? <><a href="/dashboard?tenantId=synthetic#collection-actions" className="inline-flex min-h-11 items-center text-sm text-link underline underline-offset-4">Back to Priorities</a>
             {history ? <><h2 className="break-words text-xl font-semibold">{selectedRow.customer_name}</h2><CustomerTimeline events={historyFixtures} busy={false} onDelete={() => setMessage('Synthetic delete callback. No request made.')} customerHref="/customers?tenantId=synthetic&customerSourceId=synthetic-1" /><Button variant="secondary" className="min-h-11" onClick={() => setMessage('Synthetic pagination callback.')}>Load more history</Button></>

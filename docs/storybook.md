@@ -26,6 +26,7 @@ with the existing `Field` component. All examples are fictional and deterministi
 | Select | Empty, selected, disabled, validation error, focus |
 | Card | Default, subtle, long content at mobile width |
 | ProductShell | Eight simulated desktop/active/loading/error/mobile/open-menu/narrow/tablet states |
+| CollectionQueue | Eleven synthetic focused/ranked/long-name/large-amount/adjustment/loading/empty/error/saving/retry states |
 
 The shell stories import only its pure presentation component, not
 ApplicationFrame, ProductWorkspace, session hooks or feature providers. Their
@@ -34,6 +35,13 @@ bypass only the padded preview wrapper. `pnpm test:shell` uses the existing
 Playwright Test dependency with an isolated loopback-only config for repeatable
 shell interactions; it does not bypass application E2E preflights or certify
 private workflows. See [the shell record](product-shell.md).
+
+Queue stories import only the controlled presentation components, with synthetic
+formatted values and callbacks. They do not import CollectionActionsClient,
+DashboardOnboardingClient, service clients or authenticated fixtures. The same
+isolated `pnpm test:shell` configuration covers queue presentation and responsive
+interactions. See [the queue record](collection-queue.md) for financial boundaries
+and the distinction between simulated and real application certification.
 
 Change props in Controls and use real pointer/keyboard interaction to inspect
 hover, focus and native input states. The loading example composes `Spinner` and

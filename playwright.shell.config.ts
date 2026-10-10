@@ -4,7 +4,7 @@ import { defineConfig, devices } from '@playwright/test'
 // Separate from guarded application E2E; never bypass its Test preflight.
 export default defineConfig({
   testDir: './tests/e2e',
-  testMatch: 'product-shell.layout.ts',
+  testMatch: ['product-shell.layout.ts', 'collection-queue.layout.ts'],
   workers: 1,
   retries: 1,
   timeout: 30_000,

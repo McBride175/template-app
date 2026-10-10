@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Button from '@/app/components/ui/Button'
 import Card from '@/app/components/ui/Card'
+import Alert from '@/app/components/ui/Alert'
+import QueueState from '@/app/collections/actions/QueueState'
 import SubscriptionStatus from '@/app/components/SubscriptionStatus'
 import CollectionActionsClient, { type CollectionActionsApiResponse } from '@/app/collections/actions/CollectionActionsClient'
 import DashboardXeroConnectionCard from '@/app/dashboard/DashboardXeroConnectionCard'
@@ -153,55 +155,38 @@ export default function DashboardOnboardingClient() {
 
       {firstValuePreparationRequired && (
         <Card>
-          <p className="text-sm text-gray-600">Returning to your Xero preparation…</p>
+          <p className="text-sm text-text-secondary">Returning to your Xero preparation…</p>
         </Card>
       )}
 
       {!firstValuePreparationRequired && xeroNotice && (
-        <Card
-          className={
-            xeroNotice.kind === 'success'
-              ? 'border-green-200 bg-green-50'
-              : 'border-amber-200 bg-amber-50'
-          }
-        >
+        <Alert variant={xeroNotice.kind === 'success' ? 'success' : 'warning'}>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p
-              className={
-                xeroNotice.kind === 'success' ? 'text-sm text-green-800' : 'text-sm text-amber-800'
-              }
-            >
+            <p>
               {xeroNotice.message}
             </p>
-            <button
-              type="button"
+            <Button variant="ghost"
               onClick={() => removeQueryParams(['xero', 'reason'])}
-              className={
-                xeroNotice.kind === 'success'
-                  ? 'text-sm text-green-700 hover:text-green-900'
-                  : 'text-sm text-amber-700 hover:text-amber-900'
-              }
+              className="min-h-11 text-inherit"
             >
               Dismiss
-            </button>
+            </Button>
           </div>
-        </Card>
+        </Alert>
       )}
 
       {!firstValuePreparationRequired && xeroViewState === 'loading' && (
-        <Card>
-          <p className="text-sm text-gray-600">Preparing your dashboard…</p>
-        </Card>
+        <QueueState title="Preparing your priorities…" loading />
       )}
 
       {!firstValuePreparationRequired && xeroViewState === 'error' && (
         <Card>
           <div className="space-y-3">
             <div>
-              <h1 className="text-xl font-semibold text-gray-900">
+              <h2 className="text-xl font-semibold text-text-primary">
                 We couldn&apos;t check your Xero connection
-              </h1>
-              <p className="mt-2 text-sm text-gray-600">
+              </h2>
+              <p className="mt-2 text-sm text-text-secondary">
                 Your data has not been changed. Try checking the connection again.
               </p>
             </div>

@@ -17,6 +17,11 @@ import {
 import { useRouter } from 'next/navigation'
 import Card from '@/app/components/ui/Card'
 import Button from '@/app/components/ui/Button'
+import Alert from '@/app/components/ui/Alert'
+import QueueCustomer from './QueueCustomer'
+import QueueOrder from './QueueOrder'
+import QueueState from './QueueState'
+import QueueActionPanel, { OUTCOME_OPTIONS, type FollowUpChoice } from './QueueActionPanel'
 import MultiCurrencyPlanGate from '@/app/collections/MultiCurrencyPlanGate'
 import DashboardXeroConnectionCard from '@/app/dashboard/DashboardXeroConnectionCard'
 import FounderContextControl from '@/app/collections/FounderContextControl'
@@ -250,7 +255,6 @@ interface CollectionActionsClientProps {
 
 type LegacyActionType = 'called' | 'emailed' | 'postponed'
 type LegacyActionOutcome = 'no_response' | 'spoke_to_customer' | 'promised_to_pay' | 'disputed'
-type FollowUpChoice = 'tomorrow' | 'two_days' | 'three_days' | 'next_week' | 'custom'
 type OverrideLevel = FounderContextLevel
 
 interface ActionTakenLog {
@@ -283,27 +287,27 @@ function CurrencyHealthDiagnostic({
 
   return (
     <div>
-      <h3 className="text-lg font-semibold text-gray-900">
+      <h3 className="text-lg font-semibold text-text-primary">
         {unavailable ? 'Currency data needs refreshing' : 'Ranking uses available currency data'}
       </h3>
-      <p className="mt-1 text-sm text-gray-600">
+      <p className="mt-1 text-sm text-text-secondary">
         {unavailable
           ? 'A reliable collections ranking cannot be calculated until the Xero organisation currency data is refreshed or inspected.'
           : 'Some invoice currency data could not be converted. We have ranked the remaining customers using safely valued data, and marked affected customers for review. Portfolio values are provisional and exclude those affected customers.'}
       </p>
-      <p className="mt-2 text-sm text-gray-700">
+      <p className="mt-2 text-sm text-text-secondary">
         Affected invoices: {currencyHealth.affectedInvoiceCount} · Affected customers:{' '}
         {currencyHealth.affectedCustomerCount}
       </p>
       {failureReasons.length > 0 && (
-        <p className="mt-1 text-xs text-gray-500">
+        <p className="mt-1 text-xs text-text-muted">
           Reasons:{' '}
           {failureReasons
             .map(([reason, count]) => `${formatCurrencyFailureReason(reason)} (${count})`)
             .join(', ')}
         </p>
       )}
-      <p className="mt-2 text-xs text-gray-500">
+      <p className="mt-2 text-xs text-text-muted">
         Refresh Xero data or contact support if the issue remains.
       </p>
     </div>
@@ -339,27 +343,27 @@ function ReviewRequiredCustomers({
     <Card>
       <div className="space-y-3">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900">Needs review</h3>
-          <p className="mt-1 text-sm text-gray-600">
+          <h3 className="text-lg font-semibold text-text-primary">Needs review</h3>
+          <p className="mt-1 text-sm text-text-secondary">
             These customers are not scored because at least one open invoice cannot be valued
             reliably in the organisation base currency.
           </p>
         </div>
-        <div className="divide-y divide-gray-200 rounded-md border border-gray-200 bg-white">
+        <div className="divide-y divide-border-default rounded-md border border-border-default bg-surface">
           {customers.map((customer) => (
             <div key={customer.customer_source_id} className="px-4 py-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <p className="font-medium text-gray-900">{customer.customer_name}</p>
-                  <p className="text-xs text-gray-600">{customer.customer_email || 'No email recorded'}</p>
+                  <p className="font-medium text-text-primary">{customer.customer_name}</p>
+                  <p className="text-xs text-text-secondary">{customer.customer_email || 'No email recorded'}</p>
                 </div>
-                <p className="text-xs font-medium text-amber-800">
+                <p className="text-xs font-medium text-feedback-warning">
                   {customer.affected_invoice_count} affected invoice
                   {customer.affected_invoice_count === 1 ? '' : 's'}
                 </p>
               </div>
               {customer.native_currency_breakdown.length > 0 && (
-                <p className="mt-2 text-xs text-gray-600">
+                <p className="mt-2 text-xs text-text-secondary">
                   Invoiced outstanding:{' '}
                   {customer.native_currency_breakdown
                     .map((entry) =>
@@ -369,11 +373,11 @@ function ReviewRequiredCustomers({
                 </p>
               )}
               <Link href={customerHref(customer.customer_source_id)}
-                className="mt-2 inline-block text-xs font-medium text-gray-700 underline underline-offset-2">
+                className="mt-2 inline-block text-xs font-medium text-text-secondary underline underline-offset-2">
                 Manage invoices
               </Link>
               {Object.keys(customer.failure_reasons).length > 0 && (
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-text-muted">
                   Reasons:{' '}
                   {Object.entries(customer.failure_reasons)
                     .map(
@@ -383,7 +387,7 @@ function ReviewRequiredCustomers({
                     .join(', ')}
                 </p>
               )}
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-text-muted">
                 Refresh Xero data or contact support before deciding priority.
               </p>
             </div>
@@ -393,16 +397,6 @@ function ReviewRequiredCustomers({
     </Card>
   )
 }
-
-const OUTCOME_OPTIONS: Array<{
-  value: ActionHistoryOutcome
-  label: string
-}> = [
-  { value: 'no_response', label: 'No response' },
-  { value: 'message_sent', label: 'Message sent' },
-  { value: 'responded_no_commitment', label: 'Responded — no commitment' },
-  { value: 'reviewed_no_chase', label: 'Reviewed — no chase needed' },
-]
 
 function formatMoney(amount: number, currencyCode: string | null) {
   const normalizedCurrencyCode = currencyCode?.trim() || null
@@ -461,20 +455,8 @@ function formatWeightedDays(value: number) {
   return Number.isFinite(value) ? value.toFixed(1) : '0.0'
 }
 
-function getRecommendedActionClasses(action: CollectionActionRow['recommended_action']) {
-  if (action === 'Review now') {
-    return 'bg-red-100 text-red-700'
-  }
-
-  if (action === 'Follow up') {
-    return 'bg-amber-100 text-amber-800'
-  }
-
-  if (action === 'Monitor') {
-    return 'bg-blue-100 text-blue-700'
-  }
-
-  return 'bg-gray-100 text-gray-700'
+function getRecommendedActionClasses() {
+  return 'text-text-primary'
 }
 
 function getLegacyActionLabel(actionType: LegacyActionType) {
@@ -1215,21 +1197,21 @@ export default function CollectionActionsClient({
       {showHeaderSection && (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold text-gray-900">Today&apos;s Collection Actions</h1>
-            <p className="mt-1 text-sm text-gray-600">
+            <h1 className="text-2xl font-semibold text-text-primary">Priorities</h1>
+            <p className="mt-1 text-sm text-text-secondary">
               Customers ranked by overdue exposure, urgency, changes from their normal payment pattern, payment recency, and the priority adjustment you choose. Score-based prompts indicate review urgency; you decide the appropriate contact or treatment.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link
               href={customersHref}
-              className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50"
+              className="inline-flex items-center justify-center rounded-md border border-border-strong bg-surface px-3 py-2 text-sm font-medium text-text-primary hover:bg-surface-subtle"
             >
               Customer summary
             </Link>
             <Link
               href={accountHref}
-              className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50"
+              className="inline-flex items-center justify-center rounded-md border border-border-strong bg-surface px-3 py-2 text-sm font-medium text-text-primary hover:bg-surface-subtle"
             >
               Account
             </Link>
@@ -1238,11 +1220,11 @@ export default function CollectionActionsClient({
       )}
 
       {freeUsageGuidance && !usageLimitReached && (
-        <p className="text-xs text-gray-600">
+        <p className="text-xs text-text-secondary">
           {freeUsageGuidance.message}{' '}
           <Link
             href="/pricing"
-            className="font-semibold text-gray-800 underline decoration-gray-300 underline-offset-4 hover:text-gray-950"
+            className="font-semibold text-text-primary underline decoration-gray-300 underline-offset-4 hover:text-text-primary"
           >
             {freeUsageGuidance.actionLabel}
           </Link>
@@ -1253,10 +1235,10 @@ export default function CollectionActionsClient({
         <Card>
           <div className="space-y-4">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">
+              <h2 className="text-lg font-semibold text-text-primary">
                 You&apos;ve used all {entitlement.freeUsageDaysLimit} free collection days.
               </h2>
-              <p className="mt-1 text-sm text-gray-600">
+              <p className="mt-1 text-sm text-text-secondary">
                 Upgrade to continue using daily prioritisation and action workflows.
               </p>
             </div>
@@ -1266,7 +1248,7 @@ export default function CollectionActionsClient({
               </Button>
               <Link
                 href={customersHref}
-                className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50"
+                className="inline-flex items-center justify-center rounded-md border border-border-strong bg-surface px-4 py-2 text-sm font-medium text-text-primary hover:bg-surface-subtle"
               >
                 Back to collections summary
               </Link>
@@ -1280,10 +1262,10 @@ export default function CollectionActionsClient({
       {showFiltersSection && !usageLimitReached && !multiCurrencyPlanRequired && (
         <Card>
           <div className="flex flex-wrap items-end gap-4">
-            <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-700">
+            <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-text-secondary">
               <input
                 type="checkbox"
-                className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                className="h-4 w-4 rounded border-border-strong text-text-primary focus:ring-focus"
                 checked={overdueOnly}
                 onChange={(event) => setOverdueOnly(event.target.checked)}
               />
@@ -1320,177 +1302,52 @@ export default function CollectionActionsClient({
       )}
 
       {showQueueSection && !usageLimitReached && !multiCurrencyPlanRequired && (
-        <Card>
-          <div className="space-y-4">
-            {!loading && queueRows.length > 0 ? (
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Next to chase</h3>
-                  <p className="text-sm text-gray-600">{`${queueRows.length} remaining in your queue`}</p>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Score-based prompts show review urgency, not a prescribed contact method.
-                  </p>
-                </div>
-                {showManualQueueRefresh && (
-                  <Button
-                    onClick={() => void loadRows(true)}
-                    variant="secondary"
-                    size="sm"
-                    disabled={refreshing}
-                  >
-                    {refreshing ? 'Refreshing…' : 'Refresh priorities'}
-                  </Button>
-                )}
-                <div className="flex items-center gap-2">
-                  {queueRows.length > 1 && (
-                    <p className="text-xs text-gray-500">
-                      Card {queuePosition} of {queueRows.length}
-                    </p>
-                  )}
-                  {!loading && currentQueueRow && (
-                    <>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => moveQueueCard('prev')}
-                        disabled={queueCardIndex === 0 || disableQueueActions}
-                      >
-                        Previous
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => moveQueueCard('next')}
-                        disabled={queueCardIndex >= queueRows.length - 1 || disableQueueActions}
-                      >
-                        Next
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </div>
-            ) : !loading && queueInfo?.status === 'currency_data_unavailable' ? (
-              currencyHealth ? (
-                <CurrencyHealthDiagnostic currencyHealth={currencyHealth} />
-              ) : null
-            ) : !loading && queueInfo?.status === 'currency_data_degraded' ? (
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  No provisional queue customers remaining
-                </h3>
-                <p className="text-sm text-gray-600">
-                  Review the affected customers above, then refresh Xero data to rebuild the full
-                  queue.
-                </p>
-              </div>
-            ) : !loading && error && dashboardRefresh ? (
-              <Button onClick={() => void loadRows(true)} variant="secondary" size="sm" disabled={refreshing}>
-                {refreshing ? 'Refreshing…' : 'Refresh priorities'}
-              </Button>
-            ) : !loading && queueInfo?.status === 'complete_today' ? (
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Queue complete</h3>
-                <p className="text-sm text-gray-600">
-                  All eligible customers are actioned or deferred for today.
-                </p>
-              </div>
-            ) : !loading && queueInfo?.status === 'no_mapped_data' ? (
-              <div className="space-y-3">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">
-                    Preparing your collection priorities
-                  </h3>
-                  <p className="mt-1 text-sm text-gray-600">
-                    Your Xero connection is ready. Yuohme is preparing the information needed to
-                    show who to chase first automatically.
-                  </p>
-                </div>
-                <Link
-                  href={startHref}
-                  className="inline-flex min-h-11 items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50"
-                >
-                  Resume preparation
-                </Link>
-              </div>
-            ) : !loading && queueInfo?.status === 'no_overdue_customers' ? (
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">No overdue amount to chase</h3>
-                <p className="text-sm text-gray-600">
-                  No mapped customers currently have an overdue amount to chase.
-                </p>
-              </div>
-            ) : !loading && queueInfo?.status === 'no_eligible_customers' ? (
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">No eligible customers</h3>
-                <p className="text-sm text-gray-600">
-                  No mapped customers currently meet the collection queue criteria.
-                </p>
-              </div>
-            ) : !loading && rows.some((row) => row.override_level === 'do_not_chase') ? (
-              <div className="space-y-2">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  No customers need chasing from this queue
-                </h3>
-                <p className="text-sm text-gray-600">
-                  Customers marked Never chase remain excluded until you change their customer
-                  context.
-                </p>
-                <Link
-                  href={founderContextHref}
-                  className="inline-flex min-h-11 items-center text-sm font-semibold text-gray-900 underline underline-offset-4"
-                >
-                  Manage customer context
-                </Link>
-              </div>
-            ) : !loading ? (
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  No collection actions available
-                </h3>
-                <p className="text-sm text-gray-600">
-                  No customers need action from the current chase queue.
-                </p>
-              </div>
-            ) : null}
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-semibold text-text-primary">Priorities</h1>
+              <p className="mt-1 text-sm text-text-secondary">{queueRows.length > 0
+                ? `Next to chase · ${queueRows.length} remaining in your queue`
+                : 'Work through your actionable collection queue.'}</p>
+            </div>
+            {showManualQueueRefresh && <Button onClick={() => void loadRows(true)} variant="ghost" className="min-h-11" disabled={refreshing}>
+              {refreshing ? 'Refreshing…' : 'Refresh priorities'}
+            </Button>}
+          </div>
 
-            {loading && <p className="text-sm text-gray-600">Loading next customer…</p>}
-
-            {!loading && !currentQueueRow && queueInfo?.status === 'complete_today' && (
-              <div className="space-y-3 rounded-md border border-green-200 bg-green-50 px-3 py-3 text-sm text-green-900">
-                <div className="space-y-2 rounded-md border border-green-300 bg-white px-3 py-3">
-                  <p className="text-base font-semibold text-green-900">
-                    You&apos;re done for today
-                  </p>
-                  <p className="text-sm text-green-800">
-                    When you return, Yuohme will show the current actionable queue. Follow-up dates,
-                    invoice promises and disputes remain governed by their own records.
-                  </p>
-                  <Link
-                    href={customersHref}
-                    className="inline-flex min-h-11 items-center text-sm font-semibold text-green-900 underline decoration-green-300 underline-offset-4 hover:text-green-950"
-                  >
-                    Browse customers
-                  </Link>
+          {loading ? <QueueState title="Loading next customer…" description="Preparing your collection priorities." loading />
+            : currentQueueRow ? (
+            <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_16rem]">
+              <Card className="min-w-0 space-y-5 shadow-none sm:p-6">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-default pb-3">
+                  <p className="hidden text-xs text-text-secondary sm:block">Ranked by Yuohme · choose the appropriate contact method</p>
+                  <div className="flex gap-2" aria-label="Queue navigation" role="group">
+                    <Button variant="secondary" size="sm" className="min-h-11" onClick={() => moveQueueCard('prev')}
+                      disabled={queueCardIndex === 0 || disableQueueActions}>Previous</Button>
+                    <Button variant="secondary" size="sm" className="min-h-11" onClick={() => moveQueueCard('next')}
+                      disabled={queueCardIndex >= queueRows.length - 1 || disableQueueActions}>Next</Button>
+                  </div>
                 </div>
-              </div>
-            )}
-
-            {!loading && currentQueueRow && (
-              <div
-                key={currentQueueRow.customer_source_id}
-                className="space-y-2"
-                onTouchStart={handleQueueCardTouchStart}
-                onTouchEnd={handleQueueCardTouchEnd}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-0.5">
-                    <p className="text-lg font-semibold text-gray-900">{currentQueueRow.customer_name}</p>
-                    <p className="text-xs text-gray-500">{currentQueueRow.customer_email || 'No email on file'}</p>
-                    {recentActivity && (
-                      <div className="pt-1 text-xs text-gray-500">
+                <div key={currentQueueRow.customer_source_id} onTouchStart={handleQueueCardTouchStart} onTouchEnd={handleQueueCardTouchEnd}>
+                  <QueueCustomer position={queuePosition} count={queueRows.length}
+                    name={currentQueueRow.customer_name} email={currentQueueRow.customer_email}
+                    amount={formatMoney(currentQueueRow.customer_to_chase_overdue_base, organisationBaseCurrency)}
+                    equivalent={showMultiCurrencyAmounts}
+                    grossOverdue={currentQueueRow.overdue_outstanding_base != null ? formatMoney(currentQueueRow.overdue_outstanding_base, organisationBaseCurrency) : undefined}
+                    totalOutstanding={currentQueueRow.total_outstanding_base != null ? formatMoney(currentQueueRow.total_outstanding_base, organisationBaseCurrency) : undefined}
+                    disputed={currentQueueRow.effective_disputed_overdue_base_decimal != null && Number(currentQueueRow.effective_disputed_overdue_base_decimal) > 0 ? formatMoney(Number(currentQueueRow.effective_disputed_overdue_base_decimal), organisationBaseCurrency) : undefined}
+                    promised={currentQueueRow.active_promised_overdue_base_decimal != null && Number(currentQueueRow.active_promised_overdue_base_decimal) > 0 ? formatMoney(Number(currentQueueRow.active_promised_overdue_base_decimal), organisationBaseCurrency) : undefined}
+                    credit={currentQueueRow.customer_credit_applied_base > 0 ? formatMoney(currentQueueRow.customer_credit_applied_base, organisationBaseCurrency) : undefined}
+                    nativeAmounts={showMultiCurrencyAmounts && currentQueueRow.customer_credit_applied_base === 0 ? formatInvoicedBreakdown(currentQueueRow.collectible_native_currency_breakdown, 'collectible_overdue_native') || undefined : undefined}
+                    weightedDays={formatWeightedDays(currentQueueRow.weighted_avg_overdue_days)} lastPayment={formatDate(currentQueueRow.last_payment_date)}
+                    recommendation={currentQueueRow.recommended_action} reason={currentQueueRow.reason}
+                    breakdown={currentQueueRow.score_breakdown_lines} score={currentQueueRow.priority_score.toFixed(1)}
+                    adjustment={currentQueueRow.override_level} invoicesHref={customerInvoicesHref(currentQueueRow.customer_source_id)}
+                    historyHref={resolvedTenantId ? customerHistoryUrl(currentQueueRow.customer_source_id, resolvedTenantId) : undefined}
+                    recentActivity={recentActivity ? <div className="pt-1 text-xs text-text-muted">
                         <p>
                           Last activity:{' '}
-                          <span className="font-medium text-gray-700">
+                          <span className="font-medium text-text-secondary">
                             {recentActivity.format === 'v1'
                               ? getOutcomeLabel(recentActivity.outcome as ActionHistoryOutcome)
                               : recentActivity.actionType
@@ -1514,182 +1371,8 @@ export default function CollectionActionsClient({
                             Note: {recentActivity.note}
                           </p>
                         )}
-                      </div>
-                    )}
-                    {resolvedTenantId && <Link
-                      href={customerHistoryUrl(currentQueueRow.customer_source_id, resolvedTenantId)}
-                      className="mt-1 inline-flex min-h-11 items-center text-xs font-medium text-gray-700 underline underline-offset-2">
-                      View full history
-                    </Link>}
-                  </div>
-                  <div className="text-right">
-                    <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-500">
-                      Score-based prompt
-                    </p>
-                    <span
-                      className={`inline-flex rounded-full px-3 py-1.5 text-sm font-semibold ${getRecommendedActionClasses(currentQueueRow.recommended_action)}`}
-                    >
-                      {currentQueueRow.recommended_action}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex w-full items-center text-sm text-gray-600">
-                  <div className="flex-1">
-                    <p>
-                      <span className="font-medium text-gray-900">
-                        {formatMoney(
-                          currentQueueRow.customer_to_chase_overdue_base,
-                          organisationBaseCurrency
-                        )}
-                      </span>{' '}
-                      {showMultiCurrencyAmounts ? 'equivalent to chase' : 'to chase'}
-                    </p>
-                    {currentQueueRow.customer_credit_applied_base > 0 && (
-                      <p className="mt-0.5 text-xs text-gray-500">
-                        {formatMoney(currentQueueRow.customer_credit_applied_base, organisationBaseCurrency)} Xero credit deducted
-                      </p>
-                    )}
-                    {currentQueueRow.overdue_outstanding_base !== null &&
-                      currentQueueRow.effective_disputed_overdue_base_decimal !== null &&
-                      Number(currentQueueRow.effective_disputed_overdue_base_decimal) > 0 && (
-                        <p className="mt-0.5 text-xs text-gray-500">
-                          {formatMoney(currentQueueRow.overdue_outstanding_base, organisationBaseCurrency)} gross overdue
-                        </p>
-                      )}
-                    {currentQueueRow.active_promised_overdue_base_decimal != null && Number(currentQueueRow.active_promised_overdue_base_decimal) > 0 && <p className="mt-0.5 text-xs text-gray-500">
-                      {formatMoney(Number(currentQueueRow.active_promised_overdue_base_decimal), organisationBaseCurrency)} currently promised
-                    </p>}
-                    <Link href={customerInvoicesHref(currentQueueRow.customer_source_id)}
-                      className="mt-1 inline-block text-xs font-medium text-gray-700 underline underline-offset-2">
-                      Manage invoices
-                    </Link>
-                    {showMultiCurrencyAmounts && currentQueueRow.customer_credit_applied_base === 0 &&
-                      formatInvoicedBreakdown(
-                        currentQueueRow.collectible_native_currency_breakdown,
-                        'collectible_overdue_native'
-                      ) && (
-                        <p className="mt-0.5 text-xs text-gray-500">
-                          {formatInvoicedBreakdown(
-                            currentQueueRow.collectible_native_currency_breakdown,
-                            'collectible_overdue_native'
-                          )}{' '}
-                          to chase in invoice currency
-                        </p>
-                      )}
-                  </div>
-                  <p className="flex-1 text-center">
-                    <span className="font-medium text-gray-900">
-                      {formatWeightedDays(currentQueueRow.weighted_avg_overdue_days)}
-                    </span>{' '}
-                    days late
-                  </p>
-                  <p className="flex-1 text-right">
-                    Last payment{' '}
-                    <span className="font-medium text-gray-900">{formatDate(currentQueueRow.last_payment_date)}</span>
-                  </p>
-                </div>
-
-                {showFirstActionGuidance && (
-                  <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-3 text-sm text-sky-950">
-                    <p className="font-semibold">Work the priority, then record what happened.</p>
-                    <p className="mt-1 text-sky-900">
-                      Recording an outcome sets the next follow-up date and updates the active queue.
-                      Invoice promises and disputes are managed with their invoices.
-                    </p>
-                  </div>
-                )}
-
-                <div className="space-y-3 border-t border-gray-200 pt-4">
-                  <p className="text-sm font-semibold text-gray-900">What happened?</p>
-                  <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label="Record outcome">
-                    {OUTCOME_OPTIONS.map((option) => (
-                      <Button
-                        key={option.value}
-                        variant="primary"
-                        size="md"
-                        className="min-h-11 w-full justify-center text-center"
-                        onClick={() => void handleRecordOutcome(option.value)}
-                        disabled={disableQueueActions || uncertainAttempt ||
-                          (followUpChoice === 'custom' && !customDateValue)}
-                      >
-                        {submittingAction ? 'Saving…' : option.label}
-                      </Button>
-                    ))}
-                  </div>
-
-                  <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-                    <button type="button"
-                      className="inline-flex min-h-11 w-full items-center justify-between gap-2 text-left text-sm text-gray-800 underline-offset-2 hover:underline disabled:opacity-60"
-                      onClick={() => setShowFollowUpChoices((previous) => !previous)}
-                      disabled={disableQueueActions || uncertainAttempt}
-                      aria-expanded={showFollowUpChoices}
-                    >
-                      <span>Do not follow up until: <strong>{followUpChoice === 'tomorrow' ? 'Tomorrow' :
-                        followUpChoice === 'two_days' ? 'In 2 days' :
-                        followUpChoice === 'three_days' ? 'In 3 days' :
-                        followUpChoice === 'next_week' ? 'Next week' :
-                        customDateValue ? formatDate(customDateValue) : 'Choose date'}</strong></span>
-                      <span className="text-xs font-medium">{showFollowUpChoices ? 'Close' : 'Change'}</span>
-                    </button>
-                    {showFollowUpChoices && (
-                      <div className="flex flex-wrap gap-2 border-t border-gray-200 pt-2" role="group" aria-label="Follow-up timing">
-                        {([
-                          ['tomorrow', 'Tomorrow'], ['two_days', 'In 2 days'],
-                          ['three_days', 'In 3 days'], ['next_week', 'Next week'],
-                          ['custom', 'Choose date'],
-                        ] as const).map(([choice, label]) => (
-                          <button key={choice} type="button" aria-pressed={followUpChoice === choice}
-                            onClick={() => setFollowUpChoice(choice)}
-                            disabled={disableQueueActions || uncertainAttempt || !followUpSchedule}
-                            className={`min-h-11 rounded-md border px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 disabled:opacity-60 ${
-                              followUpChoice === choice ? 'border-gray-900 bg-gray-900 text-white' :
-                                'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
-                            }`}
-                          >{label}</button>
-                        ))}
-                        {followUpChoice === 'custom' && (
-                          <label className="flex min-h-11 items-center gap-2 text-sm text-gray-700">
-                            Date
-                            <input type="date" min={followUpSchedule?.tomorrow}
-                              value={customDateValue}
-                              onChange={(event) => setCustomDateValue(event.target.value)}
-                              disabled={disableQueueActions || uncertainAttempt}
-                              className="min-h-11 rounded-md border border-gray-300 bg-white px-2 text-sm text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900"
-                            />
-                          </label>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {!showNote ? (
-                    <button type="button" className="min-h-11 text-sm font-medium text-gray-700 underline underline-offset-2"
-                      onClick={() => setShowNote(true)} disabled={disableQueueActions || uncertainAttempt}>
-                      Add note
-                    </button>
-                  ) : (
-                    <label className="block space-y-1 text-sm font-medium text-gray-700">
-                      Note (optional)
-                      <textarea value={actionNote} onChange={(event) => setActionNote(event.target.value)}
-                        maxLength={2000} rows={3} disabled={disableQueueActions || uncertainAttempt}
-                        className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-normal text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900"
-                        placeholder="What should you remember next time?" />
-                      <span className="block text-xs font-normal text-gray-500">{actionNote.length}/2,000 characters</span>
-                    </label>
-                  )}
-                  {uncertainAttempt && (
-                    <Button variant="secondary" size="md" onClick={() => void handleRecordOutcome(null, true)}
-                      disabled={disableQueueActions}>Retry save</Button>
-                  )}
-                </div>
-
-                <details className="rounded-md border border-gray-200 bg-white px-3 py-2">
-                  <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900">
-                    Customer context
-                  </summary>
-                  <div className="pt-2">
-                    <FounderContextControl
+                      </div> : undefined}
+                    contextControl={<FounderContextControl
                       customerName={currentQueueRow.customer_name}
                       value={currentQueueRow.override_level}
                       saving={Boolean(
@@ -1705,28 +1388,60 @@ export default function CollectionActionsClient({
                           persistentExclusionConfirmed
                         )
                       }
-                    />
-                  </div>
-                </details>
-              </div>
-            )}
+                    />}>
+                    <QueueActionPanel disabled={disableQueueActions} saving={submittingAction} uncertain={uncertainAttempt}
+                      firstActionGuidance={showFirstActionGuidance} followUp={followUpChoice}
+                      followUpLabel={followUpChoice === 'tomorrow' ? 'Tomorrow' : followUpChoice === 'two_days' ? 'In 2 days' :
+                        followUpChoice === 'three_days' ? 'In 3 days' : followUpChoice === 'next_week' ? 'Next week' : customDateValue ? formatDate(customDateValue) : 'Choose date'}
+                      showFollowUp={showFollowUpChoices} datesAvailable={Boolean(followUpSchedule)} minimumDate={followUpSchedule?.tomorrow}
+                      customDate={customDateValue} showNote={showNote} note={actionNote}
+                      onRecord={outcome => void handleRecordOutcome(outcome)} onRetry={() => void handleRecordOutcome(null, true)}
+                      onToggleFollowUp={() => setShowFollowUpChoices(previous => !previous)} onFollowUp={setFollowUpChoice}
+                      onCustomDate={setCustomDateValue} onShowNote={() => setShowNote(true)} onNote={setActionNote} />
+                  </QueueCustomer>
+                </div>
+              </Card>
+              <QueueOrder rows={queueRows.map(row => ({id: row.customer_source_id, name: row.customer_name,
+                amount: `${formatMoney(row.customer_to_chase_overdue_base, organisationBaseCurrency)} ${showMultiCurrencyAmounts ? 'equivalent to chase' : 'to chase'}`}))}
+                index={queueCardIndex} disabled={disableQueueActions} onSelect={setQueueCardIndex} />
+            </div>
+          ) : queueInfo?.status === 'currency_data_unavailable' ? (
+            currencyHealth ? <Card className="shadow-none"><CurrencyHealthDiagnostic currencyHealth={currencyHealth} /></Card> : null
+          ) : queueInfo?.status === 'currency_data_degraded' ? (
+            <QueueState title="No provisional queue customers remaining" description="Review the affected customers above, then refresh Xero data to rebuild the full queue." />
+          ) : error ? (
+            <QueueState title="Priorities unavailable" description="Try refreshing the current queue again.">
+              <Button onClick={() => void loadRows(true)} variant="secondary" className="min-h-11" disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh priorities'}</Button>
+            </QueueState>
+          ) : queueInfo?.status === 'complete_today' ? (
+            <QueueState title="Queue complete" description="All eligible customers are actioned or deferred for today.">
+              <p className="text-sm text-text-secondary">When you return, Yuohme will show the current actionable queue. Follow-up dates, invoice promises and disputes remain governed by their own records.</p>
+              <Link href={customersHref} className="mt-3 inline-flex min-h-11 items-center font-semibold text-link underline underline-offset-4">Browse customers</Link>
+            </QueueState>
+          ) : queueInfo?.status === 'no_mapped_data' ? (
+            <QueueState title="Preparing your collection priorities" description="Your Xero connection is ready. Yuohme is preparing the information needed to show who to chase first automatically.">
+              <Link href={startHref} className="inline-flex min-h-11 items-center font-semibold text-link underline underline-offset-4">Resume preparation</Link>
+            </QueueState>
+          ) : queueInfo?.status === 'no_overdue_customers' ? (
+            <QueueState title="No overdue amount to chase" description="No mapped customers currently have an overdue amount to chase." />
+          ) : queueInfo?.status === 'no_eligible_customers' ? (
+            <QueueState title="No eligible customers" description="No mapped customers currently meet the collection queue criteria." />
+          ) : rows.some(row => row.override_level === 'do_not_chase') ? (
+            <QueueState title="No customers need chasing from this queue" description="Customers marked Never chase remain excluded until you change their customer context.">
+              <Link href={founderContextHref} className="inline-flex min-h-11 items-center font-semibold text-link underline underline-offset-4">Manage customer context</Link>
+            </QueueState>
+          ) : <QueueState title="No collection actions available" description="No customers need action from the current chase queue." />}
 
-            {queueFeedback && (
-              <div className="flex flex-wrap items-center gap-2 text-sm text-green-700" role="status" aria-live="polite">
-                <span>{queueFeedback}</span>
-                {lastAction && (
-                  <Button variant="ghost" size="sm" onClick={() => void handleUndoLastAction()}
-                    disabled={disableQueueActions}>
-                    {undoingAction ? 'Undoing…' : 'Undo'}
-                  </Button>
-                )}
-              </div>
-            )}
-          </div>
-        </Card>
+          {queueFeedback && <Alert variant="info" className="flex flex-wrap items-center gap-2" aria-live="polite">
+            <span>{queueFeedback}</span>
+            {lastAction && <Button variant="ghost" size="sm" className="min-h-11" onClick={() => void handleUndoLastAction()} disabled={disableQueueActions}>
+              {undoingAction ? 'Undoing…' : 'Undo'}
+            </Button>}
+          </Alert>}
+        </div>
       )}
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <Alert variant="error">{error}</Alert>}
 
       {showTable &&
         !usageLimitReached &&
@@ -1734,9 +1449,9 @@ export default function CollectionActionsClient({
         !error &&
         !loading &&
         rows.length > 0 && (
-        <div className="overflow-x-auto rounded-md border border-gray-200 bg-white">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50 text-left text-gray-700">
+        <div className="overflow-x-auto rounded-md border border-border-default bg-surface">
+          <table className="min-w-full divide-y divide-border-default text-sm">
+            <thead className="bg-surface-subtle text-left text-text-secondary">
               <tr>
                 <th className="px-4 py-3 font-medium">Customer name</th>
                 <th className="px-4 py-3 font-medium">Overdue to chase</th>
@@ -1749,15 +1464,15 @@ export default function CollectionActionsClient({
                 <th className="px-4 py-3 font-medium">Reasoning</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100 text-gray-800">
+            <tbody className="divide-y divide-border-default text-text-primary">
               {rows.map((row) => (
                 <Fragment key={row.customer_source_id}>
                   <tr>
                     <td className="px-4 py-3">
-                      <p className="font-medium text-gray-900">{row.customer_name}</p>
-                      <p className="text-xs text-gray-600">{row.customer_email || '—'}</p>
+                      <p className="font-medium text-text-primary">{row.customer_name}</p>
+                      <p className="text-xs text-text-secondary">{row.customer_email || '—'}</p>
                       <Link href={customerInvoicesHref(row.customer_source_id)}
-                        className="mt-1 inline-block text-xs font-medium text-gray-700 underline underline-offset-2">
+                        className="mt-1 inline-block text-xs font-medium text-text-secondary underline underline-offset-2">
                         Manage invoices
                       </Link>
                     </td>
@@ -1767,7 +1482,7 @@ export default function CollectionActionsClient({
                         {showMultiCurrencyAmounts ? ' equivalent' : ''}
                       </p>
                       {row.customer_credit_applied_base > 0 && (
-                        <p className="mt-0.5 text-xs text-gray-500">
+                        <p className="mt-0.5 text-xs text-text-muted">
                           {formatMoney(row.customer_credit_applied_base, organisationBaseCurrency)} Xero credit deducted
                         </p>
                       )}
@@ -1776,7 +1491,7 @@ export default function CollectionActionsClient({
                           row.collectible_native_currency_breakdown,
                           'collectible_overdue_native'
                         ) && (
-                          <p className="mt-0.5 text-xs text-gray-500">
+                          <p className="mt-0.5 text-xs text-text-muted">
                             {formatInvoicedBreakdown(
                               row.collectible_native_currency_breakdown,
                               'collectible_overdue_native'
@@ -1791,7 +1506,7 @@ export default function CollectionActionsClient({
                     <td className="px-4 py-3">{row.priority_score.toFixed(1)}</td>
                     <td className="px-4 py-3">
                       <span
-                        className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${getRecommendedActionClasses(row.recommended_action)}`}
+                        className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${getRecommendedActionClasses()}`}
                       >
                         {row.recommended_action}
                       </span>
@@ -1800,7 +1515,7 @@ export default function CollectionActionsClient({
                       <select
                         id={`table-override-${row.customer_source_id}`}
                         aria-label={`Customer context for ${row.customer_name}`}
-                        className="min-h-11 rounded-md border border-gray-300 bg-white px-2 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="min-h-11 rounded-md border border-border-strong bg-surface px-2 py-2 text-sm text-text-primary focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus disabled:cursor-not-allowed disabled:opacity-60"
                         value={row.override_level}
                         onChange={(event) =>
                           void handleOverrideChange(
@@ -1821,7 +1536,7 @@ export default function CollectionActionsClient({
                     <td className="px-4 py-3">
                       <button
                         type="button"
-                        className="text-sm font-medium text-gray-700 underline-offset-2 hover:underline"
+                        className="text-sm font-medium text-text-secondary underline-offset-2 hover:underline"
                         onClick={() => {
                           setExpandedReasonId((prev) =>
                             prev === row.customer_source_id ? null : row.customer_source_id
@@ -1834,14 +1549,14 @@ export default function CollectionActionsClient({
                   </tr>
                   {expandedReasonId === row.customer_source_id && (
                     <tr>
-                      <td className="bg-gray-50 px-4 py-3 text-sm text-gray-700" colSpan={9}>
+                      <td className="bg-surface-subtle px-4 py-3 text-sm text-text-secondary" colSpan={9}>
                         <div className="space-y-2">
                           <p>{row.reason}</p>
                           <div>
-                            <p className="text-xs font-semibold text-gray-500">
+                            <p className="text-xs font-semibold text-text-muted">
                               Score breakdown
                             </p>
-                            <ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-gray-700">
+                            <ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-text-secondary">
                               {(row.score_breakdown_lines ?? []).map((line) => (
                                 <li key={line}>{line}</li>
                               ))}

@@ -180,6 +180,44 @@ test('four one-tap outcomes use the V1 API, advance focus, and free browsing mak
   }
 })
 
+test('queue-order selection keeps server ranking, resets the customer draft and makes no extra read', async () => {
+  const app = setup({ withProjection: true, rows: [
+    { ...row('alpha'), priority_score: 80, customer_to_chase_overdue_base: 137.12 },
+    { ...row('beta'), priority_score: 60, customer_to_chase_overdue_base: 10.01 },
+    { ...row('gamma'), priority_score: 40, customer_to_chase_overdue_base: 999999 },
+  ] })
+  try {
+    await app.render()
+    const order = app.container.querySelector('aside[aria-label="Queue order"]')
+    assert.match(order.querySelector('li').textContent, /alpha Ltd/)
+    await act(async () => app.container.querySelector('button[aria-expanded]')
+      .dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    await app.click('In 3 days')
+    await app.click('Add note')
+    const textarea = app.container.querySelector('textarea')
+    await act(async () => {
+      const propsKey = Object.keys(textarea).find(key => key.startsWith('__reactProps$'))
+      textarea[propsKey].onChange({ target: { value: 'Alpha-only draft' } })
+    })
+    const beta = [...order.querySelectorAll('button')].find(button => button.textContent.includes('beta Ltd'))
+    await act(async () => beta.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    const customer = app.container.querySelector('article')
+    assert.equal(customer.querySelector('h2').textContent, 'beta Ltd')
+    assert.match(customer.textContent, /Priority 2 of 3/)
+    assert.match(customer.textContent, /£10\.01/)
+    assert.match(customer.textContent, /Do not follow up until: Tomorrow/)
+    assert.equal(customer.querySelector('textarea'), null)
+    assert.equal(app.getCount(), 1)
+    assert.equal(app.postCount(), 0)
+    await app.click('Message sent')
+    const created = app.requests.find(request => request.method === 'POST')
+    assert.equal(created.body.customer_source_id, 'beta')
+    assert.equal(created.body.next_action_date, undefined)
+    assert.equal(created.body.note, undefined)
+    assert.equal(app.getCount(), 1)
+  } finally { await app.cleanup() }
+})
+
 test('server-provided custom timing, optional note, and authoritative Undo', async () => {
   const app = setup()
   try {
@@ -260,8 +298,7 @@ test('Undo does not reinsert a customer with a preceding unexpired action', asyn
       next_action_date: '2026-10-07' })
     await app.click('Undo')
     assert.match(app.container.textContent, /beta Ltd/)
-    assert.equal([...app.container.querySelectorAll('p')]
-      .find((item) => item.className.includes('text-lg font-semibold'))?.textContent, 'beta Ltd')
+    assert.equal(app.container.querySelector('article h2')?.textContent, 'beta Ltd')
     assert.match(app.container.textContent, /not in the current priority view/)
   } finally { await app.cleanup() }
 })

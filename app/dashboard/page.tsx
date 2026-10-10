@@ -2,10 +2,11 @@
 
 import { Suspense } from 'react'
 import DashboardOnboardingClient from '@/app/dashboard/DashboardOnboardingClient'
+import QueueState from '@/app/collections/actions/QueueState'
 
 export default function DashboardPage() {
   return (
-    <Suspense fallback={<div className="text-sm text-gray-600">Loading dashboard…</div>}>
+    <Suspense fallback={<QueueState title="Loading priorities…" loading />}>
       <DashboardOnboardingClient />
     </Suspense>
   )

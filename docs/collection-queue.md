@@ -128,3 +128,8 @@ certification, and establish failure-safe fixtures before enabling the five pend
 journeys. Hosted review requires separate approval to push/deploy and verification
 of the develop Preview's exact SHA. The previously recorded alias-automation issue
 remains a separate follow-up. No Phase 5C work has begun.
+
+Subsequent work: [Phase 5D — Priority Invoice Intelligence](priority-invoice-intelligence.md)
+adds selected-customer read-only invoice context and durable-ID return navigation.
+The Phase 5B certification above remains its historical checkpoint; new work uses
+[the consolidated programme sequence](ui-programme.md).

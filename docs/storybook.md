@@ -50,8 +50,8 @@ spacing; they do not certify invoice actions or financial mutations.
 Phase 5C brings the catalogue to 70 stories. Customer stories reuse pure production
 presentation and fictional callbacks; live customer, Promise and history clients
 are excluded. Real-client regression tests use mocked transport separately.
-See [the customer workspace record](customer-workspace.md), including Phase 5B.2
-and Phase 5D handoffs and hosted certification limitations.
+See [the customer workspace record](customer-workspace.md), including Phase 5D invoice intelligence
+and Phase 5F disputes handoffs and hosted certification limitations.
 
 Change props in Controls and use real pointer/keyboard interaction to inspect
 hover, focus and native input states. The loading example composes `Spinner` and
@@ -150,3 +150,9 @@ The isolated browser session was closed. No component/brand changes, dependency
 installation, broad tests, application builds, commits or pushes were performed
 during this visual certification. The earlier application-build/type-generation
 limitations above are separate from this completed component certification.
+
+Phase 5D adds eight pure CollectionQueue invoice-context states (78 stories in
+total): normal, many, loading, error, no overdue, coverage, unavailable and long
+multicurrency values. Existing API/return-navigation behaviour is exercised by
+mocked real-client tests; stories import no service clients. See
+[Priority Invoice Intelligence](priority-invoice-intelligence.md).

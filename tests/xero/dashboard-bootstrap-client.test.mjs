@@ -21,6 +21,7 @@ const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {
 async function render(handler){
  const requests=[],router={replace:path=>requests.push({redirect:path}),push(){}}
  const {default:Component}=loadTypeScriptModule('app/dashboard/DashboardOnboardingClient.tsx',{mocks:{
+  './usePriorityInvoices': () => ({ state: { status: 'ready', invoices: [] }, retry() {} }),
   'next/navigation':{useRouter:()=>router,useSearchParams:()=>new URLSearchParams()},
   'next/link':{__esModule:true,default:({children,...props})=>React.createElement('a',props,children)},
   '@/lib/supabase':{supabase:{auth:{onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}})}}},

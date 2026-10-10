@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import { fn } from 'storybook/test'
+import QueueInvoices from '@/app/collections/actions/QueueInvoices'
+import { priorityInvoicesHref } from '@/app/collections/actions/queue-navigation-context'
+import type { InvoiceDisputeView } from '@/lib/collections/invoice-dispute-view'
+import { invoiceFixture, invoiceFixtures } from './customerFixture'
 import ProductShell from '@/app/components/shell/ProductShell'
 import QueueCustomer, { type QueueCustomerProps } from '@/app/collections/actions/QueueCustomer'
 import QueueActionPanel, { type FollowUpChoice } from '@/app/collections/actions/QueueActionPanel'
@@ -34,10 +38,12 @@ interface PreviewProps {
   withAccounting?: boolean
   initialIndex?: number
   accountingStatus?: ProductAccountingStatus
+  invoices?: InvoiceDisputeView[]
+  invoiceStatus?: 'ready' | 'loading' | 'error'
   firstActionGuidance?: boolean
 }
 
-function QueuePreview({ state = 'populated', name, amount, financialDetail, saving = false, uncertain = false, withAccounting = false, initialIndex = 0, accountingStatus = accountingFixture, firstActionGuidance = false }: PreviewProps) {
+function QueuePreview({ state = 'populated', name, amount, financialDetail, saving = false, uncertain = false, withAccounting = false, initialIndex = 0, accountingStatus = accountingFixture, firstActionGuidance = false, invoices, invoiceStatus = 'ready' }: PreviewProps) {
   const [index, setIndex] = useState(initialIndex)
   const focusedPriority = useRef<HTMLElement>(null)
   const returning = useRef(false)
@@ -53,6 +59,7 @@ function QueuePreview({ state = 'populated', name, amount, financialDetail, savi
     name: name ?? selected.name, amount: amount ?? selected.amount, email: 'collections@example.invalid',
     position: index + 1, count: customers.length, weightedDays: '28.6', lastPayment: '27 Sep 2026',
     recommendation: index === 0 ? 'Review now' : 'Follow up', adjustment: financialDetail ? 'priority' : 'normal',
+    invoiceContext: invoices && <QueueInvoices key={selected.id} state={{ status: invoiceStatus, invoices, error: 'Invoice context could not load. Your collection actions are still available.' }} evaluationDate="2026-10-10" href={priorityInvoicesHref('synthetic', selected.id)} onRetry={() => setEvent('Preview invoice retry callback')} />,
     invoicesHref: `/customers?customerSourceId=${selected.id}`, historyHref: `/customers/${selected.id}/history`,
     // The normal story matches the compact API: no invented full explanation.
     grossOverdue: '£9,792.50', ...(financialDetail ? {
@@ -127,3 +134,20 @@ export const NoEligible: Story = { args: { state: 'no-eligible' } }
 export const Error: Story = { args: { state: 'error' } }
 export const Saving: Story = { args: { saving: true } }
 export const UncertainSave: Story = { args: { uncertain: true } }
+
+// Phase 5D: pure presentation; transport/return continuity is tested with the real client separately.
+export const PriorityInvoices: Story = { args: { invoices: invoiceFixtures, withAccounting: true } }
+export const ManyInvoices: Story = { args: { invoices: [invoiceFixture, ...Array.from({ length: 5 }, (_, index) => ({ ...invoiceFixture,
+  invoiceSourceId: `synthetic-extra-${index}`, invoiceNumber: `INV-${2000 + index}`, dueDate: `2026-09-0${index + 1}`, isActive: false, activePromise: null }))] } }
+export const InvoiceLoading: Story = { args: { invoices: [], invoiceStatus: 'loading' } }
+export const InvoiceError: Story = { args: { invoices: [], invoiceStatus: 'error' } }
+export const NoOverdueInvoices: Story = { args: { invoices: [invoiceFixtures[3]] } }
+export const InvoiceCoverage: Story = { args: { invoices: [invoiceFixture,
+  { ...invoiceFixture, invoiceSourceId: 'synthetic-full-dispute', invoiceNumber: 'INV-1100', disputeMode: 'full', effectiveDisputedAmountNative: '5000', activePromise: null },
+  { ...invoiceFixture, invoiceSourceId: 'synthetic-full-promise', invoiceNumber: 'INV-1101', isActive: false, activePromisedCoverageAmountNative: '5000' }] } }
+export const InvoiceUnavailable: Story = { args: { invoices: [
+  { ...invoiceFixture, invoiceSourceId: 'synthetic-unavailable', invoiceState: 'unavailable', currentAmountDueNative: null },
+  { ...invoiceFixture, currencyCode: null, needsReview: true }] } }
+export const InvoiceLongValues: Story = { args: { invoices: [{ ...invoiceFixture,
+  invoiceNumber: 'INVOICE-NORTHBRIDGE-INTERNATIONAL-NORTHERN-REGION-2026-000001', currencyCode: 'USD', currentAmountDueNative: '9999999999999999.99' },
+  { ...invoiceFixture, invoiceSourceId: 'synthetic-eur', invoiceNumber: 'EUR-001', currencyCode: 'EUR' }] } }

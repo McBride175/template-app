@@ -30,6 +30,8 @@ function setup(options = {}) {
     HTMLElement: dom.window.HTMLElement,
     MouseEvent: dom.window.MouseEvent, Event: dom.window.Event,
     IS_REACT_ACT_ENVIRONMENT: true })
+  dom.window.HTMLElement.prototype.attachEvent = function () {}
+  dom.window.HTMLElement.prototype.detachEvent = function () {}
   const stored = [...(options.initialActions ?? [])]
   const requests = []
   let getCount = 0
@@ -117,6 +119,7 @@ function setup(options = {}) {
   const Link = ({ children, href, ...props }) => React.createElement('a', { href, ...props }, children)
   const { default: Component } = loadTypeScriptModule('app/collections/actions/CollectionActionsClient.tsx', {
     mocks: {
+      './usePriorityInvoices': () => ({ state: { status: 'ready', invoices: [] }, retry() {} }),
       react: React, 'react/jsx-runtime': awaitableJsxRuntime,
       'next/navigation': { useRouter: () => router }, 'next/link': Link,
       '@/app/components/ui/Card': Card, '@/app/components/ui/Button': Button,
@@ -161,7 +164,7 @@ test('four one-tap outcomes use the V1 API, advance focus, and free browsing mak
       const options = [...app.container.querySelectorAll('[aria-label="Record outcome"] button')]
         .map((item) => item.textContent.trim())
       assert.deepEqual(options, ['No response', 'Message sent', 'Responded — no commitment', 'Reviewed — no chase needed'])
-      assert.equal(app.container.querySelector('a[href="/customers/alpha/history?tenantId=tenant"]')?.textContent.trim(), 'View full history')
+      assert.equal(app.container.querySelector('a[href="/customers/alpha/history?tenantId=tenant&queueCustomerSourceId=alpha"]')?.textContent.trim(), 'View full history')
       assert.doesNotMatch(app.container.textContent, /Call \+ outcome|Postpone \+ date|Postpone 1 day/)
       await app.click('Next')
       assert.match(app.container.textContent, /beta Ltd/)
@@ -190,7 +193,7 @@ test('queue-order selection keeps server ranking, resets the customer draft and 
     await app.render()
     const order = app.container.querySelector('aside[aria-label="Queue order"]')
     assert.match(order.querySelector('li').textContent, /alpha Ltd/)
-    await act(async () => app.container.querySelector('button[aria-expanded]')
+    await act(async () => [...app.container.querySelectorAll('button[aria-expanded]')].find(b => b.textContent.includes('Do not follow up'))
       .dispatchEvent(new MouseEvent('click', { bubbles: true })))
     await app.click('In 3 days')
     await app.click('Add note')
@@ -224,7 +227,7 @@ test('Back to #1 preserves chosen timing, clears only the customer note and make
     await app.render()
     assert.equal(app.button('Back to #1'), undefined)
     await app.click('Next')
-    await act(async () => app.container.querySelector('button[aria-expanded]')
+    await act(async () => [...app.container.querySelectorAll('button[aria-expanded]')].find(b => b.textContent.includes('Do not follow up'))
       .dispatchEvent(new MouseEvent('click', { bubbles: true })))
     await app.click('Choose date')
     const date = app.container.querySelector('input[type="date"]')
@@ -271,7 +274,7 @@ test('server-provided custom timing, optional note, and authoritative Undo', asy
   const app = setup()
   try {
     await app.render()
-    await act(async () => { app.container.querySelector('button[aria-expanded]')
+    await act(async () => { [...app.container.querySelectorAll('button[aria-expanded]')].find(b => b.textContent.includes('Do not follow up'))
       .dispatchEvent(new MouseEvent('click', { bubbles: true })) })
     await app.click('In 2 days')
     await app.click('Add note')
@@ -356,7 +359,7 @@ test('Choose date sends a server-validated date and never uses a browser offset'
   const app = setup()
   try {
     await app.render()
-    await act(async () => { app.container.querySelector('button[aria-expanded]')
+    await act(async () => { [...app.container.querySelectorAll('button[aria-expanded]')].find(b => b.textContent.includes('Do not follow up'))
       .dispatchEvent(new MouseEvent('click', { bubbles: true })) })
     await app.click('Choose date')
     const input = app.container.querySelector('input[type="date"]')

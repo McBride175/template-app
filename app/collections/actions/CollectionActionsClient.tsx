@@ -20,6 +20,9 @@ import Button from '@/app/components/ui/Button'
 import Alert from '@/app/components/ui/Alert'
 import QueueCustomer from './QueueCustomer'
 import QueueOrder from './QueueOrder'
+import QueueInvoices from './QueueInvoices'
+import usePriorityInvoices from './usePriorityInvoices'
+import { priorityInvoicesHref, queueCustomerId, withQueueOrigin } from './queue-navigation-context'
 import QueueState from './QueueState'
 import QueueNavigation, { revealPriority } from './QueueNavigation'
 import QueueActionPanel, { OUTCOME_OPTIONS, type FollowUpChoice } from './QueueActionPanel'
@@ -506,6 +509,11 @@ export default function CollectionActionsClient({
   >({})
   const overrideRequestsInFlight = useRef(new Set<string>())
   const [queueCardIndex, setQueueCardIndex] = useState(0)
+  const [queueReturnTenant, setQueueReturnTenant] = useState<string | null>(null)
+  const [queueReturnId, setQueueReturnId] = useState<string | null>(null)
+  const [navigationReady, setNavigationReady] = useState(false)
+  const [invoiceVersion, setInvoiceVersion] = useState('')
+  const [evaluationDate, setEvaluationDate] = useState<string | null>(null)
   const [queueFeedback, setQueueFeedback] = useState<string | null>(null)
   const [touchStartX, setTouchStartX] = useState<number | null>(null)
   const [followUpChoice, setFollowUpChoice] = useState<FollowUpChoice>('tomorrow')
@@ -582,6 +590,8 @@ export default function CollectionActionsClient({
     if (!shouldApplyQueueResponse(latestAppliedProjection.current, stamp)) return null
     latestAppliedProjection.current = stamp
     onProjectionVersion?.(stamp)
+    setInvoiceVersion(JSON.stringify([stamp.tenantId, stamp.accountingGenerationId, stamp.financialEpoch, payload.version?.evaluationDate ?? null]))
+    setEvaluationDate(payload.version?.evaluationDate ?? null)
     if (payload.entitlement) setEntitlement(payload.entitlement)
     setUsageLimitReached(false)
     setOrganisationBaseCurrency(payload.organisationBaseCurrency ?? null)
@@ -754,8 +764,45 @@ export default function CollectionActionsClient({
     () => selectActionableFounderContextRows(rows, actionsTakenByCustomerId),
     [actionsTakenByCustomerId, rows]
   )
-  const currentQueueRow = queueRows[queueCardIndex] ?? null
-  const queuePosition = currentQueueRow ? queueCardIndex + 1 : 0
+  // Navigation restore resolves durable identity against today's eligible server order.
+  const returnScopeMatches = !queueReturnTenant || queueReturnTenant === resolvedTenantId
+  const returnIndex = queueReturnId && returnScopeMatches ? queueRows.findIndex(row => row.customer_source_id === queueReturnId) : -1
+  const displayedIndex = queueReturnId ? Math.max(returnIndex, 0) : queueCardIndex
+  const currentQueueRow = queueRows[displayedIndex] ?? null
+  const invoices = usePriorityInvoices(showQueueSection && navigationReady && !loading && !multiCurrencyPlanRequired ? resolvedTenantId : null,
+    showQueueSection && navigationReady && !loading && !multiCurrencyPlanRequired ? currentQueueRow?.customer_source_id ?? null : null, invoiceVersion)
+
+  useEffect(() => {
+    const read = () => {
+      const params = new URL(window.location.href).searchParams
+      setQueueReturnId(queueCustomerId(params.get('queueCustomerSourceId')))
+      setQueueReturnTenant(params.get('tenantId'))
+      setNavigationReady(true)
+    }
+    read()
+    window.addEventListener('popstate', read)
+    return () => window.removeEventListener('popstate', read)
+  }, [])
+  useEffect(() => {
+    if (!navigationReady || loading || refreshing || !latestAppliedProjection.current) return
+    if (queueReturnId) {
+      const index = returnScopeMatches ? queueRows.findIndex(row => row.customer_source_id === queueReturnId) : -1
+      setQueueCardIndex(index >= 0 ? index : 0)
+      if (index < 0) setQueueFeedback('The customer you were reviewing is no longer in the eligible queue. Showing the current first priority where available.')
+      setQueueReturnId(null)
+      revealPriority(focusedPriority.current)
+      return
+    }
+    // Replace rather than push: ordinary queue steps do not fill browser history.
+    if (showQueueSection) {
+      const url = new URL(window.location.href)
+      if (currentQueueRow) url.searchParams.set('queueCustomerSourceId', currentQueueRow.customer_source_id)
+      else url.searchParams.delete('queueCustomerSourceId')
+      if (resolvedTenantId) url.searchParams.set('tenantId', resolvedTenantId)
+      window.history.replaceState(window.history.state, '', url)
+    }
+  }, [navigationReady, loading, refreshing, queueReturnId, returnScopeMatches, queueRows, currentQueueRow, resolvedTenantId, showQueueSection])
+  const queuePosition = currentQueueRow ? displayedIndex + 1 : 0
   const selectedFollowUpDate = followUpDateForChoice(followUpChoice, followUpSchedule, customDateValue)
   const recentActivity = currentQueueRow?.recent_activity ??
     (currentQueueRow?.last_action_type && currentQueueRow.last_action_timestamp ? {
@@ -1175,8 +1222,7 @@ export default function CollectionActionsClient({
   const customersHref = tenantId
     ? `/customers?tenantId=${encodeURIComponent(tenantId)}`
     : '/customers'
-  const customerInvoicesHref = (customerSourceId: string) =>
-    `${customersHref}${tenantId ? '&' : '?'}customerSourceId=${encodeURIComponent(customerSourceId)}`
+  const customerInvoicesHref = (customerSourceId: string) => priorityInvoicesHref(resolvedTenantId, customerSourceId)
   const founderContextHref = `${customersHref}#customer-context`
   const accountHref = tenantId
     ? `/account?tenantId=${encodeURIComponent(tenantId)}`
@@ -1345,7 +1391,8 @@ export default function CollectionActionsClient({
                   {queueNavigation}
                 </div>
                 <div key={currentQueueRow.customer_source_id} onTouchStart={handleQueueCardTouchStart} onTouchEnd={handleQueueCardTouchEnd}>
-                  <QueueCustomer focusRef={focusedPriority} position={queuePosition} count={queueRows.length}
+                  <QueueCustomer invoiceContext={<QueueInvoices key={currentQueueRow.customer_source_id} state={invoices.state} evaluationDate={evaluationDate}
+                    href={customerInvoicesHref(currentQueueRow.customer_source_id)} onRetry={invoices.retry} />} focusRef={focusedPriority} position={queuePosition} count={queueRows.length}
                     name={currentQueueRow.customer_name} email={currentQueueRow.customer_email}
                     amount={formatMoney(currentQueueRow.customer_to_chase_overdue_base, organisationBaseCurrency)}
                     equivalent={showMultiCurrencyAmounts}
@@ -1359,7 +1406,7 @@ export default function CollectionActionsClient({
                     recommendation={currentQueueRow.recommended_action} reason={currentQueueRow.reason}
                     breakdown={currentQueueRow.score_breakdown_lines} score={currentQueueRow.priority_score.toFixed(1)}
                     adjustment={currentQueueRow.override_level} invoicesHref={customerInvoicesHref(currentQueueRow.customer_source_id)}
-                    historyHref={resolvedTenantId ? customerHistoryUrl(currentQueueRow.customer_source_id, resolvedTenantId) : undefined}
+                    historyHref={resolvedTenantId ? withQueueOrigin(customerHistoryUrl(currentQueueRow.customer_source_id, resolvedTenantId), currentQueueRow.customer_source_id) : undefined}
                     detailActions={showManualQueueRefresh ? <div className="sm:hidden"><Button onClick={() => void loadRows(true)} variant="secondary" className="min-h-11" disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh priorities'}</Button></div> : undefined}
                     recentActivity={recentActivity ? <div className="pt-1 text-xs text-text-muted">
                         <p>

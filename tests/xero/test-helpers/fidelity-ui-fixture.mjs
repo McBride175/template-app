@@ -42,6 +42,7 @@ export function fidelityUI(app) {
     return React.createElement('button', { type: 'button', ...props }, children)
   }
   const { default: Client } = loadTypeScriptModule('app/collections/actions/CollectionActionsClient.tsx', { mocks: {
+    './usePriorityInvoices': () => ({ state: { status: 'ready', invoices: [] }, retry() {} }),
     react: React, 'react/jsx-runtime': jsx, 'next/navigation': { useRouter: () => router }, 'next/link': Link,
     '@/app/components/ui/Card': Card, '@/app/components/ui/Button': Button,
     '@/app/collections/MultiCurrencyPlanGate': () => null, '@/app/dashboard/DashboardXeroConnectionCard': () => null,

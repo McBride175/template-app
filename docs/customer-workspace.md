@@ -3,7 +3,7 @@
 Locally complete on develop, 10 October 2026. Baseline: `76ab215`.
 Customers is the detailed investigation and management environment. Priorities
 remains the primary collection environment; compact invoice context there is
-reserved for Phase 5B.2. No dashboard, queue, global navigation or later phase
+reserved for Phase 5D — Priority Invoice Intelligence (originally recorded as 5B.2). No dashboard, queue, global navigation or later phase
 is implemented by this checkpoint.
 
 ## Workspace and navigation
@@ -118,7 +118,11 @@ waterfall for presentation. Opening invoice Promise history retains its existing
 on-demand reads. No hosted latency improvement is claimed. No migration,
 dependency or environment configuration is added, and no push/deploy occurs.
 
-## Phase 5B.2 handoff — compact invoice context in Priorities
+## Phase 5D handoff — Priority Invoice Intelligence
+
+Programme numbering was consolidated after this checkpoint. This handoff was
+originally named 5B.2; the separate disputes handoff below was originally 5D.
+See [the authoritative UI programme sequence](ui-programme.md).
 
 Use the existing read endpoint:
 
@@ -145,11 +149,11 @@ link **View all invoices** and use:
 `/customers?tenantId=…&customerSourceId=…#customer-invoices`
 
 The invoice DTO includes open rows and retained settled/unavailable operational
-records. Phase 5B.2 must select relevant context using established server states;
+records. Phase 5D must select relevant context using established server states;
 it must not invent invoice ranking or redefine customer actionability. Due date
 is available; a ready-made invoice overdue-age field is not in this DTO.
 
-Queue restoration needs a small, separate Phase 5B.2 frontend change. Prefer a
+Queue restoration needs a small, separate Phase 5D frontend change. Prefer a
 validated tenant plus durable customer-ID return parameter, find that ID in the
 latest authoritative eligible queue, and fall back explicitly if it is no longer
 eligible. Do not persist array indices, financial values or alter ordering.
@@ -165,10 +169,14 @@ requests, prefetching the entire queue or triggering accounting refresh. Measure
 the hosted path before deciding whether a smaller bounded DTO is justified; any
 API extension belongs to a separately reviewed follow-up.
 
-## Phase 5D handoff
+## Phase 5F handoff — Disputes Workspace Redesign
 
 The shared frame, amount labels, disclosure and Promise presentation can be reused.
 Worklist filtering, ordering, counts and membership reloads remain its existing
 contract. Workspace-only disclosure must not become an accidental worklist rewrite.
 Full disputes information architecture, grouping and operational efficiency remain
-Phase 5D work. No later phase has begun.
+Phase 5F work. No later phase has begun.
+
+Phase 5D now implements this invoice-context and return-navigation handoff; see
+[Priority Invoice Intelligence](priority-invoice-intelligence.md). The Phase 5C
+certification above remains the historical local checkpoint.

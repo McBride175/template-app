@@ -1,5 +1,6 @@
 import type { CustomerHistoryEvent } from '@/lib/collections/customer-history'
 import Link from 'next/link'
+import { prioritiesReturnHref, withQueueOrigin } from '../actions/queue-navigation-context'
 import CustomerTimeline from './CustomerTimeline'
 import Button from '@/app/components/ui/Button'
 import Alert from '@/app/components/ui/Alert'
@@ -8,16 +9,17 @@ import { actionStyles } from '@/app/components/ui/actionStyles'
 export interface CustomerHistoryViewProps {
   tenantId: string; customerSourceId: string; customerName: string; events: CustomerHistoryEvent[]
   busy: boolean; feedback: string | null; error: string | null; hasMore: boolean
+  originQueueCustomer?: string | null
   onDelete: (event: CustomerHistoryEvent) => void; onMore: () => void
 }
 
 /** History layout only. Reads, cursor handling and permissions stay in the client. */
-export default function CustomerHistoryView({ tenantId, customerSourceId, customerName, events, busy, feedback, error, hasMore, onDelete, onMore }: CustomerHistoryViewProps) {
-  const customerHref = `/customers?tenantId=${encodeURIComponent(tenantId)}&customerSourceId=${encodeURIComponent(customerSourceId)}`
+export default function CustomerHistoryView({ tenantId, customerSourceId, customerName, events, busy, feedback, error, hasMore, onDelete, onMore, originQueueCustomer }: CustomerHistoryViewProps) {
+  const customerHref = withQueueOrigin(`/customers?tenantId=${encodeURIComponent(tenantId)}&customerSourceId=${encodeURIComponent(customerSourceId)}`, originQueueCustomer)
   return <main className="mx-auto min-w-0 max-w-5xl space-y-4 sm:space-y-6">
     <nav aria-label="Customer history navigation" className="flex flex-wrap gap-x-5">
       <Link href={customerHref} className={actionStyles({ variant: 'ghost', className: 'min-h-11 px-0' })}>Back to Customers</Link>
-      <Link href={`/dashboard?tenantId=${encodeURIComponent(tenantId)}#collection-actions`} className={actionStyles({ variant: 'ghost', className: 'min-h-11 px-0' })}>Back to Priorities</Link>
+      <Link href={prioritiesReturnHref(tenantId, originQueueCustomer)} className={actionStyles({ variant: 'ghost', className: 'min-h-11 px-0' })}>Back to Priorities</Link>
     </nav>
     <header className="min-w-0 border-b border-border-default pb-4">
       <p className="text-sm text-text-secondary">Customer history</p>

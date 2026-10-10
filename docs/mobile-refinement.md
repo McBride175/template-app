@@ -98,6 +98,6 @@ customers and amounts, not customer data or personal browser sessions.
 Phase 5C can reuse QueueCustomer's financial disclosure, controlled navigation,
 focus helper and existing customer/history links. Keep customer-specific notes
 separate from queue-wide timing choices and use existing server-derived amounts.
-Phase 5D retains responsibility for dispute worklist hierarchy/actions; this
+Phase 5F — Disputes Workspace Redesign (previously labelled 5D) retains responsibility for dispute worklist hierarchy/actions; this
 phase only refines the existing filters and mobile spacing. No later phase has
 begun. Do not infer hosted certification from these local results.

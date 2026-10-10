@@ -26,6 +26,7 @@ export interface QueueCustomerProps {
   adjustment: 'normal' | 'priority' | 'safe' | 'do_not_chase'
   invoicesHref: string
   historyHref?: string
+  invoiceContext?: ReactNode
   recentActivity?: ReactNode
   contextControl?: ReactNode
   detailActions?: ReactNode
@@ -37,7 +38,7 @@ export interface QueueCustomerProps {
 export default function QueueCustomer({ position, count, name, email, amount,
   equivalent, grossOverdue, totalOutstanding, disputed, promised, credit, nativeAmounts,
   weightedDays, lastPayment, recommendation, reason, breakdown, score, adjustment,
-  invoicesHref, historyHref, recentActivity, contextControl, detailActions, focusRef, children }: QueueCustomerProps) {
+  invoicesHref, historyHref, invoiceContext, recentActivity, contextControl, detailActions, focusRef, children }: QueueCustomerProps) {
   const headingId = useId()
   return <article ref={focusRef} tabIndex={-1} aria-labelledby={headingId} className="min-w-0 scroll-mt-4 space-y-4 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus sm:space-y-6">
     <div className="space-y-3 sm:space-y-4">
@@ -62,10 +63,13 @@ export default function QueueCustomer({ position, count, name, email, amount,
       {reason && <p className="text-sm leading-relaxed text-text-secondary">{reason}</p>}
     </div>
 
-    {children}
+    {invoiceContext ? <div className="grid min-w-0 gap-2 md:grid-cols-2 md:gap-6">
+      <div className="min-w-0">{invoiceContext}</div>
+      <div className="min-w-0 [&>section]:gap-2 sm:[&>section]:gap-3">{children}</div>
+    </div> : children}
 
     <div className="flex flex-wrap gap-x-5 gap-y-1 border-t border-border-default pt-3 text-sm">
-      <Link href={invoicesHref} className="inline-flex min-h-11 items-center rounded-control font-semibold text-link underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-focus">Manage invoices</Link>
+      {!invoiceContext && <Link href={invoicesHref} className="inline-flex min-h-11 items-center rounded-control font-semibold text-link underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-focus">View all invoices</Link>}
       {historyHref && <Link href={historyHref} className="inline-flex min-h-11 items-center rounded-control font-medium text-link underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-focus">View full history</Link>}
       <p className="w-full text-xs text-text-secondary">Manage invoice promises and disputes with their invoices.</p>
     </div>

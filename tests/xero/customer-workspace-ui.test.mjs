@@ -7,8 +7,8 @@ import { loadTypeScriptModule } from './test-helpers/ts-module-loader.mjs'
 const { customerFixtures, invoiceFixture } = loadTypeScriptModule('stories/ui/customerFixture.ts')
 const runtime = await import('react/jsx-runtime')
 
-async function setup({ hash = '', invoices = [] } = {}) {
-  const dom=new JSDOM('<!doctype html><div id="root"></div>',{url:`http://localhost/customers?tenantId=synthetic&customerSourceId=synthetic-1${hash}`,pretendToBeVisual:true})
+async function setup({ hash = '', invoices = [], originQueueCustomer = null } = {}) {
+  const dom=new JSDOM('<!doctype html><div id="root"></div>',{url:`http://localhost/customers?tenantId=synthetic&customerSourceId=synthetic-1${originQueueCustomer ? '&queueCustomerSourceId='+originQueueCustomer : ''}${hash}`,pretendToBeVisual:true})
   const keys=['window','document','HTMLElement','HTMLInputElement','Event','CustomEvent','StorageEvent','fetch','IS_REACT_ACT_ENVIRONMENT']
   const previous=Object.fromEntries(keys.map(key=>[key,globalThis[key]]))
   for(const key of keys)if(key in dom.window)globalThis[key]=dom.window[key]
@@ -91,5 +91,19 @@ for(const section of ['customer-invoices','customer-promises','customer-overview
   try{
     assert.equal(ui.dom.window.document.activeElement.id,section)
     assert.equal(ui.requests.length,2)
+  }finally{await ui.cleanup()}
+})
+
+test('customer deep dive and history retain originating queue identity while browsing another account',async()=>{
+  const ui=await setup({originQueueCustomer:'synthetic-2'})
+  try{
+    const back=()=>[...ui.container.querySelectorAll('a')].find(x=>x.textContent==='Back to Priorities')
+    assert.equal(new URL(back().href).searchParams.get('queueCustomerSourceId'),'synthetic-2')
+    const history=[...ui.container.querySelectorAll('a')].find(x=>x.textContent==='View history')
+    assert.equal(new URL(history.href).searchParams.get('queueCustomerSourceId'),'synthetic-2')
+    const customer=[...ui.container.querySelectorAll('button[aria-pressed]')].find(x=>x.textContent.includes('Cedar'))
+    await ui.click(customer)
+    assert.equal(new URL(back().href).searchParams.get('queueCustomerSourceId'),'synthetic-2')
+    assert.equal(ui.requests.length,3)
   }finally{await ui.cleanup()}
 })

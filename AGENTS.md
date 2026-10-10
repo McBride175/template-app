@@ -45,6 +45,23 @@
 - Never treat a branch name alone as proof of its deployment environment; `ARCHITECTURE.md` is authoritative.
 - If branch or environment state conflicts with `ARCHITECTURE.md`, inspect and report the discrepancy before changing deployment-sensitive configuration.
 
+## Interactive browser inspection
+
+- Prefer `agent-browser` for interactive navigation, inspection, debugging, and ad hoc UI checks. Load its version-matched instructions with `agent-browser skills get core` before use.
+- Use a worktree-scoped named session, compact interactive accessibility snapshots (`snapshot -i`, with targeted scopes or deltas where useful), semantic/ref-based interactions, and specific waits. Load only the page context needed for the task and close the session when finished.
+- Use screenshots only when visual evidence is necessary; prefer targeted captures and `--if-changed` for repeated comparisons. Do not reuse personal browser profiles or expose credentials/authentication state.
+- Keep Playwright for repeatable automated E2E tests and committed browser test suites; `agent-browser` complements rather than replaces those tests.
+
+## Automated end-to-end verification
+
+- Run relevant unit/integration tests first. Use Storybook for isolated components, agent-browser for exploration/debugging, and Playwright Test for repeatable application journeys.
+- After meaningful workflow changes, run the relevant spec or small group: `pnpm test:e2e tests/e2e/public.smoke.spec.ts -g "onboarding"`. Do not launch E2E after trivial edits.
+- At programme certification run `pnpm test:e2e:smoke`; report actual passes, failures, retries and skips, including pending authenticated/mutation coverage.
+- Read the console summary or `test-results/results.json` stats/failure names first; inspect only the relevant failed test's trace or screenshot to keep browser verification token-efficient.
+- Inspect failures with `pnpm test:e2e:report` and `pnpm exec playwright show-trace <trace.zip>`; fix the cause rather than raising waits/retries. Use `pnpm test:e2e:ui` for interactive debugging.
+- Tests use a guarded local server or the exact documented develop Preview and Supabase Test only. Keep `playwright/.auth/` and reports private/ignored. Reuse only a designated Test account's storageState; no personal profiles or Production sessions.
+- Current smoke is read-only and blocks refresh intent/OAuth/third-party calls in the browser. Do not enable Action History, Dispute or Promise writes until per-run fixtures and failure-safe cleanup are implemented. See [E2E workflow](docs/e2e.md).
+
 ## Sentry MCP
 
 - A machine-wide Codex MCP server named `sentry` is available for diagnostic inspection of the `mcbride/javascript-nextjs` Sentry project.
@@ -70,3 +87,10 @@
 - Prefer the project's existing development setup; do not introduce Docker unnecessarily.
 - Do not modify or delete unrelated containers, images, volumes, or networks.
 - Do not run broad destructive commands such as `docker system prune`, bulk image or container removal, or volume deletion unless the task specifically requires it and the impact is understood.
+
+## Isolated UI development
+
+- Prefer `pnpm storybook` for component styling and inspect existing variants/edge cases before integrating changes across pages. Reuse stories under `stories/ui/`; do not create temporary application test pages.
+- Use agent-browser for focused interactive/visual inspection, including direct `/iframe.html?id=yuohme-button--primary&viewMode=story` URLs. See [the local workflow](docs/storybook.md).
+- Preserve Playwright for repeatable application end-to-end tests. Use the real application for authentication, data loading and integrated workflows; avoid loading it for isolated component tasks.
+- Stories use real primitives, approved CSS/fonts and deterministic fixtures. Keep application layouts/providers, credentials, customer data and live API clients out of Storybook.

@@ -1,0 +1,13 @@
+/* Same interface face as app/layout.tsx, bundled locally for isolated inspection.
+   Application tokens still determine every size, weight, colour and spacing. */
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url('@fontsource-variable/plus-jakarta-sans/files/plus-jakarta-sans-latin-wght-normal.woff2') format('woff2');
+}
+
+:root {
+  --font-yuohme-interface: 'Plus Jakarta Sans';
+}

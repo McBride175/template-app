@@ -21,7 +21,15 @@
     "test:baseline": "node --test tests/database/baseline-contract.test.mjs",
     "security:sqlcheck": "bash scripts/security-sql-check.sh",
     "test:privacy": "node --test tests/privacy/*.test.mjs",
-    "test:xero-concurrency": "node --test tests/xero/grant-refresh-concurrency.test.mjs"
+    "test:xero-concurrency": "node --test tests/xero/grant-refresh-concurrency.test.mjs",
+    "storybook": "storybook dev -p 6006 --host 127.0.0.1 --no-open --disable-telemetry",
+    "build-storybook": "storybook build --disable-telemetry",
+    "typecheck:storybook": "tsc --noEmit --project .storybook/tsconfig.json",
+    "test:e2e": "playwright test",
+    "test:e2e:smoke": "playwright test --grep @smoke",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:report": "playwright show-report",
+    "test:e2e:auth": "tsx scripts/e2e-auth.ts"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.74.0",
@@ -39,6 +47,11 @@
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
+    "@fontsource-variable/plus-jakarta-sans": "5.3.0",
+    "@next/env": "16.1.1",
+    "@playwright/test": "1.64.0",
+    "@storybook/addon-a11y": "10.6.1",
+    "@storybook/nextjs-vite": "10.6.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -46,8 +59,10 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
     "jsdom": "26.1.0",
+    "storybook": "10.6.1",
     "tailwindcss": "^4",
     "tsx": "4.23.13",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vite": "8.3.4"
   }
 }

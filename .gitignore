@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/storybook-static/
+*storybook.log
 
 # next.js
 /.next/
@@ -50,3 +52,9 @@ supabase/.temp/
 /brand/review/*-editable.svg
 /public/brand/**/*-4096.png
 /public/brand/**/*-2048.png
+
+# Playwright reports, diagnostics and sensitive browser state
+/playwright-report/
+/test-results/
+/blob-report/
+/playwright/.auth/
